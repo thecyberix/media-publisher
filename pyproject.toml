@@ -11,6 +11,11 @@ dependencies = [
     "requests>=2.32.0",
 ]
 
+[project.optional-dependencies]
+browser = [
+    "playwright>=1.49.0",
+]
+
 [project.scripts]
 media-publisher = "media_publisher.__main__:main"
 

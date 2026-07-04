@@ -8,5 +8,6 @@ __pycache__/
 venv/
 .env
 credentials/
+downloads/
 output/
 *.log

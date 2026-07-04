@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass
@@ -15,3 +16,5 @@ class PublishJob:
     airtable_record_id: str | None = None
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, str] = field(default_factory=dict)
+    publish_at: datetime | None = None
+    privacy_status: str = "public"
