@@ -226,8 +226,12 @@ class MetaClientTests(unittest.TestCase):
 
     def test_schedule_facebook_video_with_url(self) -> None:
         client = MetaClient("token-test", app_id="app123")
-        publish_at = datetime(2026, 7, 5, 10, 0, tzinfo=timezone.utc)
-        with patch.object(client, "_multipart_request") as request_mock:
+        now = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
+        publish_at = now + timedelta(hours=2)
+        with patch.object(client, "_multipart_request") as request_mock, patch(
+            "media_publisher.publishers.meta.validate_publish_at",
+            side_effect=lambda value, **kwargs: validate_publish_at(value, now=now),
+        ):
             request_mock.return_value = {"id": "fb_video_1"}
             video_id = client.schedule_facebook_video(
                 page_id="page123",
