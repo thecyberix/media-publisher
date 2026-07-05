@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from media_publisher.runtime_env import materialize_credentials
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -30,9 +32,23 @@ class Settings:
     canva_redirect_uri: str = "http://127.0.0.1:8765/callback"
     canva_api_base: str = "https://api.canva.com/rest/v1"
     canva_download_dir: str = "downloads/canva"
+    canva_long_video_thumbnails_url: str = (
+        "https://www.canva.com/folder/FAHOgLx_jAw"
+    )
+    canva_short_video_thumbnails_url: str = (
+        "https://www.canva.com/folder/FAHOgF-NT8Q"
+    )
+    canva_quotes_design_id: str | None = None
+    canva_quotes_folder_id: str = "https://www.canva.com/folder/FAHOgWUCQqs"
+    quotes_publish_timezone: str = "Europe/Sofia"
+    quotes_publish_hour: int = 8
+    publish_timezone: str = "Europe/Sofia"
+    publish_hour: int = 18
     youtube_client_secrets: str = "credentials/youtube-client.json"
     youtube_token: str = "credentials/youtube-token.json"
     youtube_channel_handle: str = "SadhguruBulgarian"
+    youtube_channel_url: str = "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q"
+    youtube_short_cover_end_seconds: float = 2.0
     meta_access_token: str | None = None
     meta_page_id: str | None = None
     meta_instagram_account_id: str | None = None
@@ -55,9 +71,33 @@ def load_env_file(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip())
 
 
+def update_env_values(path: Path, updates: dict[str, str]) -> None:
+    if not updates:
+        return
+
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
+    remaining = dict(updates)
+    updated_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in line:
+            key = line.split("=", 1)[0].strip()
+            if key in remaining:
+                updated_lines.append(f"{key}={remaining.pop(key)}")
+                continue
+        updated_lines.append(line)
+
+    for key, value in remaining.items():
+        updated_lines.append(f"{key}={value}")
+
+    path.write_text("\n".join(updated_lines).rstrip() + "\n", encoding="utf-8")
+
+
 def load_settings(project_root: Path | None = None) -> Settings:
     root = project_root or Path(__file__).resolve().parents[2]
     load_env_file(root / ".env")
+    materialize_credentials(root)
 
     def optional(name: str) -> str | None:
         value = os.getenv(name, "").strip()
@@ -107,6 +147,28 @@ def load_settings(project_root: Path | None = None) -> Settings:
         or "https://api.canva.com/rest/v1",
         canva_download_dir=os.getenv("CANVA_DOWNLOAD_DIR", "downloads/canva").strip()
         or "downloads/canva",
+        canva_long_video_thumbnails_url=os.getenv(
+            "CANVA_LONG_VIDEO_THUMBNAILS_URL",
+            "https://www.canva.com/folder/FAHOgLx_jAw",
+        ).strip()
+        or "https://www.canva.com/folder/FAHOgLx_jAw",
+        canva_short_video_thumbnails_url=os.getenv(
+            "CANVA_SHORT_VIDEO_THUMBNAILS_URL",
+            "https://www.canva.com/folder/FAHOgF-NT8Q",
+        ).strip()
+        or "https://www.canva.com/folder/FAHOgF-NT8Q",
+        canva_quotes_design_id=optional("CANVA_QUOTES_DESIGN_ID"),
+        canva_quotes_folder_id=os.getenv(
+            "CANVA_QUOTES_FOLDER_ID",
+            "https://www.canva.com/folder/FAHOgWUCQqs",
+        ).strip()
+        or "https://www.canva.com/folder/FAHOgWUCQqs",
+        quotes_publish_timezone=os.getenv("QUOTES_PUBLISH_TIMEZONE", "Europe/Sofia").strip()
+        or "Europe/Sofia",
+        quotes_publish_hour=int(os.getenv("QUOTES_PUBLISH_HOUR", "8").strip() or "8"),
+        publish_timezone=os.getenv("PUBLISH_TIMEZONE", "Europe/Sofia").strip()
+        or "Europe/Sofia",
+        publish_hour=int(os.getenv("PUBLISH_HOUR", "18").strip() or "18"),
         youtube_client_secrets=os.getenv(
             "YOUTUBE_CLIENT_SECRETS", "credentials/youtube-client.json"
         ).strip()
@@ -117,6 +179,14 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "YOUTUBE_CHANNEL_HANDLE", "SadhguruBulgarian"
         ).strip()
         or "SadhguruBulgarian",
+        youtube_channel_url=os.getenv(
+            "YOUTUBE_CHANNEL_URL",
+            "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q",
+        ).strip()
+        or "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q",
+        youtube_short_cover_end_seconds=float(
+            os.getenv("YOUTUBE_SHORT_COVER_END_SECONDS", "2").strip() or "2"
+        ),
         meta_access_token=optional("META_ACCESS_TOKEN"),
         meta_page_id=optional("META_PAGE_ID"),
         meta_instagram_account_id=optional("META_INSTAGRAM_ACCOUNT_ID"),

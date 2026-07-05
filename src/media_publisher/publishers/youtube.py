@@ -4,6 +4,8 @@ import json
 import mimetypes
 import re
 import secrets
+import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -14,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from media_publisher.models import PublishJob
+from media_publisher.sources.image_video import (
+    ImageVideoError,
+    SHORT_COVER_END_SECONDS,
+    ensure_short_with_cover_at_end,
+)
 
 API_BASE = "https://www.googleapis.com/youtube/v3"
 UPLOAD_BASE = "https://www.googleapis.com/upload/youtube/v3"
@@ -24,13 +31,16 @@ DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
 )
-METADATA_YOUTUBE_VIDEO_ID = "youtube_video_id"
 DEFAULT_CHANNEL_HANDLE = "SadhguruBulgarian"
 CHANNEL_HANDLE_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?youtube\.com/@([A-Za-z0-9._-]+)",
     re.IGNORECASE,
 )
 MIN_SCHEDULE_LEAD_SECONDS = 60
+VIDEO_PROCESSING_POLL_INTERVAL_SECONDS = 5.0
+VIDEO_PROCESSING_POLL_MAX_ATTEMPTS = 120
+THUMBNAIL_SET_MAX_ATTEMPTS = 12
+THUMBNAIL_SET_RETRY_SECONDS = 5.0
 
 
 class YouTubePublishError(RuntimeError):
@@ -124,6 +134,123 @@ def format_channel_list(channels: list[YouTubeChannel]) -> str:
         else:
             parts.append(label)
     return ", ".join(parts)
+
+
+def _video_is_ready_for_thumbnail(item: dict[str, Any]) -> bool:
+    status = item.get("status")
+    processing = item.get("processingDetails")
+    upload_status = status.get("uploadStatus") if isinstance(status, dict) else None
+    processing_status = (
+        processing.get("processingStatus") if isinstance(processing, dict) else None
+    )
+    if upload_status == "processed":
+        return True
+    if processing_status == "succeeded":
+        return True
+    return False
+
+
+def _video_processing_failure(item: dict[str, Any]) -> str | None:
+    status = item.get("status")
+    processing = item.get("processingDetails")
+    upload_status = status.get("uploadStatus") if isinstance(status, dict) else None
+    processing_status = (
+        processing.get("processingStatus") if isinstance(processing, dict) else None
+    )
+    if upload_status in {"failed", "rejected", "deleted"}:
+        return f"uploadStatus={upload_status}"
+    if processing_status in {"failed", "terminated"}:
+        failure = (
+            processing.get("processingFailureReason")
+            if isinstance(processing, dict)
+            else None
+        )
+        if isinstance(failure, str) and failure.strip():
+            return failure.strip()
+        return f"processingStatus={processing_status}"
+    return None
+
+
+def _thumbnail_retryable_error(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "not been processed",
+            "still being processed",
+            "processing",
+            "backenderror",
+            "internalerror",
+            "ratelimitexceeded",
+            "userratelimitexceeded",
+        )
+    )
+
+
+def prepare_youtube_thumbnail(
+    thumbnail_path: Path,
+    *,
+    short_form: bool = False,
+    ffmpeg_path: str | None = None,
+) -> Path:
+    """Normalize a thumbnail for YouTube upload (JPEG, Shorts-friendly 9:16 when needed)."""
+    source = thumbnail_path.resolve()
+    if not source.is_file():
+        raise YouTubePublishError(f"Thumbnail file not found: {source}")
+
+    if not short_form and source.suffix.lower() in {".jpg", ".jpeg"}:
+        return source
+
+    ffmpeg = ffmpeg_path or shutil.which("ffmpeg")
+    if not ffmpeg:
+        return source
+
+    destination = source.with_name(f"{source.stem}.youtube-thumb.jpg")
+    if destination.is_file() and destination.stat().st_mtime >= source.stat().st_mtime:
+        return destination
+
+    if short_form:
+        vf = (
+            "scale=1080:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920"
+        )
+    else:
+        vf = (
+            "scale=1280:720:force_original_aspect_ratio=increase,"
+            "crop=1280:720"
+        )
+
+    command = [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(source),
+        "-vf",
+        vf,
+        "-q:v",
+        "2",
+        str(destination),
+    ]
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise YouTubePublishError(
+            f"ffmpeg failed to prepare YouTube thumbnail for {source.name}: {detail}"
+        ) from exc
+
+    if not destination.is_file():
+        raise YouTubePublishError(
+            f"ffmpeg did not create YouTube thumbnail file: {destination}"
+        )
+    return destination
 
 
 def generate_state() -> str:
@@ -584,28 +711,80 @@ class YouTubeClient:
             raise YouTubePublishError("YouTube upload response is missing video id")
         return video_id
 
+    def get_video_status_item(self, video_id: str) -> dict[str, Any] | None:
+        query = urllib.parse.urlencode(
+            {"part": "status,processingDetails", "id": video_id}
+        )
+        url = f"{API_BASE}/videos?{query}"
+        status, _, payload = self._request("GET", url)
+        if status != 200:
+            detail = payload.decode("utf-8", errors="replace").strip()
+            raise YouTubePublishError(
+                f"YouTube video status lookup failed with HTTP {status}: {detail}"
+            )
+        data = json.loads(payload.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise YouTubePublishError("YouTube video status response is invalid")
+        items = data.get("items", [])
+        if not isinstance(items, list) or not items:
+            return None
+        item = items[0]
+        return item if isinstance(item, dict) else None
+
+    def wait_for_video_ready_for_thumbnail(self, video_id: str) -> None:
+        for _ in range(VIDEO_PROCESSING_POLL_MAX_ATTEMPTS):
+            item = self.get_video_status_item(video_id)
+            if item is not None:
+                failure = _video_processing_failure(item)
+                if failure is not None:
+                    raise YouTubePublishError(
+                        f"YouTube video {video_id!r} processing failed: {failure}"
+                    )
+                if _video_is_ready_for_thumbnail(item):
+                    return
+            time.sleep(VIDEO_PROCESSING_POLL_INTERVAL_SECONDS)
+
+        raise YouTubePublishError(
+            f"YouTube video {video_id!r} did not finish processing in time for "
+            "thumbnail upload"
+        )
+
     def set_thumbnail(self, video_id: str, thumbnail_path: Path) -> None:
         if not thumbnail_path.exists():
             raise YouTubePublishError(f"Thumbnail file not found: {thumbnail_path}")
+
+        self.wait_for_video_ready_for_thumbnail(video_id)
 
         content_type = mimetypes.guess_type(thumbnail_path.name)[0] or "image/jpeg"
         query = urllib.parse.urlencode({"videoId": video_id})
         url = f"{UPLOAD_BASE}/thumbnails/set?{query}"
         image_bytes = thumbnail_path.read_bytes()
-        status, _, payload = self._request(
-            "POST",
-            url,
-            data=image_bytes,
-            headers={
-                "Content-Type": content_type,
-                "Content-Length": str(len(image_bytes)),
-            },
-        )
-        if status not in {200, 201}:
-            detail = payload.decode("utf-8", errors="replace").strip()
-            raise YouTubePublishError(
-                f"YouTube thumbnail upload failed with HTTP {status}: {detail}"
+        last_detail = ""
+
+        for attempt in range(1, THUMBNAIL_SET_MAX_ATTEMPTS + 1):
+            status, _, payload = self._request(
+                "POST",
+                url,
+                data=image_bytes,
+                headers={
+                    "Content-Type": content_type,
+                    "Content-Length": str(len(image_bytes)),
+                },
             )
+            if status in {200, 201}:
+                return
+
+            last_detail = payload.decode("utf-8", errors="replace").strip()
+            if attempt < THUMBNAIL_SET_MAX_ATTEMPTS and _thumbnail_retryable_error(
+                last_detail
+            ):
+                time.sleep(THUMBNAIL_SET_RETRY_SECONDS)
+                continue
+            break
+
+        raise YouTubePublishError(
+            f"YouTube thumbnail upload failed with HTTP {status}: {last_detail}"
+        )
 
     def _parse_channel_list_response(self, payload: bytes) -> list[YouTubeChannel]:
         data = json.loads(payload.decode("utf-8"))
@@ -700,6 +879,10 @@ class YouTubeClient:
         return refreshed
 
 
+def youtube_video_url(video_id: str) -> str:
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
 def publish_to_youtube(
     job: PublishJob,
     *,
@@ -707,19 +890,59 @@ def publish_to_youtube(
     token_path: Path,
     category_id: str = "22",
     expected_channel_handle: str | None = DEFAULT_CHANNEL_HANDLE,
+    facebook_url: str | None = None,
+    instagram_url: str | None = None,
+    youtube_channel_url: str | None = None,
+    ffmpeg_path: str | None = None,
+    cover_end_seconds: float | None = None,
 ) -> str:
     """Upload a video to YouTube and return the published video ID."""
+    from media_publisher.post_templates import (
+        DEFAULT_FACEBOOK_PAGE_URL,
+        DEFAULT_INSTAGRAM_PROFILE_URL,
+        DEFAULT_YOUTUBE_CHANNEL_URL,
+        prepare_publish_job,
+    )
+
     if not job.video_path:
         raise YouTubePublishError("Publish job is missing video_path")
 
+    job = prepare_publish_job(
+        job,
+        "youtube",
+        facebook_url=facebook_url or DEFAULT_FACEBOOK_PAGE_URL,
+        instagram_url=instagram_url or DEFAULT_INSTAGRAM_PROFILE_URL,
+        youtube_channel_url=youtube_channel_url or DEFAULT_YOUTUBE_CHANNEL_URL,
+    )
     video_path = Path(job.video_path)
+    upload_path = video_path
+    if (
+        job.video_format == "short_form"
+        and job.thumbnail_path
+        and job.content_kind != "image"
+    ):
+        thumbnail = prepare_youtube_thumbnail(
+            Path(job.thumbnail_path),
+            short_form=True,
+            ffmpeg_path=ffmpeg_path,
+        )
+        try:
+            upload_path = ensure_short_with_cover_at_end(
+                video_path,
+                thumbnail,
+                ffmpeg_path=ffmpeg_path,
+                outro_seconds=cover_end_seconds or SHORT_COVER_END_SECONDS,
+            )
+        except ImageVideoError as exc:
+            raise YouTubePublishError(str(exc)) from exc
+
     client = YouTubeClient(
         client_secrets_path,
         token_path,
         expected_channel_handle=expected_channel_handle,
     )
     video_id = client.upload_video(
-        video_path,
+        upload_path,
         title=job.title,
         description=job.description,
         tags=job.tags,
@@ -729,6 +952,16 @@ def publish_to_youtube(
     )
 
     if job.thumbnail_path:
-        client.set_thumbnail(video_id, Path(job.thumbnail_path))
+        thumbnail = prepare_youtube_thumbnail(
+            Path(job.thumbnail_path),
+            short_form=job.video_format == "short_form",
+            ffmpeg_path=ffmpeg_path,
+        )
+        try:
+            client.set_thumbnail(video_id, thumbnail)
+        except YouTubePublishError as exc:
+            if job.video_format != "short_form":
+                raise
+            # Shorts often reject API thumbnails; upload still succeeds.
 
     return video_id

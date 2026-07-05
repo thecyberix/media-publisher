@@ -1,0 +1,110 @@
+name: Publish
+
+on:
+  schedule:
+    # Poll for catalog videos and Instagram timing (~18:00 Europe/Sofia in summer).
+    - cron: "*/15 14-16 * * *"
+    # Morning quotes (~08:00 Europe/Sofia in summer).
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to publish
+        type: choice
+        options:
+          - all
+          - videos
+          - quotes
+        default: all
+      private:
+        description: Test mode (YouTube private, Facebook draft, skip Instagram)
+        type: boolean
+        default: false
+
+env:
+  AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+  AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+  AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
+  HAPPYSCRIBE_API_KEY: ${{ secrets.HAPPYSCRIBE_API_KEY }}
+  HAPPYSCRIBE_LIBRARY_URL: ${{ secrets.HAPPYSCRIBE_LIBRARY_URL }}
+  HAPPYSCRIBE_ORGANIZATION_ID: ${{ secrets.HAPPYSCRIBE_ORGANIZATION_ID }}
+  HAPPYSCRIBE_FOLDER_ID: ${{ secrets.HAPPYSCRIBE_FOLDER_ID }}
+  CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
+  CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+  META_APP_ID: ${{ secrets.META_APP_ID }}
+  META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+  META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+  META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
+  META_INSTAGRAM_ACCOUNT_ID: ${{ secrets.META_INSTAGRAM_ACCOUNT_ID }}
+  YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
+  YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+  CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
+  PUBLISH_TIMEZONE: ${{ vars.PUBLISH_TIMEZONE }}
+  PUBLISH_HOUR: ${{ vars.PUBLISH_HOUR }}
+  QUOTES_PUBLISH_TIMEZONE: ${{ vars.QUOTES_PUBLISH_TIMEZONE }}
+  QUOTES_PUBLISH_HOUR: ${{ vars.QUOTES_PUBLISH_HOUR }}
+
+jobs:
+  videos:
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.mode == 'all' || inputs.mode == 'videos')) ||
+      (github.event_name == 'schedule' && github.event.schedule == '*/15 14-16 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Verify configuration
+        run: python -m media_publisher --check-config
+
+      - name: Publish catalog videos
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.private }}" = "true" ]; then
+            EXTRA_ARGS="--private"
+          fi
+          python -m media_publisher ${EXTRA_ARGS}
+
+  quotes:
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.mode == 'all' || inputs.mode == 'quotes')) ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 5 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Verify configuration
+        run: python -m media_publisher --check-config
+
+      - name: Publish daily quotes
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.private }}" = "true" ]; then
+            EXTRA_ARGS="--private"
+          fi
+          python -m media_publisher --quotes ${EXTRA_ARGS}

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import base64
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +12,9 @@ from media_publisher.models import PublishJob
 from media_publisher.sources.canva import (
     METADATA_CANVA_DESIGN_ID,
     CanvaClient,
+    CanvaDesignSummary,
     CanvaError,
+    decode_access_token_scopes,
     CanvaPendingAuth,
     CanvaToken,
     build_authorization_url,
@@ -21,6 +25,7 @@ from media_publisher.sources.canva import (
     load_pending_auth,
     load_token,
     parse_design_id,
+    resolve_canva_url,
     save_pending_auth,
     save_token,
     token_from_response,
@@ -47,6 +52,23 @@ class CanvaHelperTests(unittest.TestCase):
             design_id = parse_design_id("https://canva.link/m05v8q5loz5oe11")
         self.assertEqual(design_id, "DAFn3LBegbg")
         resolve_mock.assert_called_once()
+
+    def test_resolve_canva_url_follows_get_redirect(self) -> None:
+        class FakeResponse:
+            url = "https://www.canva.com/design/DAGaqof2VGI/edit"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse()):
+            resolved = resolve_canva_url("https://canva.link/tuszod870u44y5o")
+        self.assertEqual(
+            resolved,
+            "https://www.canva.com/design/DAGaqof2VGI/edit",
+        )
 
     def test_download_design_images_downloads_all_pages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -78,6 +100,31 @@ class CanvaHelperTests(unittest.TestCase):
             self.assertEqual(paths[0].name, "DAFn3LBegbg_page1.png")
             self.assertEqual(paths[1].name, "DAFn3LBegbg_page2.png")
             self.assertEqual(download_mock.call_count, 2)
+
+    def test_download_design_images_split_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = CanvaClientTests()._client(tmpdir)
+            download_dir = Path(tmpdir) / "out"
+            with patch.object(client, "list_design_pages", return_value=[1, 2]), patch.object(
+                client, "export_design"
+            ) as export_mock, patch.object(
+                client, "download_file", side_effect=lambda url, dest: dest
+            ):
+                export_mock.side_effect = [
+                    type("Job", (), {"urls": ("https://example.com/page1.pdf",)})(),
+                    type("Job", (), {"urls": ("https://example.com/page2.pdf",)})(),
+                ]
+                paths = client.download_design_images(
+                    "DAGaqof2VGI",
+                    download_dir,
+                    export_format="pdf",
+                    split_pages=True,
+                )
+            self.assertEqual([path.name for path in paths], [
+                "DAGaqof2VGI_page1.pdf",
+                "DAGaqof2VGI_page2.pdf",
+            ])
+            self.assertEqual(export_mock.call_count, 2)
 
     def test_generate_code_challenge_is_url_safe(self) -> None:
         verifier = "test-verifier-value"
@@ -194,6 +241,91 @@ class CanvaClientTests(unittest.TestCase):
                 )()
                 with self.assertRaises(CanvaError):
                     client.wait_for_export_job("exp1")
+
+    def test_find_design_by_title(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = self._client(tmpdir)
+            with patch.object(client, "list_designs") as list_mock:
+                list_mock.return_value = (
+                    [
+                        CanvaDesignSummary(
+                            id="DAGaqof2VGI",
+                            title="Юли 2026",
+                            page_count=31,
+                        )
+                    ],
+                    None,
+                )
+                design = client.find_design_by_title("Юли 2026")
+            self.assertEqual(design.id, "DAGaqof2VGI")
+            self.assertEqual(design.title, "Юли 2026")
+
+    def test_decode_access_token_scopes_reads_jwt_payload(self) -> None:
+        header = base64.urlsafe_b64encode(b"{}").decode("ascii").rstrip("=")
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"scopes": ["design:content:read", "design:meta:read"]}).encode(
+                "utf-8"
+            )
+        ).decode("ascii").rstrip("=")
+        token = f"{header}.{payload}.signature"
+        self.assertEqual(
+            decode_access_token_scopes(token),
+            ("design:content:read", "design:meta:read"),
+        )
+
+    def test_ensure_monthly_quotes_pdf_uses_manifest_without_search(self) -> None:
+        from media_publisher.sources.canva import (
+            ensure_monthly_quotes_pdf,
+            save_quotes_design_manifest,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            save_quotes_design_manifest(download_dir, {"2026-07": "DAGaqof2VGI"})
+            client = self._client(tmpdir)
+            with patch(
+                "media_publisher.sources.canva.resolve_quotes_design",
+                side_effect=CanvaError("missing scope"),
+            ), patch.object(client, "download_design_pdf") as download_mock:
+                def fake_download(_design_id: str, dest: Path) -> Path:
+                    dest.write_bytes(b"%PDF-1.4")
+                    return dest
+
+                download_mock.side_effect = fake_download
+                result = ensure_monthly_quotes_pdf(
+                    client,
+                    download_dir,
+                    year=2026,
+                    month=7,
+                    design_title="Юли 2026",
+                )
+
+            self.assertEqual(result.name, "quotes-2026-07.pdf")
+            download_mock.assert_called_once_with("DAGaqof2VGI", result)
+
+    def test_ensure_monthly_quotes_pdf_uses_cache(self) -> None:
+        from media_publisher.sources.canva import (
+            ensure_monthly_quotes_pdf,
+            monthly_quotes_pdf_path,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            cached = monthly_quotes_pdf_path(download_dir, year=2026, month=7, variant="ig")
+            cached.write_bytes(b"%PDF-1.4 cached")
+
+            with patch("media_publisher.sources.canva.CanvaClient") as client_cls:
+                result = ensure_monthly_quotes_pdf(
+                    client_cls.return_value,
+                    download_dir,
+                    year=2026,
+                    month=7,
+                    design_title="Юли 2026 IG",
+                    variant="ig",
+                )
+
+            self.assertEqual(result, cached)
+            client_cls.return_value.find_design_by_title.assert_not_called()
 
     def test_refresh_access_token_persists_new_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

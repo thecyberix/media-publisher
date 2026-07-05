@@ -14,6 +14,7 @@ from media_publisher.sources.happyscribe import (
     HappyScribeTranscription,
     burn_subtitles_into_video,
     enrich_job_from_happyscribe,
+    find_downloaded_video,
     parse_library_url,
     resolve_library_location,
     resolve_subtitled_transcription,
@@ -201,7 +202,39 @@ class HappyScribeEnrichmentTests(unittest.TestCase):
         )
         self.assertEqual(transcription_id_from_job(job), "tx123")
 
-    def test_enrich_job_from_happyscribe_downloads_video(self) -> None:
+    def test_enrich_job_from_happyscribe_downloads_video_with_ffmpeg(self) -> None:
+        job = PublishJob(
+            title="Sample",
+            metadata={METADATA_TRANSCRIPTION_ID: "tx123"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            destination = download_dir / "clip(bg)-subtitled.mp4"
+            with patch("media_publisher.sources.happyscribe.HappyScribeClient") as client_cls:
+                client = client_cls.return_value
+                client.get_transcription.return_value = type(
+                    "Transcription",
+                    (),
+                    {
+                        "id": "tx123",
+                        "name": "clip(bg)",
+                        "state": "automatic_done",
+                    },
+                )()
+                client.download_video_with_burned_subtitles.return_value = destination
+
+                enriched = enrich_job_from_happyscribe(
+                    job,
+                    api_key="hs-test",
+                    download_dir=download_dir,
+                    browser_state_path=download_dir / "session.json",
+                )
+
+            self.assertEqual(enriched.video_path, str(destination))
+            self.assertEqual(enriched.metadata["happyscribe_export"], "ffmpeg")
+            client.download_video_with_burned_subtitles.assert_called_once()
+
+    def test_enrich_job_from_happyscribe_can_use_web_export(self) -> None:
         job = PublishJob(
             title="Sample",
             metadata={METADATA_TRANSCRIPTION_ID: "tx123"},
@@ -229,11 +262,10 @@ class HappyScribeEnrichmentTests(unittest.TestCase):
                     api_key="hs-test",
                     download_dir=download_dir,
                     browser_state_path=download_dir / "session.json",
+                    use_web_export=True,
                 )
 
             self.assertEqual(enriched.video_path, str(destination))
-            self.assertEqual(enriched.metadata[METADATA_TRANSCRIPTION_ID], "tx123")
-            self.assertEqual(enriched.metadata["happyscribe_subtitled"], "True")
             self.assertEqual(enriched.metadata["happyscribe_export"], "web")
             export_mock.assert_called_once()
 
@@ -250,13 +282,29 @@ class HappyScribeEnrichmentTests(unittest.TestCase):
                 "media_publisher.sources.happyscribe.resolve_ffmpeg_path",
                 return_value="ffmpeg",
             ), patch(
+                "media_publisher.sources.happyscribe.probe_video_height",
+                return_value=1080,
+            ), patch(
                 "media_publisher.sources.happyscribe.subprocess.run",
                 return_value=type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
             ) as run_mock, patch.object(Path, "unlink", autospec=True):
                 output.write_bytes(b"done")
                 burn_subtitles_into_video(video, subtitles, output)
 
-            self.assertEqual(run_mock.call_args.args[0][0], "ffmpeg")
+            command = run_mock.call_args.args[0]
+            self.assertEqual(command[0], "ffmpeg")
+            self.assertIn("force_style=", command[5])
+            self.assertIn("FontName=Arial", command[5])
+            self.assertIn("FontSize=8", command[5])
+            self.assertIn("MarginV=53", command[5])
+
+    def test_build_subtitle_force_style_uses_happyscribe_ratios(self) -> None:
+        from media_publisher.sources.happyscribe import build_subtitle_force_style
+
+        style = build_subtitle_force_style(1080)
+        self.assertIn("FontSize=8", style)
+        self.assertIn("MarginV=53", style)
+        self.assertIn("Bold=1", style)
 
     def test_enrich_job_from_happyscribe_requires_transcription_id(self) -> None:
         job = PublishJob(title="Sample")
@@ -266,6 +314,24 @@ class HappyScribeEnrichmentTests(unittest.TestCase):
                 api_key="hs-test",
                 download_dir=Path("downloads/happyscribe"),
             )
+
+    def test_find_downloaded_video_prefers_subtitled_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            plain = download_dir / "Sample Title.mp4"
+            subtitled = download_dir / "Sample Title-subtitled.mp4"
+            plain.write_bytes(b"plain")
+            subtitled.write_bytes(b"subtitled")
+            found = find_downloaded_video(download_dir, "Sample Title")
+        self.assertEqual(found, subtitled)
+
+    def test_find_downloaded_video_matches_case_insensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            video = download_dir / "Sample Title-subtitled.mp4"
+            video.write_bytes(b"subtitled")
+            found = find_downloaded_video(download_dir, "sample title")
+        self.assertEqual(found, video)
 
 
 if __name__ == "__main__":

@@ -1,22 +1,64 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
+from media_publisher.models import PlatformScheduleTask
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableRecord,
+    DEFAULT_PUBLISH_HOUR,
+    DEFAULT_PUBLISH_TIMEZONE,
+    FIELD_SG_FB_DATE,
+    FIELD_SG_FB_PUBLISHED,
+    FIELD_SG_IG_DATE,
+    FIELD_SG_YT_DATE,
+    FIELD_SG_YT_PUBLISHED,
+    FIELD_SMEDIA_UPLOADED,
+    FIELD_STATUS,
+    FIELD_VIDEO_NAME_TRANSLATED,
+    SMEDIA_OPTION_FACEBOOK,
+    SMEDIA_OPTION_YOUTUBE,
+    STATUS_SYNC_DONE,
+    TYPE_REEL,
+    TYPE_QUOTE,
+    TYPE_VIDEO,
+    build_platform_published_update,
+    fetch_missing_translation_reports,
+    fetch_pending_schedule_tasks,
+    missing_translation_report,
+    pending_schedule_filter_formula,
+    record_schedule_tasks,
     record_to_publish_job,
+    video_format_from_type,
+    _parse_publish_at,
 )
 
 
 class AirtableMappingTests(unittest.TestCase):
+    def test_parse_publish_at_uses_six_pm_local(self) -> None:
+        publish_at = _parse_publish_at("2026-07-05")
+        self.assertIsNotNone(publish_at)
+        assert publish_at is not None
+        local = publish_at.astimezone(ZoneInfo(DEFAULT_PUBLISH_TIMEZONE))
+        self.assertEqual(local.hour, DEFAULT_PUBLISH_HOUR)
+        self.assertEqual(local.date().isoformat(), "2026-07-05")
+
+    def test_video_format_from_type(self) -> None:
+        self.assertEqual(video_format_from_type(TYPE_VIDEO), "post")
+        self.assertEqual(video_format_from_type(TYPE_REEL), "short_form")
+        self.assertEqual(video_format_from_type("Short"), "short_form")
+
     def test_record_to_publish_job(self) -> None:
         job = record_to_publish_job(
             AirtableRecord(
                 id="recABC",
                 fields={
                     "Original Video Name": "Sample Title",
+                    "Video name translated": "Преведено заглавие",
+                    "Video description translated": "Преведено описание",
                     "Original Video": "https://example.com/video",
                     "Duration": 120,
                     "Type": "Short",
@@ -25,15 +67,30 @@ class AirtableMappingTests(unittest.TestCase):
                 },
             )
         )
-        self.assertEqual(job.title, "Sample Title")
+        self.assertEqual(job.title, "Преведено заглавие")
+        self.assertEqual(job.description, "Преведено описание")
+        self.assertEqual(job.metadata["Original Video Name"], "Sample Title")
         self.assertEqual(job.video_url, "https://example.com/video")
         self.assertEqual(job.airtable_record_id, "recABC")
-        self.assertEqual(job.tags, ["Short"])
+        self.assertEqual(job.tags, [])
+        self.assertEqual(job.video_format, "short_form")
         self.assertEqual(job.metadata["Duration"], "120")
         self.assertEqual(
             job.metadata["Video Folder"],
             "https://drive.google.com/folder/1",
         )
+
+    def test_record_to_publish_job_leaves_title_empty_without_translation(self) -> None:
+        job = record_to_publish_job(
+            AirtableRecord(
+                id="recABC",
+                fields={
+                    "Original Video Name": "Sample Title",
+                },
+            )
+        )
+        self.assertEqual(job.title, "")
+        self.assertEqual(job.metadata["Original Video Name"], "Sample Title")
 
     def test_record_to_publish_job_maps_canva_design(self) -> None:
         job = record_to_publish_job(
@@ -45,8 +102,187 @@ class AirtableMappingTests(unittest.TestCase):
                 },
             )
         )
-        self.assertEqual(job.metadata["canva_design_id"], "https://www.canva.com/design/DAGabc123/view")
-        self.assertEqual(job.metadata["Canva Design"], "https://www.canva.com/design/DAGabc123/view")
+        self.assertEqual(
+            job.metadata["canva_design_id"],
+            "https://www.canva.com/design/DAGabc123/view",
+        )
+        self.assertEqual(
+            job.metadata["Canva Design"],
+            "https://www.canva.com/design/DAGabc123/view",
+        )
+
+
+class CatalogScheduleTests(unittest.TestCase):
+    def test_record_schedule_tasks_for_sync_done_row(self) -> None:
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "5. Synchronization done",
+                "Original Video Name": "Launch video",
+                FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
+                FIELD_SG_YT_DATE: "2026-07-05",
+                FIELD_SG_FB_DATE: "2026-07-06",
+            },
+        )
+        tasks = record_schedule_tasks(record)
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual(tasks[0].platform, "youtube")
+        self.assertEqual(tasks[0].publish_at.astimezone(ZoneInfo(DEFAULT_PUBLISH_TIMEZONE)).hour, 18)
+        self.assertEqual(tasks[1].platform, "facebook")
+        self.assertEqual(tasks[1].job.title, "Видео за стартиране")
+
+    def test_record_schedule_tasks_skips_missing_translation(self) -> None:
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "5. Synchronization done",
+                "Original Video Name": "Launch video",
+                FIELD_SG_YT_DATE: "2026-07-05",
+            },
+        )
+        self.assertEqual(record_schedule_tasks(record), [])
+
+    def test_missing_translation_report(self) -> None:
+        report = missing_translation_report(
+            AirtableRecord(
+                id="recABC",
+                fields={
+                    FIELD_STATUS: "5. Synchronization done",
+                    "Original Video Name": "Launch video",
+                    FIELD_SG_YT_DATE: "2026-07-05",
+                    FIELD_SG_FB_DATE: "2026-07-06",
+                },
+            )
+        )
+        self.assertIsNotNone(report)
+        assert report is not None
+        self.assertEqual(report.record_id, "recABC")
+        self.assertEqual(report.original_title, "Launch video")
+        self.assertEqual(report.platforms, ("youtube", "facebook"))
+
+    def test_fetch_missing_translation_reports(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "5. Synchronization done",
+                "Original Video Name": "Launch video",
+                FIELD_SG_IG_DATE: "2026-07-07",
+            },
+        )
+        with patch.object(client, "list_records", return_value=[record]):
+            reports = fetch_missing_translation_reports(client)
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0].platforms, ("instagram",))
+
+    def test_record_schedule_tasks_skips_published_platform(self) -> None:
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "5. Synchronization done",
+                "Original Video Name": "Launch video",
+                FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
+                FIELD_SG_YT_DATE: "2026-07-05",
+                FIELD_SG_YT_PUBLISHED: "https://www.youtube.com/watch?v=abc123",
+            },
+        )
+        tasks = record_schedule_tasks(record)
+        self.assertEqual(tasks, [])
+
+    def test_record_schedule_tasks_ignores_other_statuses(self) -> None:
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "In progress",
+                FIELD_SG_YT_DATE: "2026-07-05",
+            },
+        )
+        self.assertEqual(record_schedule_tasks(record), [])
+
+    def test_record_schedule_tasks_accepts_numbered_sync_done_status(self) -> None:
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "5. Synchronization done",
+                "Original Video Name": "Launch video",
+                FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
+                FIELD_SG_YT_DATE: "2026-07-05",
+            },
+        )
+        tasks = record_schedule_tasks(record)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].platform, "youtube")
+
+    def test_build_platform_published_update_merges_smedia_uploaded(self) -> None:
+        update = build_platform_published_update(
+            {
+                FIELD_SMEDIA_UPLOADED: [SMEDIA_OPTION_YOUTUBE],
+            },
+            "facebook",
+            "https://www.facebook.com/watch/?v=123",
+        )
+        self.assertEqual(
+            update[FIELD_SG_FB_PUBLISHED],
+            "https://www.facebook.com/watch/?v=123",
+        )
+        self.assertEqual(
+            update[FIELD_SMEDIA_UPLOADED],
+            [SMEDIA_OPTION_YOUTUBE, SMEDIA_OPTION_FACEBOOK],
+        )
+
+    def test_pending_schedule_filter_formula(self) -> None:
+        formula = pending_schedule_filter_formula()
+        self.assertIn(STATUS_SYNC_DONE, formula)
+        self.assertIn(FIELD_SG_YT_DATE, formula)
+        self.assertIn(FIELD_SG_FB_PUBLISHED, formula)
+
+    def test_pending_schedule_filter_formula_videos_only(self) -> None:
+        formula = pending_schedule_filter_formula(content_type="video")
+        self.assertIn(f'{{Type}} != "{TYPE_QUOTE}"', formula)
+
+    def test_fetch_pending_schedule_tasks_limits_platform(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "5. Synchronization done",
+                "Original Video Name": "Launch video",
+                FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
+                FIELD_SG_YT_DATE: "2026-07-07",
+                FIELD_SG_FB_DATE: "2026-07-07",
+            },
+        )
+        with patch.object(client, "list_records", return_value=[record]):
+            tasks = fetch_pending_schedule_tasks(client, platforms=("youtube",))
+
+        self.assertEqual([task.platform for task in tasks], ["youtube"])
+
+    def test_fetch_pending_schedule_tasks(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "5. Synchronization done",
+                "Original Video Name": "Launch video",
+                FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
+                FIELD_SG_IG_DATE: "2026-07-07",
+            },
+        )
+        with patch.object(client, "list_records", return_value=[record]) as list_mock:
+            tasks = fetch_pending_schedule_tasks(client)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertIsInstance(tasks[0], PlatformScheduleTask)
+        self.assertEqual(tasks[0].platform, "instagram")
+        self.assertEqual(
+            tasks[0].publish_at,
+            datetime(2026, 7, 7, 15, 0, tzinfo=timezone.utc),
+        )
+        list_mock.assert_called_once()
+        self.assertEqual(
+            list_mock.call_args.kwargs["filter_formula"],
+            pending_schedule_filter_formula(),
+        )
 
 
 class AirtableClientTests(unittest.TestCase):

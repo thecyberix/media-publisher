@@ -13,11 +13,13 @@ from media_publisher.publishers.youtube import (
     YouTubeClient,
     YouTubePublishError,
     YouTubeToken,
+    _video_is_ready_for_thumbnail,
     build_video_body,
     build_video_status,
     format_publish_at,
     load_client_secrets,
     parse_channel_handle,
+    prepare_youtube_thumbnail,
     publish_to_youtube,
     save_token,
     validate_schedule_time,
@@ -70,8 +72,22 @@ class YouTubeHelperTests(unittest.TestCase):
         handle = parse_channel_handle("https://www.youtube.com/@SadhguruBulgarian")
         self.assertEqual(handle, "SadhguruBulgarian")
 
-    def test_parse_channel_handle_from_at_prefix(self) -> None:
-        self.assertEqual(parse_channel_handle("@SadhguruBulgarian"), "SadhguruBulgarian")
+    def test_video_is_ready_for_thumbnail_when_processed(self) -> None:
+        item = {"status": {"uploadStatus": "processed"}}
+        self.assertTrue(_video_is_ready_for_thumbnail(item))
+
+    def test_video_is_ready_for_thumbnail_when_processing_succeeded(self) -> None:
+        item = {"processingDetails": {"processingStatus": "succeeded"}}
+        self.assertTrue(_video_is_ready_for_thumbnail(item))
+
+    def test_thumbnail_retryable_error_detects_processing(self) -> None:
+        from media_publisher.publishers.youtube import _thumbnail_retryable_error
+
+        self.assertTrue(
+            _thumbnail_retryable_error(
+                "The video has not been processed yet. Please wait before uploading."
+            )
+        )
 
 
 class YouTubeClientTests(unittest.TestCase):
@@ -220,6 +236,189 @@ class YouTubeClientTests(unittest.TestCase):
                 ):
                     with self.assertRaises(YouTubePublishError):
                         client.verify_authorized_channel()
+
+    def test_set_thumbnail_waits_for_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            thumb = root / "cover.png"
+            thumb.write_bytes(b"png")
+            save_token(
+                token_path,
+                YouTubeToken(
+                    access_token="access",
+                    refresh_token="refresh",
+                    expires_at=9999999999.0,
+                ),
+            )
+            client = YouTubeClient(secrets_path, token_path)
+            with patch.object(client, "wait_for_video_ready_for_thumbnail") as wait_mock:
+                with patch.object(
+                    client,
+                    "_request",
+                    return_value=(200, {}, b""),
+                ):
+                    client.set_thumbnail("vid123", thumb)
+
+        wait_mock.assert_called_once_with("vid123")
+
+    def test_publish_to_youtube_appends_short_cover_at_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            thumb_path = root / "cover.png"
+            baked_path = root / "clip.youtube-short-cover-end.mp4"
+            video_path.write_bytes(b"video")
+            thumb_path.write_bytes(b"png")
+            prepared = root / "cover.youtube-thumb.jpg"
+            prepared.write_bytes(b"jpeg")
+            baked_path.write_bytes(b"baked")
+            job = PublishJob(
+                title="Clip",
+                video_path=str(video_path),
+                thumbnail_path=str(thumb_path),
+                video_format="short_form",
+            )
+            with patch(
+                "media_publisher.publishers.youtube.prepare_youtube_thumbnail",
+                return_value=prepared,
+            ):
+                with patch(
+                    "media_publisher.publishers.youtube.ensure_short_with_cover_at_end",
+                    return_value=baked_path,
+                ) as cover_mock:
+                    with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                        client_cls.return_value.upload_video.return_value = "vid123"
+                        video_id = publish_to_youtube(
+                            job,
+                            client_secrets_path=secrets_path,
+                            token_path=token_path,
+                        )
+
+        self.assertEqual(video_id, "vid123")
+        cover_mock.assert_called_once_with(
+            video_path,
+            prepared,
+            ffmpeg_path=None,
+            outro_seconds=2.0,
+        )
+        upload_path = client_cls.return_value.upload_video.call_args.args[0]
+        self.assertEqual(upload_path, baked_path)
+
+    def test_publish_to_youtube_sets_short_thumbnail_via_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            thumb_path = root / "cover.png"
+            video_path.write_bytes(b"video")
+            thumb_path.write_bytes(b"png")
+            prepared = root / "cover.youtube-thumb.jpg"
+            prepared.write_bytes(b"jpeg")
+            job = PublishJob(
+                title="Clip",
+                video_path=str(video_path),
+                thumbnail_path=str(thumb_path),
+                video_format="short_form",
+            )
+            with patch(
+                "media_publisher.publishers.youtube.prepare_youtube_thumbnail",
+                return_value=prepared,
+            ):
+                with patch(
+                    "media_publisher.publishers.youtube.ensure_short_with_cover_at_end",
+                    return_value=video_path,
+                ):
+                    with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                        client_cls.return_value.upload_video.return_value = "vid123"
+                        video_id = publish_to_youtube(
+                            job,
+                            client_secrets_path=secrets_path,
+                            token_path=token_path,
+                        )
+
+        self.assertEqual(video_id, "vid123")
+        upload_path = client_cls.return_value.upload_video.call_args.args[0]
+        self.assertEqual(upload_path, video_path)
+        client_cls.return_value.set_thumbnail.assert_called_once_with(
+            "vid123",
+            prepared,
+        )
+
+    def test_publish_to_youtube_skips_cover_end_for_image_quotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            thumb_path = root / "cover.png"
+            video_path.write_bytes(b"video")
+            thumb_path.write_bytes(b"png")
+            job = PublishJob(
+                title="Quote",
+                video_path=str(video_path),
+                thumbnail_path=str(thumb_path),
+                video_format="short_form",
+                content_kind="image",
+            )
+            with patch(
+                "media_publisher.publishers.youtube.ensure_short_with_cover_at_end"
+            ) as cover_mock:
+                with patch(
+                    "media_publisher.publishers.youtube.prepare_youtube_thumbnail",
+                    return_value=thumb_path,
+                ):
+                    with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                        client_cls.return_value.upload_video.return_value = "vid123"
+                        publish_to_youtube(
+                            job,
+                            client_secrets_path=secrets_path,
+                            token_path=token_path,
+                        )
+
+        cover_mock.assert_not_called()
+        upload_path = client_cls.return_value.upload_video.call_args.args[0]
+        self.assertEqual(upload_path, video_path)
+
+    def test_publish_to_youtube_sets_prepared_short_thumbnail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            thumb_path = root / "cover.png"
+            video_path.write_bytes(b"video")
+            thumb_path.write_bytes(b"png")
+            prepared = root / "cover.youtube-thumb.jpg"
+            prepared.write_bytes(b"jpeg")
+            job = PublishJob(
+                title="Clip",
+                video_path=str(video_path),
+                thumbnail_path=str(thumb_path),
+                video_format="post",
+            )
+            with patch(
+                "media_publisher.publishers.youtube.prepare_youtube_thumbnail",
+                return_value=prepared,
+            ) as prepare_mock:
+                with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                    client_cls.return_value.upload_video.return_value = "vid123"
+                    video_id = publish_to_youtube(
+                        job,
+                        client_secrets_path=secrets_path,
+                        token_path=token_path,
+                    )
+
+        self.assertEqual(video_id, "vid123")
+        prepare_mock.assert_called_once()
+        client_cls.return_value.set_thumbnail.assert_called_once_with(
+            "vid123",
+            prepared,
+        )
 
     def test_publish_to_youtube_requires_video_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

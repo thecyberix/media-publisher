@@ -2,30 +2,59 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
-from media_publisher.config import load_settings
+from media_publisher.config import load_settings, update_env_values
+from media_publisher.models import PlatformName
+from media_publisher.scheduling import instagram_is_due, instagram_wait_message
+from media_publisher.video_duration import (
+    instagram_duration_skip_message,
+    instagram_exceeds_api_limit,
+    resolve_video_duration_seconds,
+)
+from media_publisher.pipeline import PublishPipelineSettings, run_publish_pipeline
+from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_pipeline
+from media_publisher.sources.quote_pdf import QuotePdfError
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import InstagramPublishError, publish_to_instagram
 from media_publisher.publishers.meta import (
     MetaClient,
     MetaError,
     MetaPageInfo,
+    inspect_access_token,
     normalize_facebook_page_username,
     normalize_instagram_username,
+    resolve_permanent_page_token,
 )
-from media_publisher.publishers.youtube import YouTubeClient, YouTubePublishError
+from media_publisher.publishers.youtube import (
+    YouTubeClient,
+    YouTubePublishError,
+    publish_to_youtube,
+    youtube_video_url,
+)
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
-    FIELD_FACEBOOK_POST_ID,
-    FIELD_INSTAGRAM_MEDIA_ID,
+    FIELD_TITLE,
+    FIELD_VIDEO_NAME_TRANSLATED,
+    STATUS_SYNC_DONE,
+    fetch_missing_translation_reports,
+    fetch_pending_schedule_tasks,
+    has_video_name_translated,
+    mark_platform_scheduled,
+    record_schedule_tasks,
     record_to_publish_job,
 )
 from media_publisher.sources.canva import (
+    DEFAULT_SCOPES,
     CanvaClient,
     CanvaError,
     download_images_from_canva_url,
+    ensure_catalog_thumbnail_from_canva,
+    format_access_token_scopes,
+    missing_canva_scopes,
+    parse_canva_resource,
     parse_design_id,
     resolve_canva_url,
 )
@@ -34,6 +63,7 @@ from media_publisher.sources.happyscribe import (
     HappyScribeError,
     TRANSCRIPTION_STATE_READY,
     burned_video_destination_path,
+    find_downloaded_video,
     is_subtitled_export_name,
     resolve_library_location,
 )
@@ -67,7 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract publishing metadata from Airtable, HappyScribe, and Canva, "
-            "then publish to YouTube, Facebook, and Instagram."
+            "then publish to YouTube, Facebook, and Instagram. "
+            "Run without flags to process all pending catalog entries."
         )
     )
     parser.add_argument(
@@ -95,13 +126,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Download ready source videos from the configured HappyScribe library folder "
-            "with subtitles exported through the HappyScribe web session."
+            "and burn in subtitles locally with ffmpeg."
         ),
     )
     parser.add_argument(
         "--export-happyscribe-web",
         metavar="TRANSCRIPTION_ID",
         help="Export one HappyScribe video with styled burned-in subtitles via the web session.",
+    )
+    parser.add_argument(
+        "--happyscribe-web-export",
+        action="store_true",
+        help=(
+            "Use the HappyScribe web exporter for styled subtitles instead of the "
+            "default ffmpeg burn when downloading videos in the publish pipeline."
+        ),
     )
     parser.add_argument(
         "--happyscribe-export-headless",
@@ -121,7 +160,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--burn-happyscribe-video",
         metavar="TRANSCRIPTION_ID",
-        help="Fallback: burn exported SRT subtitles locally with ffmpeg (no HappyScribe styling).",
+        help=(
+            "Download one HappyScribe video via API and burn in subtitles locally with ffmpeg."
+        ),
     )
     parser.add_argument(
         "--canva-auth",
@@ -150,9 +191,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--canva-format",
-        choices=("png", "jpg"),
+        choices=("png", "jpg", "pdf"),
         default="png",
-        help="Image format for --canva-download (default: png).",
+        help="Export format for --canva-download (default: png).",
+    )
+    parser.add_argument(
+        "--canva-split-pages",
+        action="store_true",
+        help="Export each page as a separate file (needed for per-page PDFs).",
     )
     parser.add_argument(
         "--canva-resolve",
@@ -190,6 +236,63 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resolve Facebook Page and Instagram account IDs from configured usernames.",
     )
     parser.add_argument(
+        "--meta-setup-token",
+        metavar="TOKEN",
+        nargs="?",
+        const="__USE_ENV__",
+        help=(
+            "Exchange a long-lived user token for a permanent Page token and save it to .env. "
+            "Omit TOKEN to use META_USER_ACCESS_TOKEN from the environment."
+        ),
+    )
+    parser.add_argument(
+        "--list-pending",
+        action="store_true",
+        help=(
+            "List Airtable videos with Status 'Synchronization done' that have a "
+            "platform publish date set but no published permalink yet."
+        ),
+    )
+    parser.add_argument(
+        "--schedule",
+        action="store_true",
+        help=(
+            "Use native platform scheduling (YouTube/Facebook schedule APIs) instead of "
+            "publishing immediately. Still only processes entries due today. Instagram "
+            "is published near the scheduled time."
+        ),
+    )
+    parser.add_argument(
+        "--publish-today",
+        action="store_true",
+        help=(
+            "Default behavior: publish immediately all pending videos or quote posts whose "
+            "publish date is today (in the configured publish timezone). Kept for "
+            "compatibility; omit this flag for the same result."
+        ),
+    )
+    parser.add_argument(
+        "--private",
+        action="store_true",
+        help=(
+            "During testing, publish to YouTube (private) and Facebook (draft). "
+            "Skips Instagram."
+        ),
+    )
+    parser.add_argument(
+        "--regenerate-videos",
+        action="store_true",
+        help=(
+            "Re-download videos from HappyScribe instead of reusing cached local files. "
+            "Subtitles are burned in with ffmpeg by default."
+        ),
+    )
+    parser.add_argument(
+        "--schedule-youtube",
+        metavar="RECORD_ID",
+        help="Schedule or publish a video to YouTube from an Airtable record.",
+    )
+    parser.add_argument(
         "--schedule-facebook",
         metavar="RECORD_ID",
         help="Schedule or publish a video to Facebook from an Airtable record.",
@@ -198,6 +301,41 @@ def build_parser() -> argparse.ArgumentParser:
         "--schedule-instagram",
         metavar="RECORD_ID",
         help="Schedule or publish a Reel to Instagram from an Airtable record.",
+    )
+    parser.add_argument(
+        "--quotes",
+        action="store_true",
+        help=(
+            "Schedule or publish today's quote from the monthly Canva PDF in "
+            "downloads/canva. The design is resolved by title in the 'Цитати на Садгуру' "
+            "Canva folder, e.g. 'Юли 2026' (Instagram uses 'Юли 2026 IG'). "
+            "Each PDF page is one day of the month (page N = day N). Images become short "
+            "videos for YouTube (scheduled Short with image thumbnail). Facebook and "
+            "Instagram use the rendered page image (Instagram is published automatically "
+            "near the scheduled time with --watch). Use --platform to limit platforms."
+        ),
+    )
+    parser.add_argument(
+        "--platform",
+        action="append",
+        choices=["youtube", "facebook", "instagram"],
+        metavar="PLATFORM",
+        help=(
+            "Publish only to PLATFORM (youtube, facebook, or instagram). "
+            "Repeat for multiple platforms. Default: all still-pending platforms. "
+            "Applies to the default video pipeline, --watch, --list-pending, and --quotes."
+        ),
+    )
+    parser.add_argument(
+        "--watch",
+        nargs="?",
+        const=5,
+        type=int,
+        metavar="MINUTES",
+        help=(
+            "Run the default publish pipeline every N minutes (default: 5). "
+            "Keeps Instagram posts on schedule without manual runs."
+        ),
     )
     return parser
 
@@ -262,7 +400,7 @@ def happyscribe_web_settings_missing(settings) -> list[str]:
 
 
 def happyscribe_library_settings_missing(settings) -> list[str]:
-    missing = happyscribe_web_settings_missing(settings)
+    missing = happyscribe_settings_missing(settings)
     if not (
         settings.happyscribe_library_url
         or (settings.happyscribe_organization_id and settings.happyscribe_folder_id)
@@ -318,6 +456,8 @@ def meta_settings_missing(settings) -> list[str]:
     missing = []
     if not settings.meta_access_token:
         missing.append("META_ACCESS_TOKEN")
+    if not settings.meta_app_id:
+        missing.append("META_APP_ID")
     return missing
 
 
@@ -363,6 +503,74 @@ def resolve_meta_targets(settings) -> tuple[str, str, MetaPageInfo]:
     return page_id, instagram_account_id, page_info
 
 
+def canva_download_dir_from_settings(settings) -> Path:
+    return PROJECT_ROOT / settings.canva_download_dir
+
+
+def resolve_canva_quotes_folder_id(settings) -> str | None:
+    value = (settings.canva_quotes_folder_id or "").strip()
+    if not value:
+        return None
+    resource_type, resource_id = parse_canva_resource(value)
+    if resource_type != "folder":
+        raise CanvaError(
+            "CANVA_QUOTES_FOLDER_ID must be a Canva folder URL or folder id"
+        )
+    return resource_id
+
+
+def template_urls_from_settings(settings) -> dict[str, str]:
+    return {
+        "facebook_url": meta_facebook_url(settings),
+        "instagram_url": meta_instagram_url(settings),
+        "youtube_channel_url": settings.youtube_channel_url,
+    }
+
+
+def publish_schedule_settings(settings):
+    return {
+        "publish_timezone": settings.publish_timezone,
+        "publish_hour": settings.publish_hour,
+    }
+
+
+def load_schedule_task(settings, record_id: str, platform: PlatformName):
+    client = airtable_client_from_settings(settings)
+    record = client.get_record(record_id)
+    original_title = record.fields.get(FIELD_TITLE) or "Untitled"
+    if not has_video_name_translated(record.fields):
+        raise AirtableError(
+            f"Cannot publish {record_id!r} ({original_title!r}): "
+            f'"{FIELD_VIDEO_NAME_TRANSLATED}" is empty.'
+        )
+    schedule = publish_schedule_settings(settings)
+    tasks = record_schedule_tasks(
+        record,
+        platforms=(platform,),
+        **schedule,
+    )
+    if not tasks:
+        raise AirtableError(
+            f"Record {record_id!r} is not ready to schedule on {platform}: "
+            f"requires Status {STATUS_SYNC_DONE!r}, a publish date, and no existing permalink."
+        )
+    task = tasks[0]
+    if not canva_settings_missing(settings):
+        try:
+            canva_client = canva_client_from_settings(settings)
+            enriched = ensure_catalog_thumbnail_from_canva(
+                task.job,
+                client=canva_client,
+                download_dir=canva_download_dir_from_settings(settings),
+                long_catalog_url=settings.canva_long_video_thumbnails_url,
+                short_catalog_url=settings.canva_short_video_thumbnails_url,
+            )
+            task = replace(task, job=enriched)
+        except CanvaError as exc:
+            print(f"Canva thumbnail lookup failed: {exc}")
+    return task, client
+
+
 def load_publish_job_from_airtable(settings, record_id: str):
     client = airtable_client_from_settings(settings)
     record = client.get_record(record_id)
@@ -377,11 +585,374 @@ def youtube_client_from_settings(settings) -> YouTubeClient:
     )
 
 
+def happyscribe_download_dir_from_settings(settings) -> Path:
+    return PROJECT_ROOT / settings.happyscribe_download_dir
+
+
+def youtube_settings_missing(settings) -> list[str]:
+    missing = []
+    if not (PROJECT_ROOT / settings.youtube_client_secrets).exists():
+        missing.append(f"client secrets ({settings.youtube_client_secrets})")
+    if not (PROJECT_ROOT / settings.youtube_token).exists():
+        missing.append(f"token file ({settings.youtube_token})")
+    return missing
+
+
+def attach_local_video_path(job, settings) -> None:
+    lookup_name = job.metadata.get(FIELD_TITLE) or job.title
+    video_path = find_downloaded_video(
+        happyscribe_download_dir_from_settings(settings),
+        lookup_name,
+    )
+    if video_path is None:
+        raise YouTubePublishError(
+            f"No local video file found for {lookup_name!r} in "
+            f"{settings.happyscribe_download_dir}. "
+            "Download it first with --download-happyscribe-library."
+        )
+    job.video_path = str(video_path)
+
+
 def youtube_settings_complete(settings) -> bool:
     return bool(
         (PROJECT_ROOT / settings.youtube_client_secrets).exists()
         and (PROJECT_ROOT / settings.youtube_token).exists()
     )
+
+
+def cli_requested_action(args) -> bool:
+    return any(
+        (
+            args.check_config,
+            args.test_airtable,
+            args.test_happyscribe,
+            args.list_happyscribe_library,
+            args.download_happyscribe_library,
+            args.export_happyscribe_web,
+            args.happyscribe_save_session,
+            args.happyscribe_import_session,
+            args.burn_happyscribe_video,
+            args.canva_auth,
+            args.canva_auth_code is not None,
+            args.test_canva,
+            args.canva_download,
+            args.canva_resolve,
+            args.youtube_auth,
+            args.youtube_auth_code is not None,
+            args.test_youtube,
+            args.test_meta,
+            args.resolve_meta,
+            args.meta_setup_token is not None,
+            args.list_pending,
+            args.schedule,
+            args.schedule_youtube,
+            args.schedule_facebook,
+            args.schedule_instagram,
+            args.quotes,
+            args.watch is not None,
+        )
+    )
+
+
+def build_quotes_pipeline_settings(
+    settings,
+    *,
+    meta_page_id: str,
+    meta_instagram_account_id: str,
+    publish_immediately: bool = False,
+    private_test: bool = False,
+    publish_on_date=None,
+    platforms: tuple[PlatformName, ...] | None = None,
+) -> QuotesPipelineSettings:
+    return QuotesPipelineSettings(
+        work_dir=canva_download_dir_from_settings(settings),
+        publish_timezone=settings.quotes_publish_timezone,
+        publish_hour=settings.quotes_publish_hour,
+        template_urls=template_urls_from_settings(settings),
+        meta_page_id=meta_page_id,
+        meta_instagram_account_id=meta_instagram_account_id,
+        meta_access_token=settings.meta_access_token or "",
+        meta_app_id=settings.meta_app_id,
+        youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
+        youtube_token=PROJECT_ROOT / settings.youtube_token,
+        youtube_channel_handle=settings.youtube_channel_handle,
+        ffmpeg_path=settings.happyscribe_ffmpeg,
+        canva_quotes_design_id=settings.canva_quotes_design_id,
+        canva_quotes_folder_id=resolve_canva_quotes_folder_id(settings),
+        publish_immediately=publish_immediately,
+        private_test=private_test,
+        publish_on_date=publish_on_date,
+        platforms=platforms,
+    )
+
+
+def resolve_publish_run_mode(
+    args,
+    *,
+    publish_timezone: str,
+) -> tuple[bool, "date", bool]:
+    """Return publish_immediately, today's publish date, and private_test for a CLI run."""
+    from datetime import datetime
+
+    from media_publisher.timezones import get_timezone
+
+    private_test = bool(getattr(args, "private", False))
+    publish_immediately = not bool(getattr(args, "schedule", False))
+    target_date = datetime.now(get_timezone(publish_timezone)).date()
+    return publish_immediately, target_date, private_test
+
+
+def print_publish_run_mode(
+    *,
+    publish_immediately: bool,
+    publish_on_date,
+    private_test: bool,
+    content_label: str = "videos",
+) -> None:
+    when = publish_on_date.isoformat()
+    if not publish_immediately:
+        print_console(
+            f"Using native platform scheduling for pending {content_label} due on {when}."
+        )
+        return
+    if private_test:
+        if content_label == "quote posts":
+            print_console(
+                f"Test publish for {when}: quotes to YouTube (private) and "
+                "Facebook (draft); Instagram skipped."
+            )
+        else:
+            print_console(
+                f"Test publish for {when}: YouTube private and Facebook draft only "
+                "(Instagram skipped)."
+            )
+    else:
+        print_console(
+            f"Publishing pending {content_label} for {when} immediately."
+        )
+
+
+def validate_quotes_pipeline_settings(settings) -> list[str]:
+    missing = canva_settings_missing(settings)
+    missing.extend(meta_settings_missing(settings))
+    missing.extend(youtube_settings_missing(settings))
+    return missing
+
+
+def resolve_selected_platforms(args) -> tuple[PlatformName, ...] | None:
+    selected = getattr(args, "platform", None)
+    if not selected:
+        return None
+    return tuple(dict.fromkeys(selected))
+
+
+def run_quotes_publish(settings, args) -> int:
+    missing = validate_quotes_pipeline_settings(settings)
+    if missing:
+        print("Missing required settings:", ", ".join(dict.fromkeys(missing)))
+        return 1
+
+    platforms = resolve_selected_platforms(args)
+    publish_immediately, publish_on_date, private_test = resolve_publish_run_mode(
+        args,
+        publish_timezone=settings.quotes_publish_timezone,
+    )
+    print_publish_run_mode(
+        publish_immediately=publish_immediately,
+        publish_on_date=publish_on_date,
+        private_test=private_test,
+        content_label="quote posts",
+    )
+    if platforms is not None:
+        print_console(f"Limiting quote publish to: {', '.join(platforms)}")
+
+    try:
+        page_id, instagram_account_id, _ = resolve_meta_targets(settings)
+        meta_client = meta_client_from_settings(settings)
+        exit_code, _ = run_quotes_pipeline(
+            build_quotes_pipeline_settings(
+                settings,
+                meta_page_id=page_id,
+                meta_instagram_account_id=instagram_account_id,
+                publish_immediately=publish_immediately,
+                private_test=private_test,
+                publish_on_date=publish_on_date,
+                platforms=platforms,
+            ),
+            meta_client=meta_client,
+            canva_client=canva_client_from_settings(settings),
+            print_line=print_console,
+        )
+    except (MetaError, RuntimeError, QuotePdfError, CanvaError) as exc:
+        print(f"Quotes pipeline failed: {exc}")
+        return 1
+    return exit_code
+
+
+def build_publish_pipeline_settings(
+    settings,
+    *,
+    meta_page_id: str,
+    meta_instagram_account_id: str,
+    headless: bool,
+    publish_immediately: bool = False,
+    private_test: bool = False,
+    publish_on_date=None,
+    regenerate_videos: bool = False,
+    use_web_export: bool = False,
+) -> PublishPipelineSettings:
+    canva_client = None
+    if not canva_settings_missing(settings):
+        canva_client = canva_client_from_settings(settings)
+
+    return PublishPipelineSettings(
+        project_root=PROJECT_ROOT,
+        publish_timezone=settings.publish_timezone,
+        publish_hour=settings.publish_hour,
+        canva_download_dir=canva_download_dir_from_settings(settings),
+        canva_client=canva_client,
+        canva_long_video_thumbnails_url=settings.canva_long_video_thumbnails_url,
+        canva_short_video_thumbnails_url=settings.canva_short_video_thumbnails_url,
+        happyscribe_download_dir=happyscribe_download_dir_from_settings(settings),
+        happyscribe_browser_state=happyscribe_browser_state_path(settings),
+        happyscribe_browser_profile=happyscribe_browser_profile_path(settings),
+        happyscribe_browser_channel=settings.happyscribe_browser_channel,
+        happyscribe_api_key=settings.happyscribe_api_key,
+        happyscribe_headless=headless,
+        ffmpeg_path=settings.happyscribe_ffmpeg,
+        youtube_short_cover_end_seconds=settings.youtube_short_cover_end_seconds,
+        youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
+        youtube_token=PROJECT_ROOT / settings.youtube_token,
+        youtube_channel_handle=settings.youtube_channel_handle,
+        template_urls=template_urls_from_settings(settings),
+        meta_page_id=meta_page_id,
+        meta_instagram_account_id=meta_instagram_account_id,
+        meta_access_token=settings.meta_access_token or "",
+        meta_app_id=settings.meta_app_id,
+        publish_immediately=publish_immediately,
+        private_test=private_test,
+        publish_on_date=publish_on_date,
+        regenerate_videos=regenerate_videos,
+        use_web_export=use_web_export,
+    )
+
+
+def validate_publish_pipeline_settings(settings, tasks) -> list[str]:
+    missing: list[str] = []
+    if not settings.airtable_token:
+        missing.append("AIRTABLE_TOKEN")
+    if not settings.airtable_base_id:
+        missing.append("AIRTABLE_BASE_ID")
+    if not settings.airtable_table_name:
+        missing.append("AIRTABLE_TABLE_NAME")
+    if not tasks:
+        return missing
+    missing.extend(happyscribe_library_settings_missing(settings))
+
+    platforms = {task.platform for task in tasks}
+    if "youtube" in platforms:
+        missing.extend(youtube_settings_missing(settings))
+    if platforms & {"facebook", "instagram"}:
+        missing.extend(meta_settings_missing(settings))
+    return missing
+
+
+def run_default_publish(settings, args) -> int:
+    platforms = resolve_selected_platforms(args)
+    publish_immediately, publish_on_date, private_test = resolve_publish_run_mode(
+        args,
+        publish_timezone=settings.publish_timezone,
+    )
+    regenerate_videos = bool(getattr(args, "regenerate_videos", False))
+    use_web_export = bool(getattr(args, "happyscribe_web_export", False))
+    if regenerate_videos:
+        print_console("Re-downloading videos from HappyScribe (ignoring cached local files).")
+    print_publish_run_mode(
+        publish_immediately=publish_immediately,
+        publish_on_date=publish_on_date,
+        private_test=private_test,
+    )
+    if platforms is not None:
+        print_console(f"Limiting video publish to: {', '.join(platforms)}")
+
+    try:
+        airtable = airtable_client_from_settings(settings)
+        schedule = publish_schedule_settings(settings)
+        tasks = fetch_pending_schedule_tasks(
+            airtable,
+            **schedule,
+            videos_only=True,
+            platforms=platforms,
+        )
+    except AirtableError as exc:
+        print(f"Airtable catalog lookup failed: {exc}")
+        return 1
+
+    if not tasks:
+        try:
+            skipped = fetch_missing_translation_reports(airtable, **schedule)
+        except AirtableError as exc:
+            print(f"Airtable catalog lookup failed: {exc}")
+            return 1
+        if skipped:
+            print(f"Skipped — missing {FIELD_VIDEO_NAME_TRANSLATED!r} ({len(skipped)}):")
+            for report in skipped:
+                platforms = ", ".join(report.platforms)
+                print_console(f"{report.record_id}\t{report.original_title}\t{platforms}")
+        print("No pending schedules found.")
+        return 0
+
+    missing = validate_publish_pipeline_settings(settings, tasks)
+    if missing:
+        print("Missing required settings:", ", ".join(dict.fromkeys(missing)))
+        return 1
+
+    meta_client: MetaClient | None = None
+    page_id = ""
+    instagram_account_id = ""
+    if any(task.platform in {"facebook", "instagram"} for task in tasks):
+        try:
+            page_id, instagram_account_id, _ = resolve_meta_targets(settings)
+            meta_client = meta_client_from_settings(settings)
+        except MetaError as exc:
+            print(f"Meta setup failed: {exc}")
+            return 1
+
+    try:
+        exit_code, _ = run_publish_pipeline(
+            airtable,
+            happyscribe_client_from_settings(settings),
+            happyscribe_library_from_settings(settings),
+            build_publish_pipeline_settings(
+                settings,
+                meta_page_id=page_id,
+                meta_instagram_account_id=instagram_account_id,
+                headless=args.happyscribe_export_headless,
+                publish_immediately=publish_immediately,
+                private_test=private_test,
+                publish_on_date=publish_on_date,
+                regenerate_videos=regenerate_videos,
+                use_web_export=use_web_export,
+            ),
+            meta_client=meta_client,
+            print_line=print_console,
+        )
+    except (HappyScribeError, AirtableError) as exc:
+        print(f"Publish pipeline failed: {exc}")
+        return 1
+    return exit_code
+
+
+def run_watch_publish(settings, args) -> int:
+    import time
+
+    minutes = args.watch if args.watch and args.watch > 0 else 5
+    print_console(
+        f"Watching for pending publishes every {minutes} minute(s). Press Ctrl+C to stop."
+    )
+    while True:
+        run_default_publish(settings, args)
+        time.sleep(minutes * 60)
 
 
 def main() -> int:
@@ -502,7 +1073,6 @@ def main() -> int:
             print("Missing required settings:", ", ".join(missing))
             return 1
         download_dir = PROJECT_ROOT / settings.happyscribe_download_dir
-        browser_state = happyscribe_browser_state_path(settings)
         try:
             client = happyscribe_client_from_settings(settings)
             location = happyscribe_library_from_settings(settings)
@@ -517,14 +1087,14 @@ def main() -> int:
                     download_dir,
                     transcription.name,
                 )
-                path = export_video_with_subtitles_web(
+                path = client.download_video_with_burned_subtitles(
                     transcription.id,
                     destination,
-                    **happyscribe_web_export_kwargs(settings, args),
+                    work_dir=download_dir / ".work",
                 )
                 downloaded.append(path)
                 print_console(str(path))
-        except (HappyScribeError, HappyScribeWebError) as exc:
+        except HappyScribeError as exc:
             print(f"HappyScribe library download failed: {exc}")
             return 1
         if not downloaded:
@@ -533,7 +1103,7 @@ def main() -> int:
                 f"(organization {location.organization_id!r})."
             )
             return 0
-        print(f"Downloaded {len(downloaded)} web-exported video(s) to {download_dir}.")
+        print(f"Downloaded {len(downloaded)} subtitled video(s) to {download_dir}.")
         return 0
 
     if args.happyscribe_save_session:
@@ -624,6 +1194,12 @@ def main() -> int:
         print("Open this URL in a browser and authorize the integration:")
         print(url)
         print()
+        print(f"Requested scopes: {' '.join(DEFAULT_SCOPES)}")
+        print(
+            "If you recently enabled new scopes in the Canva Developer Portal, you "
+            "must complete this authorization again so the saved token receives them."
+        )
+        print()
         print(
             "After approval, run:\n"
             f"  python -m media_publisher --canva-auth-code <authorization_code>"
@@ -649,8 +1225,14 @@ def main() -> int:
             print(f"Canva authorization failed: {exc}")
             return 1
         print(f"Canva token saved to {settings.canva_token!r}.")
-        if token.scope:
-            print(f"Scopes: {token.scope}")
+        print(f"Granted scopes: {format_access_token_scopes(token.access_token)}")
+        missing = missing_canva_scopes(token.access_token)
+        if missing:
+            print(
+                "Warning: Canva integration requires "
+                f"{', '.join(missing)}. Re-run --canva-auth after enabling them "
+                "in the Canva Developer Portal."
+            )
         return 0
 
     if args.canva_resolve:
@@ -680,13 +1262,14 @@ def main() -> int:
                 api_base=settings.canva_api_base,
                 redirect_uri=settings.canva_redirect_uri,
                 export_format=args.canva_format,
+                split_pages=args.canva_split_pages,
             )
         except CanvaError as exc:
             print(f"Canva download failed: {exc}")
             return 1
         for path in downloaded:
             print(path)
-        print(f"Downloaded {len(downloaded)} image(s) to {download_dir}.")
+        print(f"Downloaded {len(downloaded)} file(s) to {download_dir}.")
         return 0
 
     if args.test_canva:
@@ -701,8 +1284,14 @@ def main() -> int:
             print(f"Canva connection failed: {exc}")
             return 1
         print("Canva connection OK (token refreshed).")
-        if token.scope:
-            print(f"Scopes: {token.scope}")
+        print(f"Granted scopes: {format_access_token_scopes(token.access_token)}")
+        missing = missing_canva_scopes(token.access_token)
+        if missing:
+            print(
+                "Warning: Canva integration requires "
+                f"{', '.join(missing)}. Re-run --canva-auth after enabling them "
+                "in the Canva Developer Portal."
+            )
         return 0
 
     if args.youtube_auth:
@@ -814,6 +1403,155 @@ def main() -> int:
         )
         return 0
 
+    if args.meta_setup_token is not None:
+        missing = []
+        if not settings.meta_app_id:
+            missing.append("META_APP_ID")
+        if not settings.meta_app_secret:
+            missing.append("META_APP_SECRET")
+        if missing:
+            print("Missing required settings:", ", ".join(missing))
+            return 1
+
+        user_token = args.meta_setup_token
+        if user_token == "__USE_ENV__":
+            import os
+
+            user_token = os.getenv("META_USER_ACCESS_TOKEN", "").strip()
+            if not user_token:
+                print("Provide TOKEN or set META_USER_ACCESS_TOKEN in the environment.")
+                return 1
+
+        try:
+            credentials = resolve_permanent_page_token(
+                user_token,
+                page_username=settings.meta_page_username,
+                app_id=settings.meta_app_id or "",
+                app_secret=settings.meta_app_secret or "",
+                api_version=settings.meta_api_version,
+            )
+            page_token_info = inspect_access_token(
+                credentials.access_token,
+                app_id=settings.meta_app_id or "",
+                app_secret=settings.meta_app_secret or "",
+                api_version=settings.meta_api_version,
+            )
+            env_path = PROJECT_ROOT / ".env"
+            updates = {"META_ACCESS_TOKEN": credentials.access_token}
+            if credentials.page_id:
+                updates["META_PAGE_ID"] = credentials.page_id
+            if credentials.instagram_account_id:
+                updates["META_INSTAGRAM_ACCOUNT_ID"] = credentials.instagram_account_id
+            update_env_values(env_path, updates)
+        except MetaError as exc:
+            print(f"Meta token setup failed: {exc}")
+            return 1
+
+        expiry = (
+            "never"
+            if page_token_info.expires_at is None
+            else page_token_info.expires_at.isoformat()
+        )
+        print("Permanent Meta Page token saved to .env.")
+        print(f"Facebook page: {credentials.name} ({meta_facebook_url(settings)})")
+        print(f"Page ID: {credentials.page_id}")
+        if credentials.instagram_account_id:
+            print(
+                "Instagram: "
+                f"@{credentials.instagram_username or settings.meta_instagram_username} "
+                f"({meta_instagram_url(settings)})"
+            )
+            print(f"Instagram account ID: {credentials.instagram_account_id}")
+        print(f"Token type: {page_token_info.token_type}")
+        print(f"Token expires: {expiry}")
+        return 0
+
+    if args.list_pending:
+        missing = []
+        if not settings.airtable_token:
+            missing.append("AIRTABLE_TOKEN")
+        if not settings.airtable_base_id:
+            missing.append("AIRTABLE_BASE_ID")
+        if not settings.airtable_table_name:
+            missing.append("AIRTABLE_TABLE_NAME")
+        if missing:
+            print("Missing required settings:", ", ".join(missing))
+            return 1
+        platforms = resolve_selected_platforms(args)
+        try:
+            client = airtable_client_from_settings(settings)
+            schedule = publish_schedule_settings(settings)
+            skipped = fetch_missing_translation_reports(client, **schedule)
+            tasks = fetch_pending_schedule_tasks(
+                client,
+                **schedule,
+                videos_only=True,
+                platforms=platforms,
+            )
+        except AirtableError as exc:
+            print(f"Airtable catalog lookup failed: {exc}")
+            return 1
+        if skipped:
+            print(f"Skipped — missing {FIELD_VIDEO_NAME_TRANSLATED!r} ({len(skipped)}):")
+            for report in skipped:
+                pending = ", ".join(report.platforms)
+                print_console(
+                    f"{report.record_id}\t{report.original_title}\t{pending}"
+                )
+            print()
+        if platforms is not None:
+            print(f"Platforms: {', '.join(platforms)}")
+        if not tasks:
+            if skipped:
+                print("No videos ready to publish.")
+            else:
+                print("No pending platform schedules found.")
+            return 0
+        print(f"Ready to publish ({len(tasks)}):")
+        for task in tasks:
+            format_label = "short" if task.job.video_format == "short_form" else "video"
+            print_console(
+                f"{task.record_id}\t{task.platform}\t{format_label}\t"
+                f"{task.publish_at.isoformat()}\t{task.job.title}"
+            )
+        print(f"{len(tasks)} pending schedule(s).")
+        return 0
+
+    if args.schedule_youtube:
+        missing = youtube_settings_missing(settings)
+        if missing:
+            print("Missing required settings:", ", ".join(missing))
+            return 1
+        try:
+            task, airtable = load_schedule_task(settings, args.schedule_youtube, "youtube")
+            attach_local_video_path(task.job, settings)
+            video_id = publish_to_youtube(
+                task.job,
+                client_secrets_path=PROJECT_ROOT / settings.youtube_client_secrets,
+                token_path=PROJECT_ROOT / settings.youtube_token,
+                expected_channel_handle=settings.youtube_channel_handle,
+                ffmpeg_path=settings.happyscribe_ffmpeg,
+                cover_end_seconds=settings.youtube_short_cover_end_seconds,
+                **template_urls_from_settings(settings),
+            )
+            permalink = youtube_video_url(video_id)
+            mark_platform_scheduled(
+                airtable,
+                record_id=task.record_id,
+                record_fields=task.record_fields,
+                platform="youtube",
+                permalink=permalink,
+            )
+        except (AirtableError, YouTubePublishError) as exc:
+            print(f"YouTube scheduling failed: {exc}")
+            return 1
+        when = task.publish_at.isoformat()
+        print(
+            f"YouTube video scheduled for {when} on @{settings.youtube_channel_handle} "
+            f"({permalink})."
+        )
+        return 0
+
     if args.schedule_facebook:
         missing = meta_settings_missing(settings)
         if missing:
@@ -821,23 +1559,30 @@ def main() -> int:
             return 1
         try:
             page_id, _, page_info = resolve_meta_targets(settings)
-            job, airtable = load_publish_job_from_airtable(settings, args.schedule_facebook)
+            task, airtable = load_schedule_task(settings, args.schedule_facebook, "facebook")
+            meta_client = meta_client_from_settings(settings)
             post_id = publish_to_facebook(
-                job,
+                task.job,
                 page_id=page_id,
                 access_token=settings.meta_access_token or "",
+                app_id=settings.meta_app_id,
+                **template_urls_from_settings(settings),
             )
-            airtable.update_record(
-                args.schedule_facebook,
-                {FIELD_FACEBOOK_POST_ID: post_id},
+            permalink = meta_client.get_facebook_video_permalink(post_id)
+            mark_platform_scheduled(
+                airtable,
+                record_id=task.record_id,
+                record_fields=task.record_fields,
+                platform="facebook",
+                permalink=permalink,
             )
         except (AirtableError, FacebookPublishError, MetaError) as exc:
             print(f"Facebook scheduling failed: {exc}")
             return 1
-        when = job.publish_at.isoformat() if job.publish_at else "now"
+        when = task.publish_at.isoformat()
         print(
             f"Facebook video scheduled for {when} on {page_info.name} "
-            f"(video id: {post_id})."
+            f"({permalink})."
         )
         return 0
 
@@ -847,41 +1592,78 @@ def main() -> int:
             print("Missing required settings:", ", ".join(missing))
             return 1
         try:
-            _, instagram_account_id, page_info = resolve_meta_targets(settings)
-            job, airtable = load_publish_job_from_airtable(settings, args.schedule_instagram)
-            if job.video_path and not job.video_url and not settings.meta_app_id:
+            page_id, instagram_account_id, page_info = resolve_meta_targets(settings)
+            task, airtable = load_schedule_task(settings, args.schedule_instagram, "instagram")
+            if not instagram_is_due(task.publish_at):
+                print(instagram_wait_message(task.publish_at))
+                return 0
+            duration_seconds = resolve_video_duration_seconds(
+                video_path=task.job.video_path,
+                metadata=task.job.metadata,
+            )
+            if instagram_exceeds_api_limit(duration_seconds):
+                assert duration_seconds is not None
+                print(instagram_duration_skip_message(duration_seconds))
+                return 0
+            if (
+                task.job.video_path
+                and not task.job.video_url
+                and not settings.meta_app_id
+            ):
                 print(
                     "Missing META_APP_ID — required when uploading a local video file "
                     "to Instagram."
                 )
                 return 1
+            meta_client = meta_client_from_settings(settings)
             media_id = publish_to_instagram(
-                job,
+                task.job,
                 instagram_account_id=instagram_account_id,
                 access_token=settings.meta_access_token or "",
                 app_id=settings.meta_app_id,
+                page_id=page_id,
+                ffmpeg_path=settings.happyscribe_ffmpeg,
+                **template_urls_from_settings(settings),
             )
-            airtable.update_record(
-                args.schedule_instagram,
-                {FIELD_INSTAGRAM_MEDIA_ID: media_id},
+            permalink = meta_client.get_instagram_media_permalink(media_id)
+            mark_platform_scheduled(
+                airtable,
+                record_id=task.record_id,
+                record_fields=task.record_fields,
+                platform="instagram",
+                permalink=permalink,
             )
         except (AirtableError, InstagramPublishError, MetaError) as exc:
             print(f"Instagram scheduling failed: {exc}")
             return 1
-        when = job.publish_at.isoformat() if job.publish_at else "now"
+        when = task.publish_at.isoformat()
         ig_handle = page_info.instagram_username or settings.meta_instagram_username
         print(
-            f"Instagram Reel scheduled for {when} on @{ig_handle} "
-            f"(media id: {media_id})."
+            f"Instagram Reel published for {when} on @{ig_handle} "
+            f"({permalink})."
         )
         return 0
 
+    if args.watch is not None:
+        try:
+            return run_watch_publish(settings, args)
+        except KeyboardInterrupt:
+            print_console("Stopped.")
+            return 0
+
+    if args.quotes:
+        return run_quotes_publish(settings, args)
+
+    if not cli_requested_action(args):
+        return run_default_publish(settings, args)
+
     parser.error(
-        "No action specified. Try --check-config, --test-airtable, "
+        "No action specified. Try --check-config, --test-airtable, --list-pending, "
         "--test-happyscribe, --list-happyscribe-library, --download-happyscribe-library, "
         "--happyscribe-save-session, --happyscribe-import-session, --export-happyscribe-web, --burn-happyscribe-video, "
         "--canva-auth, --canva-download, --canva-resolve, --test-canva, --youtube-auth, --test-youtube, "
-        "--test-meta, --resolve-meta, --schedule-facebook, or --schedule-instagram"
+        "--test-meta, --resolve-meta, --meta-setup-token, --schedule-youtube, "
+        "--schedule-facebook, --schedule-instagram, --quotes, --schedule, or --watch"
     )
     return 2
 

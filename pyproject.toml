@@ -9,6 +9,8 @@ description = "Extract media metadata from Airtable, HappyScribe, and Canva, the
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.32.0",
+    "tzdata>=2024.1",
+    "pymupdf>=1.24.0",
 ]
 
 [project.optional-dependencies]

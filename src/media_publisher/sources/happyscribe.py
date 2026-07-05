@@ -17,6 +17,9 @@ from media_publisher.models import PublishJob
 DEFAULT_API_BASE = "https://www.happyscribe.com/api/v1"
 DEFAULT_USER_AGENT = "media-publisher/0.1"
 DEFAULT_FFMPEG = "ffmpeg"
+DEFAULT_FFPROBE = "ffprobe"
+# libass scales MarginV/FontSize from this play resolution for plain SRT input.
+LIBASS_DEFAULT_PLAY_RES_Y = 288
 EXPORT_POLL_INTERVAL_SECONDS = 1.0
 EXPORT_POLL_MAX_ATTEMPTS = 60
 TRANSCRIPTION_STATE_READY = "automatic_done"
@@ -54,6 +57,25 @@ class HappyScribeTranscription:
     folder_id: str | None = None
     folder_name: str | None = None
     tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SubtitleBurnStyle:
+    """Approximate HappyScribe burned-in subtitle styling for ffmpeg/libass."""
+
+    font_name: str = "Arial"
+    font_size: int = 8
+    bold: bool = True
+    # MarginV for bottom-centered text: distance up from the bottom edge (video pixels).
+    margin_bottom_px: int = 200
+    primary_colour: str = "&H00FFFFFF"
+    outline_colour: str = "&H00000000"
+    outline: int = 1
+    border_style: int = 1
+    alignment: int = 2
+
+
+DEFAULT_SUBTITLE_BURN_STYLE = SubtitleBurnStyle()
 
 
 @dataclass(frozen=True)
@@ -178,6 +200,17 @@ def is_subtitled_export_name(name: str) -> bool:
     return name.strip().lower().endswith(".srt")
 
 
+def normalize_name_for_catalog_match(name: str) -> str:
+    """Normalize Airtable/HappyScribe titles for fuzzy catalog matching."""
+    text = name.strip()
+    if text.upper().startswith("SRT_"):
+        text = text[4:].strip()
+    text = re.sub(r"\(\d+\)$", "", text).strip()
+    text = re.sub(r"\(bg\)$", "", text, flags=re.IGNORECASE).strip()
+    stem = Path(text).stem
+    return re.sub(r"[^a-z0-9]+", "", stem.casefold())
+
+
 def subtitled_export_name(source_name: str) -> str:
     name = source_name.strip()
     if is_subtitled_export_name(name):
@@ -196,6 +229,92 @@ def find_transcription_by_name(
     return None
 
 
+def find_transcription_for_catalog(
+    transcriptions: list[HappyScribeTranscription],
+    catalog_name: str,
+) -> HappyScribeTranscription | None:
+    """Match a catalog Original Video Name to a source HappyScribe transcription."""
+    catalog_key = normalize_name_for_catalog_match(catalog_name)
+    if not catalog_key:
+        return None
+
+    matches: list[HappyScribeTranscription] = []
+    for transcription in transcriptions:
+        if is_subtitled_export_name(transcription.name):
+            continue
+        if normalize_name_for_catalog_match(transcription.name) == catalog_key:
+            matches.append(transcription)
+
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+
+    def sort_key(item: HappyScribeTranscription) -> tuple[int, str]:
+        name = item.name.strip()
+        prefixed = 0 if name.upper().startswith("SRT_") else 1
+        return prefixed, name.casefold()
+
+    return sorted(matches, key=sort_key)[0]
+
+
+def ensure_catalog_video_downloaded(
+    catalog_name: str,
+    *,
+    download_dir: Path,
+    client: HappyScribeClient,
+    location: HappyScribeLibraryLocation,
+    browser_state_path: Path,
+    browser_profile_dir: Path | None = None,
+    browser_channel: str | None = "chrome",
+    api_key: str | None = None,
+    headless: bool = False,
+    transcriptions: list[HappyScribeTranscription] | None = None,
+    force_regenerate: bool = False,
+    use_web_export: bool = False,
+) -> Path:
+    """Return a local subtitled video file for a catalog title, downloading if needed."""
+    if force_regenerate:
+        remove_downloaded_video(download_dir, catalog_name)
+    else:
+        existing = find_downloaded_video(download_dir, catalog_name)
+        if existing is not None:
+            return existing
+
+    if transcriptions is None:
+        transcriptions = client.list_library_transcriptions(location)
+    transcription = find_transcription_for_catalog(transcriptions, catalog_name)
+    if transcription is None:
+        raise HappyScribeError(
+            f"No HappyScribe transcription found for catalog title {catalog_name!r}."
+        )
+    if transcription.state != TRANSCRIPTION_STATE_READY:
+        raise HappyScribeError(
+            f"HappyScribe transcription {transcription.name!r} is not ready "
+            f"(state={transcription.state!r})."
+        )
+
+    destination = burned_video_destination_path(download_dir, catalog_name)
+    if use_web_export and browser_state_path.is_file():
+        from media_publisher.sources.happyscribe_web import export_video_with_subtitles_web
+
+        return export_video_with_subtitles_web(
+            transcription.id,
+            destination,
+            browser_state_path=browser_state_path,
+            browser_profile_dir=browser_profile_dir,
+            browser_channel=browser_channel,
+            api_key=api_key,
+            headless=headless,
+        )
+
+    return client.download_video_with_burned_subtitles(
+        transcription.id,
+        destination,
+        work_dir=download_dir / ".work",
+    )
+
+
 def subtitle_destination_path(download_dir: Path, transcription_name: str) -> Path:
     stem = _safe_filename(transcription_name)
     if stem.lower().endswith(".srt"):
@@ -205,6 +324,39 @@ def subtitle_destination_path(download_dir: Path, transcription_name: str) -> Pa
 
 def burned_video_destination_path(download_dir: Path, transcription_name: str) -> Path:
     return video_destination_path(download_dir, transcription_name, suffix="-subtitled")
+
+
+def remove_downloaded_video(download_dir: Path, catalog_name: str) -> None:
+    """Delete a cached local video for a catalog title, if present."""
+    existing = find_downloaded_video(download_dir, catalog_name)
+    if existing is not None and existing.is_file():
+        existing.unlink()
+
+
+def find_downloaded_video(download_dir: Path, catalog_name: str) -> Path | None:
+    """Find a downloaded HappyScribe video file by catalog title."""
+    if not download_dir.is_dir():
+        return None
+
+    for builder in (
+        burned_video_destination_path,
+        lambda directory, name: video_destination_path(directory, name),
+    ):
+        candidate = builder(download_dir, catalog_name)
+        if candidate.is_file():
+            return candidate
+
+    name_key = normalize_name_for_catalog_match(catalog_name)
+    if not name_key:
+        return None
+
+    for path in download_dir.iterdir():
+        if not path.is_file() or path.suffix.lower() != ".mp4":
+            continue
+        stem_key = normalize_name_for_catalog_match(path.stem.removesuffix("-subtitled"))
+        if stem_key == name_key:
+            return path
+    return None
 
 
 def resolve_ffmpeg_path(ffmpeg_path: str | None = None) -> str:
@@ -226,6 +378,67 @@ def resolve_ffmpeg_path(ffmpeg_path: str | None = None) -> str:
     )
 
 
+def probe_video_height(video_path: Path) -> int:
+    ffprobe = shutil.which(DEFAULT_FFPROBE)
+    if ffprobe is None:
+        return 1080
+
+    result = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=height",
+            "-of",
+            "csv=p=0",
+            str(video_path.resolve()),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        return 1080
+
+    try:
+        return max(1, int(result.stdout.strip()))
+    except ValueError:
+        return 1080
+
+
+def video_margin_to_libass_margin_v(margin_v_video: int, video_height: int) -> int:
+    """Convert a bottom margin in video pixels to libass MarginV for plain SRT."""
+    return max(
+        1,
+        round(margin_v_video * LIBASS_DEFAULT_PLAY_RES_Y / max(1, video_height)),
+    )
+
+
+def build_subtitle_force_style(
+    video_height: int,
+    style: SubtitleBurnStyle = DEFAULT_SUBTITLE_BURN_STYLE,
+) -> str:
+    margin_v_video = max(8, style.margin_bottom_px)
+    margin_v = video_margin_to_libass_margin_v(margin_v_video, video_height)
+    return ",".join(
+        (
+            f"FontName={style.font_name}",
+            f"Bold={1 if style.bold else 0}",
+            f"FontSize={style.font_size}",
+            f"PrimaryColour={style.primary_colour}",
+            f"OutlineColour={style.outline_colour}",
+            f"BorderStyle={style.border_style}",
+            f"Outline={style.outline}",
+            f"Alignment={style.alignment}",
+            f"MarginV={margin_v}",
+        )
+    )
+
 
 def burn_subtitles_into_video(
     video_path: Path,
@@ -233,6 +446,7 @@ def burn_subtitles_into_video(
     destination: Path,
     *,
     ffmpeg_path: str | None = None,
+    style: SubtitleBurnStyle = DEFAULT_SUBTITLE_BURN_STYLE,
 ) -> Path:
     ffmpeg = resolve_ffmpeg_path(ffmpeg_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -241,13 +455,17 @@ def burn_subtitles_into_video(
     safe_subtitle_path = work_dir / "subtitles.burn.srt"
     shutil.copy(subtitle_path, safe_subtitle_path)
 
+    video_height = probe_video_height(video_path)
+    force_style = build_subtitle_force_style(video_height, style)
+    subtitle_filter = f"subtitles=subtitles.burn.srt:force_style='{force_style}'"
+
     command = [
         ffmpeg,
         "-y",
         "-i",
         str(video_path.resolve()),
         "-vf",
-        "subtitles=subtitles.burn.srt",
+        subtitle_filter,
         "-c:a",
         "copy",
         str(destination.resolve()),
@@ -707,7 +925,8 @@ def enrich_job_from_happyscribe(
     transcription_id: str | None = None,
     ffmpeg_path: str | None = None,
     browser_state_path: Path | None = None,
-    burn_subtitles: bool = False,
+    burn_subtitles: bool = True,
+    use_web_export: bool = False,
 ) -> PublishJob:
     """Download a HappyScribe video for a publish job."""
     transcription_id = transcription_id or transcription_id_from_job(job)
@@ -716,7 +935,7 @@ def enrich_job_from_happyscribe(
             f"Publish job is missing {METADATA_TRANSCRIPTION_ID!r} metadata"
         )
 
-    if browser_state_path is not None:
+    if use_web_export and browser_state_path is not None:
         from media_publisher.sources.happyscribe_web import export_video_for_transcription_name
 
         client = HappyScribeClient(
