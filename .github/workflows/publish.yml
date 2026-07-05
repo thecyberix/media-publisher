@@ -17,7 +17,7 @@ on:
           - quotes
         default: all
       private:
-        description: Test mode (YouTube private, Facebook draft, skip Instagram)
+        description: Test mode (YouTube private, Facebook scheduled +20d, skip Instagram)
         type: boolean
         default: false
 

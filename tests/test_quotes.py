@@ -250,6 +250,12 @@ class QuotesPipelineTests(unittest.TestCase):
             self.assertEqual({result.platform for result in results}, {"youtube", "facebook"})
             self.assertTrue(all(result.success for result in results))
             self.assertEqual(publish_mock.call_count, 2)
+            facebook_call = next(
+                call
+                for call in publish_mock.call_args_list
+                if call.kwargs["platform"] == "facebook"
+            )
+            self.assertIsNotNone(facebook_call.kwargs["publish_at"])
             for call in publish_mock.call_args_list:
                 self.assertTrue(call.kwargs["private"])
                 self.assertIn(call.kwargs["platform"], ("youtube", "facebook"))

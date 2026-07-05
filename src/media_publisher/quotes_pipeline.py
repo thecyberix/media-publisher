@@ -29,10 +29,12 @@ from media_publisher.sources.quotes import (
 
 from media_publisher.scheduling import (
     MIN_SCHEDULE_LEAD_SECONDS,
+    PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
     facebook_can_schedule,
     facebook_wait_message,
     instagram_is_due,
     instagram_wait_message,
+    private_test_facebook_publish_at,
     publish_local_date,
 )
 
@@ -238,7 +240,8 @@ def run_quotes_pipeline(
 
     if settings.private_test:
         print_line(
-            "Private test: quotes go to YouTube (private) and Facebook (draft). "
+            "Private test: quotes go to YouTube (private) and Facebook "
+            f"(scheduled {PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead). "
             "Instagram skipped."
         )
 
@@ -309,10 +312,18 @@ def run_quotes_pipeline(
                 image_path = post.image_path
 
             try:
+                quote_publish_at = publish_at
+                if (
+                    settings.private_test
+                    and settings.publish_immediately
+                    and platform == "facebook"
+                ):
+                    quote_publish_at = private_test_facebook_publish_at()
+
                 permalink = publish_local_quote(
                     image_path=image_path,
                     caption=post.caption,
-                    publish_at=publish_at,
+                    publish_at=quote_publish_at,
                     private=settings.private_test and settings.publish_immediately,
                     platform=platform,
                     page_id=settings.meta_page_id,
@@ -341,7 +352,8 @@ def run_quotes_pipeline(
                     if settings.private_test and platform == "youtube":
                         mode = "published privately"
                     elif settings.private_test and platform == "facebook":
-                        mode = "saved as draft"
+                        mode = "scheduled for test"
+                        when = quote_publish_at.isoformat() if quote_publish_at else when
                     else:
                         mode = "published"
                 elif platform == "instagram":

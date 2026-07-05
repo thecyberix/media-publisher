@@ -449,6 +449,75 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertEqual(publish_mock.call_count, 1)
         self.assertTrue(any("instagram: skipped" in message for message in messages))
 
+    def test_run_publish_pipeline_skips_instagram_for_long_form_video(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        happyscribe = HappyScribeClient("hs-test")
+        location = HappyScribeLibraryLocation("1", "2")
+        long_form_job = PublishJob(
+            title="Translated title",
+            video_format="post",
+            metadata={FIELD_TITLE: "Original catalog name"},
+            airtable_record_id="recABC",
+        )
+        publish_at = datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc)
+        tasks = [
+            PlatformScheduleTask(
+                platform="youtube",
+                publish_at=publish_at,
+                job=long_form_job,
+                record_id="recABC",
+            ),
+            PlatformScheduleTask(
+                platform="instagram",
+                publish_at=publish_at,
+                job=long_form_job,
+                record_id="recABC",
+            ),
+        ]
+        settings = self._pipeline_settings(publish_immediately=True)
+        video_path = Path("downloads/happyscribe/Launch video-subtitled.mp4")
+        messages: list[str] = []
+
+        with patch(
+            "media_publisher.pipeline.fetch_pending_schedule_tasks",
+            return_value=tasks,
+        ), patch.object(
+            client,
+            "list_records",
+            return_value=[],
+        ), patch.object(
+            happyscribe,
+            "list_library_transcriptions",
+            return_value=[],
+        ), patch(
+            "media_publisher.pipeline.ensure_catalog_video_downloaded",
+            return_value=video_path,
+        ), patch(
+            "media_publisher.pipeline.ensure_catalog_thumbnail_from_canva",
+            side_effect=lambda job, **_: job,
+        ), patch(
+            "media_publisher.pipeline.publish_platform_task",
+            return_value="https://example.com/post",
+        ) as publish_mock, patch.object(
+            client,
+            "update_record",
+            return_value=AirtableRecord(id="recABC", fields={}),
+        ):
+            exit_code, results = run_publish_pipeline(
+                client,
+                happyscribe,
+                location,
+                settings,
+                meta_client=unittest.mock.Mock(),
+                print_line=messages.append,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].platform, "youtube")
+        self.assertEqual(publish_mock.call_count, 1)
+        self.assertTrue(any("long-form Video uploads are not supported" in message for message in messages))
+
 
 class PublishRunModeTests(unittest.TestCase):
     def test_resolve_publish_run_mode_defaults_to_immediate_today(self) -> None:

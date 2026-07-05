@@ -7,10 +7,16 @@ from pathlib import Path
 
 from media_publisher.config import load_settings, update_env_values
 from media_publisher.models import PlatformName
-from media_publisher.scheduling import instagram_is_due, instagram_wait_message
+from media_publisher.scheduling import (
+    PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
+    instagram_is_due,
+    instagram_wait_message,
+)
 from media_publisher.video_duration import (
     instagram_duration_skip_message,
     instagram_exceeds_api_limit,
+    instagram_long_form_skip_message,
+    instagram_skips_long_form_video,
     resolve_video_duration_seconds,
 )
 from media_publisher.pipeline import PublishPipelineSettings, run_publish_pipeline
@@ -275,7 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--private",
         action="store_true",
         help=(
-            "During testing, publish to YouTube (private) and Facebook (draft). "
+            "During testing, publish to YouTube (private) and schedule Facebook "
+            f"({PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead). "
             "Skips Instagram."
         ),
     )
@@ -719,11 +726,13 @@ def print_publish_run_mode(
         if content_label == "quote posts":
             print_console(
                 f"Test publish for {when}: quotes to YouTube (private) and "
-                "Facebook (draft); Instagram skipped."
+                f"Facebook (scheduled {PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead); "
+                "Instagram skipped."
             )
         else:
             print_console(
-                f"Test publish for {when}: YouTube private and Facebook draft only "
+                f"Test publish for {when}: YouTube private and Facebook scheduled "
+                f"{PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead only "
                 "(Instagram skipped)."
             )
     else:
@@ -1604,6 +1613,9 @@ def main() -> int:
             if instagram_exceeds_api_limit(duration_seconds):
                 assert duration_seconds is not None
                 print(instagram_duration_skip_message(duration_seconds))
+                return 0
+            if instagram_skips_long_form_video(task.job.video_format):
+                print(instagram_long_form_skip_message())
                 return 0
             if (
                 task.job.video_path

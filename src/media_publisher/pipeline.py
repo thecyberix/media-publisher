@@ -32,11 +32,14 @@ from media_publisher.scheduling import (
     filter_tasks_for_local_date,
     instagram_wait_message,
     prepare_job_for_immediate_publish,
+    private_test_facebook_publish_at,
 )
 from media_publisher.sources.happyscribe_web import HappyScribeWebError
 from media_publisher.video_duration import (
     instagram_duration_skip_message,
     instagram_exceeds_api_limit,
+    instagram_long_form_skip_message,
+    instagram_skips_long_form_video,
     resolve_video_duration_seconds,
 )
 
@@ -301,6 +304,16 @@ def run_publish_pipeline(
                 task for task in ready_tasks if task.platform != "instagram"
             ]
 
+        if any(
+            task.platform == "instagram"
+            and instagram_skips_long_form_video(task.job.video_format)
+            for task in ready_tasks
+        ):
+            print_line(f"  {instagram_long_form_skip_message()}")
+            ready_tasks = [
+                task for task in ready_tasks if task.platform != "instagram"
+            ]
+
         record_fields = dict(record_tasks[0].record_fields)
         for task in ready_tasks:
             task = replace(task, job=replace(task.job))
@@ -308,10 +321,13 @@ def run_publish_pipeline(
             task.job.thumbnail_path = thumbnail_path
             catalog_publish_at = task.publish_at
             if settings.publish_immediately:
-                prepare_job_for_immediate_publish(
-                    task.job,
-                    private=settings.private_test,
-                )
+                if settings.private_test and task.platform == "facebook":
+                    task.job.publish_at = private_test_facebook_publish_at()
+                else:
+                    prepare_job_for_immediate_publish(
+                        task.job,
+                        private=settings.private_test,
+                    )
             try:
                 permalink = publish_platform_task(
                     task,
@@ -329,11 +345,18 @@ def run_publish_pipeline(
                 when = (
                     "now"
                     if settings.publish_immediately
+                    and not (
+                        settings.private_test and task.platform == "facebook"
+                    )
+                    else task.job.publish_at.isoformat()
+                    if settings.private_test and task.platform == "facebook"
                     else catalog_publish_at.isoformat()
                 )
                 mode = (
                     "published privately"
                     if settings.private_test and task.platform == "youtube"
+                    else "scheduled for test"
+                    if settings.private_test and task.platform == "facebook"
                     else "published"
                     if settings.publish_immediately
                     else "scheduled"

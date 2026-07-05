@@ -568,7 +568,7 @@ class PublisherWrapperTests(unittest.TestCase):
         self.assertEqual(post_id, "fb_reel_1")
         client_cls.return_value.schedule_facebook_reel.assert_called_once()
 
-    def test_publish_to_instagram_uses_feed_for_post_format(self) -> None:
+    def test_publish_to_instagram_skips_long_form_video_with_url(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
@@ -576,64 +576,44 @@ class PublisherWrapperTests(unittest.TestCase):
             video_format="post",
         )
         with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
-            client_cls.return_value.schedule_instagram_feed_video.return_value = "ig_media_1"
-            media_id = publish_to_instagram(
-                job,
-                instagram_account_id="ig123",
-                access_token="token",
-            )
+            with self.assertRaises(InstagramPublishError) as ctx:
+                publish_to_instagram(
+                    job,
+                    instagram_account_id="ig123",
+                    access_token="token",
+                )
 
-        self.assertEqual(media_id, "ig_media_1")
-        client_cls.return_value.schedule_instagram_feed_video.assert_called_once()
+        self.assertIn("long-form Video", str(ctx.exception))
+        client_cls.assert_not_called()
 
-    def test_publish_to_instagram_uses_resumable_reel_for_local_post_format(self) -> None:
+    def test_publish_to_instagram_skips_long_form_local_video(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_path="downloads/happyscribe/sample.mp4",
             video_format="post",
         )
-        with (
-            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
-            patch(
-                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
-                side_effect=self._passthrough_instagram_video,
-            ),
-        ):
-            client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
-            media_id = publish_to_instagram(
-                job,
-                instagram_account_id="ig123",
-                access_token="token",
-                app_id="app123",
-                page_id="page123",
-            )
+        with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
+            with self.assertRaises(InstagramPublishError) as ctx:
+                publish_to_instagram(
+                    job,
+                    instagram_account_id="ig123",
+                    access_token="token",
+                    app_id="app123",
+                    page_id="page123",
+                )
 
-        self.assertEqual(media_id, "ig_media_1")
-        reel_call = client_cls.return_value.schedule_instagram_reel.call_args
-        self.assertEqual(reel_call.kwargs["instagram_account_id"], "ig123")
-        self.assertEqual(reel_call.kwargs["video_path"], Path("downloads/happyscribe/sample.mp4"))
-        self.assertEqual(reel_call.kwargs["page_id"], "page123")
-        self.assertIn("Caption text", reel_call.kwargs["caption"])
-        client_cls.return_value.upload_unpublished_video_url.assert_not_called()
+        self.assertIn("long-form Video", str(ctx.exception))
+        client_cls.assert_not_called()
 
-    def test_publish_to_instagram_propagates_reel_failure_for_local_post(self) -> None:
+    def test_publish_to_instagram_skips_long_form_before_meta_client(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_path="downloads/happyscribe/sample.mp4",
             video_format="post",
         )
-        with (
-            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
-            patch(
-                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
-                side_effect=self._passthrough_instagram_video,
-            ),
-        ):
-            client_cls.return_value.schedule_instagram_reel.side_effect = MetaError(
-                "Meta Instagram container failed"
-            )
+        with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
             with self.assertRaises(InstagramPublishError):
                 publish_to_instagram(
                     job,
@@ -642,7 +622,7 @@ class PublisherWrapperTests(unittest.TestCase):
                     page_id="page123",
                 )
 
-        client_cls.return_value.upload_unpublished_video_url.assert_not_called()
+        client_cls.assert_not_called()
 
     def test_publish_to_instagram_uses_local_file_with_app_id(self) -> None:
         job = PublishJob(

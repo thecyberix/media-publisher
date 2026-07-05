@@ -5,10 +5,12 @@ from datetime import datetime, timedelta, timezone
 
 from media_publisher.models import PlatformScheduleTask, PublishJob
 from media_publisher.scheduling import (
+    PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
     facebook_can_schedule,
     filter_ready_tasks,
     instagram_is_due,
     is_platform_ready,
+    private_test_facebook_publish_at,
 )
 
 
@@ -57,6 +59,13 @@ class SchedulingTests(unittest.TestCase):
         ]
         ready = filter_ready_tasks(tasks, now=now)
         self.assertEqual([task.platform for task in ready], ["facebook"])
+
+
+    def test_private_test_facebook_publish_at_is_twenty_days_ahead(self) -> None:
+        now = datetime(2026, 7, 4, 12, 0, tzinfo=timezone.utc)
+        publish_at = private_test_facebook_publish_at(now=now)
+        self.assertEqual((publish_at - now).days, PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS)
+        self.assertTrue(facebook_can_schedule(publish_at, now=now))
 
 
 if __name__ == "__main__":

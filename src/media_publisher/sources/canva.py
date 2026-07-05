@@ -489,9 +489,16 @@ class CanvaClient:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace").strip()
-            raise CanvaError(
-                f"Canva token request failed with HTTP {exc.code}: {detail}"
-            ) from exc
+            message = f"Canva token request failed with HTTP {exc.code}: {detail}"
+            if "invalid_grant" in detail or "Token lineage has been revoked" in detail:
+                message += (
+                    " The stored refresh token is no longer valid. Re-authorize locally "
+                    "(`python -m media_publisher --canva-auth` then `--canva-auth-code`), "
+                    "then update the GitHub secret CANVA_TOKEN_JSON with the full contents "
+                    "of credentials/canva-token.json. Canva refresh tokens are single-use: "
+                    "if CI or --test-canva refreshed the token, any older copy is revoked."
+                )
+            raise CanvaError(message) from exc
         except urllib.error.URLError as exc:
             raise CanvaError(f"Canva token request failed: {exc.reason}") from exc
 
@@ -942,9 +949,8 @@ class CanvaClient:
         return downloaded
 
     def test_connection(self) -> CanvaToken:
-        token = load_token(self.token_path)
-        refreshed = self.refresh_access_token(token.refresh_token)
-        return refreshed
+        self.ensure_access_token()
+        return load_token(self.token_path)
 
 
 def design_id_from_job(job: PublishJob) -> str | None:

@@ -36,6 +36,16 @@ class InstagramDurationLimitTests(unittest.TestCase):
     def test_skip_message(self) -> None:
         self.assertIn("24.8 minutes", instagram_duration_skip_message(1487.0))
 
+    def test_long_form_video_is_skipped(self) -> None:
+        from media_publisher.video_duration import (
+            instagram_long_form_skip_message,
+            instagram_skips_long_form_video,
+        )
+
+        self.assertTrue(instagram_skips_long_form_video("post"))
+        self.assertFalse(instagram_skips_long_form_video("short_form"))
+        self.assertIn("long-form Video", instagram_long_form_skip_message())
+
     def test_resolve_from_metadata(self) -> None:
         duration = resolve_video_duration_seconds(
             metadata={"Duration": "1487"},

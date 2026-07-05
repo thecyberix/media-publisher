@@ -80,6 +80,8 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 
 At startup, `load_settings()` reads environment variables (injected by GitHub Actions from secrets) and, when `*_JSON` variables are set, writes them to `credentials/` before the app runs. Locally, if those `*_JSON` variables are unset, existing files in `credentials/` are used as before.
 
+**Canva token rotation:** Canva issues a new refresh token on every refresh. Only the latest refresh token works. If GitHub Actions refreshes the token during a run, you must copy the updated `credentials/canva-token.json` back into the `CANVA_TOKEN_JSON` secret before the next run. The same applies if you re-authorize locally or run a command that refreshes the token while a stale copy still lives in GitHub Secrets.
+
 ### Manual publish run
 
 In GitHub: **Actions → Publish → Run workflow**. Choose `videos`, `quotes`, or `all`, and enable **private** for a safe test run.
