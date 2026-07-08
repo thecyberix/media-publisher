@@ -32,6 +32,7 @@ DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/youtube",
 )
 DEFAULT_CHANNEL_HANDLE = "SadhguruBulgarian"
+DEFAULT_YOUTUBE_PLAYLIST_TITLE = "Съзнателна Планета"
 CHANNEL_HANDLE_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?youtube\.com/@([A-Za-z0-9._-]+)",
     re.IGNORECASE,
@@ -440,12 +441,16 @@ def build_authorization_url(
 
 
 def build_video_status(job: PublishJob) -> dict[str, Any]:
+    status: dict[str, Any] = {"containsSyntheticMedia": False}
     if job.publish_at is not None:
         validate_schedule_time(job.publish_at)
-        return {
-            "privacyStatus": "private",
-            "publishAt": format_publish_at(job.publish_at),
-        }
+        status.update(
+            {
+                "privacyStatus": "private",
+                "publishAt": format_publish_at(job.publish_at),
+            }
+        )
+        return status
 
     privacy_status = job.privacy_status.strip().lower() or "public"
     if privacy_status not in {"public", "private", "unlisted"}:
@@ -453,7 +458,8 @@ def build_video_status(job: PublishJob) -> dict[str, Any]:
             f"Unsupported privacy_status {job.privacy_status!r}; "
             "expected public, private, or unlisted"
         )
-    return {"privacyStatus": privacy_status}
+    status["privacyStatus"] = privacy_status
+    return status
 
 
 def build_video_body(
@@ -496,6 +502,7 @@ class YouTubeClient:
             else None
         )
         self._secrets: YouTubeClientSecrets | None = None
+        self._playlist_id_cache: dict[str, str] = {}
 
     @property
     def secrets(self) -> YouTubeClientSecrets:
@@ -711,6 +718,134 @@ class YouTubeClient:
             raise YouTubePublishError("YouTube upload response is missing video id")
         return video_id
 
+    def _parse_playlist_items(self, payload: bytes) -> list[dict[str, Any]]:
+        data = json.loads(payload.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise YouTubePublishError("YouTube playlist response is invalid")
+        items = data.get("items", [])
+        if not isinstance(items, list):
+            return []
+        return [item for item in items if isinstance(item, dict)]
+
+    def list_my_playlists(self) -> list[dict[str, Any]]:
+        playlists: list[dict[str, Any]] = []
+        page_token: str | None = None
+        while True:
+            query_items = {
+                "part": "snippet",
+                "mine": "true",
+                "maxResults": "50",
+            }
+            if page_token:
+                query_items["pageToken"] = page_token
+            query = urllib.parse.urlencode(query_items)
+            url = f"{API_BASE}/playlists?{query}"
+            status, _, payload = self._request("GET", url)
+            if status != 200:
+                detail = payload.decode("utf-8", errors="replace").strip()
+                raise YouTubePublishError(
+                    f"YouTube playlist lookup failed with HTTP {status}: {detail}"
+                )
+            items = self._parse_playlist_items(payload)
+            playlists.extend(items)
+            data = json.loads(payload.decode("utf-8"))
+            next_token = data.get("nextPageToken") if isinstance(data, dict) else None
+            if not isinstance(next_token, str) or not next_token.strip():
+                break
+            page_token = next_token.strip()
+        return playlists
+
+    def resolve_playlist_id(
+        self,
+        title: str,
+        *,
+        playlist_id: str | None = None,
+    ) -> str:
+        if playlist_id and playlist_id.strip():
+            return playlist_id.strip()
+
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise YouTubePublishError("YouTube playlist title is empty")
+
+        cached = self._playlist_id_cache.get(normalized_title.casefold())
+        if cached:
+            return cached
+
+        target = normalized_title.casefold()
+        for item in self.list_my_playlists():
+            playlist_key = item.get("id")
+            snippet = item.get("snippet")
+            if not isinstance(playlist_key, str) or not playlist_key:
+                continue
+            if not isinstance(snippet, dict):
+                continue
+            item_title = snippet.get("title")
+            if isinstance(item_title, str) and item_title.strip().casefold() == target:
+                self._playlist_id_cache[normalized_title.casefold()] = playlist_key
+                return playlist_key
+
+        raise YouTubePublishError(
+            f"YouTube playlist {normalized_title!r} was not found on the authorized channel"
+        )
+
+    def add_video_to_playlist(self, video_id: str, playlist_id: str) -> None:
+        body = {
+            "snippet": {
+                "playlistId": playlist_id,
+                "resourceId": {
+                    "kind": "youtube#video",
+                    "videoId": video_id,
+                },
+            }
+        }
+        query = urllib.parse.urlencode({"part": "snippet"})
+        url = f"{API_BASE}/playlistItems?{query}"
+        status, _, payload = self._request(
+            "POST",
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        if status not in {200, 201}:
+            detail = payload.decode("utf-8", errors="replace").strip()
+            raise YouTubePublishError(
+                f"YouTube playlist insert failed with HTTP {status}: {detail}"
+            )
+
+    def update_video_snippet(
+        self,
+        video_id: str,
+        *,
+        title: str,
+        description: str,
+        tags: list[str] | None = None,
+        category_id: str = "22",
+    ) -> None:
+        body = {
+            "id": video_id,
+            "snippet": {
+                "title": title.strip(),
+                "description": description.strip(),
+                "categoryId": category_id,
+            },
+        }
+        if tags:
+            body["snippet"]["tags"] = tags
+        query = urllib.parse.urlencode({"part": "snippet"})
+        url = f"{API_BASE}/videos?{query}"
+        status, _, payload = self._request(
+            "PUT",
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        if status != 200:
+            detail = payload.decode("utf-8", errors="replace").strip()
+            raise YouTubePublishError(
+                f"YouTube video update failed with HTTP {status}: {detail}"
+            )
+
     def get_video_status_item(self, video_id: str) -> dict[str, Any] | None:
         query = urllib.parse.urlencode(
             {"part": "status,processingDetails", "id": video_id}
@@ -895,12 +1030,15 @@ def publish_to_youtube(
     youtube_channel_url: str | None = None,
     ffmpeg_path: str | None = None,
     cover_end_seconds: float | None = None,
+    playlist_id: str | None = None,
+    playlist_title: str | None = DEFAULT_YOUTUBE_PLAYLIST_TITLE,
 ) -> str:
     """Upload a video to YouTube and return the published video ID."""
     from media_publisher.post_templates import (
         DEFAULT_FACEBOOK_PAGE_URL,
         DEFAULT_INSTAGRAM_PROFILE_URL,
         DEFAULT_YOUTUBE_CHANNEL_URL,
+        inject_published_video_url,
         prepare_publish_job,
     )
 
@@ -951,6 +1089,17 @@ def publish_to_youtube(
         category_id=category_id,
     )
 
+    if job.video_format == "post":
+        updated_description = inject_published_video_url(job.description, video_id)
+        if updated_description != job.description:
+            client.update_video_snippet(
+                video_id,
+                title=job.title,
+                description=updated_description,
+                tags=job.tags,
+                category_id=category_id,
+            )
+
     if job.thumbnail_path:
         thumbnail = prepare_youtube_thumbnail(
             Path(job.thumbnail_path),
@@ -963,5 +1112,12 @@ def publish_to_youtube(
             if job.video_format != "short_form":
                 raise
             # Shorts often reject API thumbnails; upload still succeeds.
+
+    if playlist_title or playlist_id:
+        resolved_playlist_id = client.resolve_playlist_id(
+            playlist_title or "",
+            playlist_id=playlist_id,
+        )
+        client.add_video_to_playlist(video_id, resolved_playlist_id)
 
     return video_id

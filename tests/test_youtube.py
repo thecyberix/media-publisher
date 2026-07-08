@@ -41,7 +41,17 @@ class YouTubeHelperTests(unittest.TestCase):
     def test_build_video_status_immediate(self) -> None:
         job = PublishJob(title="Demo", privacy_status="unlisted")
         status = build_video_status(job)
-        self.assertEqual(status, {"privacyStatus": "unlisted"})
+        self.assertEqual(
+            status,
+            {"privacyStatus": "unlisted", "containsSyntheticMedia": False},
+        )
+
+    def test_build_video_status_declares_no_synthetic_media_when_scheduled(self) -> None:
+        publish_at = datetime.now(timezone.utc) + timedelta(hours=2)
+        job = PublishJob(title="Demo", publish_at=publish_at)
+        status = build_video_status(job)
+        self.assertFalse(status["containsSyntheticMedia"])
+        self.assertEqual(status["privacyStatus"], "private")
 
     def test_load_client_secrets_installed_app(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -119,6 +129,7 @@ class YouTubeClientTests(unittest.TestCase):
         self.assertEqual(body["snippet"]["title"], "Launch video")
         self.assertEqual(body["snippet"]["tags"], ["launch", "product"])
         self.assertEqual(body["status"]["privacyStatus"], "private")
+        self.assertFalse(body["status"]["containsSyntheticMedia"])
 
     def test_upload_video_returns_video_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -418,6 +429,38 @@ class YouTubeClientTests(unittest.TestCase):
         client_cls.return_value.set_thumbnail.assert_called_once_with(
             "vid123",
             prepared,
+        )
+
+    def test_publish_to_youtube_adds_video_to_playlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            video_path.write_bytes(b"video")
+            job = PublishJob(
+                title="Clip",
+                video_path=str(video_path),
+                video_format="post",
+            )
+            with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                client_cls.return_value.upload_video.return_value = "vid123"
+                client_cls.return_value.resolve_playlist_id.return_value = "PLtest123"
+                video_id = publish_to_youtube(
+                    job,
+                    client_secrets_path=secrets_path,
+                    token_path=token_path,
+                    playlist_id="PLtest123",
+                )
+
+        self.assertEqual(video_id, "vid123")
+        client_cls.return_value.resolve_playlist_id.assert_called_once_with(
+            "Съзнателна Планета",
+            playlist_id="PLtest123",
+        )
+        client_cls.return_value.add_video_to_playlist.assert_called_once_with(
+            "vid123",
+            "PLtest123",
         )
 
     def test_publish_to_youtube_requires_video_path(self) -> None:

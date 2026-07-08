@@ -13,6 +13,7 @@ from media_publisher.publishers.facebook import FacebookPublishError
 from media_publisher.publishers.instagram import InstagramPublishError
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.publishers.youtube import (
+    DEFAULT_YOUTUBE_PLAYLIST_TITLE,
     YouTubePublishError,
     publish_to_youtube,
     youtube_video_url,
@@ -76,6 +77,8 @@ def publish_local_quote_to_youtube(
     work_dir: Path,
     ffmpeg_path: str | None = None,
     template_urls: dict[str, str] | None = None,
+    playlist_id: str | None = None,
+    playlist_title: str | None = None,
     private: bool = False,
 ) -> str:
     try:
@@ -107,6 +110,8 @@ def publish_local_quote_to_youtube(
         token_path=token_path,
         expected_channel_handle=expected_channel_handle,
         ffmpeg_path=ffmpeg_path,
+        playlist_id=playlist_id,
+        playlist_title=playlist_title or DEFAULT_YOUTUBE_PLAYLIST_TITLE,
         **(template_urls or {}),
     )
     return youtube_video_url(video_id)
@@ -127,6 +132,8 @@ def publish_local_quote(
     youtube_token: Path | None = None,
     youtube_channel_handle: str | None = None,
     youtube_work_dir: Path | None = None,
+    youtube_playlist_id: str | None = None,
+    youtube_playlist_title: str | None = None,
     ffmpeg_path: str | None = None,
     template_urls: dict[str, str] | None = None,
     private: bool = False,
@@ -145,6 +152,8 @@ def publish_local_quote(
             work_dir=youtube_work_dir,
             ffmpeg_path=ffmpeg_path,
             template_urls=template_urls,
+            playlist_id=youtube_playlist_id,
+            playlist_title=youtube_playlist_title,
             private=private,
         )
 

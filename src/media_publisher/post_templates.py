@@ -82,6 +82,10 @@ def _social_footer(
     return "\n".join(lines)
 
 
+def _youtube_body_text(job: PublishJob) -> str:
+    return job.description.strip() or job.title.strip()
+
+
 def build_long_form_description(
     job: PublishJob,
     *,
@@ -89,7 +93,7 @@ def build_long_form_description(
     instagram_url: str = DEFAULT_INSTAGRAM_PROFILE_URL,
     youtube_channel_url: str = DEFAULT_YOUTUBE_CHANNEL_URL,
 ) -> str:
-    body = job.description.strip()
+    body = _youtube_body_text(job)
     footer = _social_footer(
         facebook_url=facebook_url,
         instagram_url=instagram_url,
@@ -124,12 +128,55 @@ def build_short_form_youtube_title(title: str) -> str:
     return f"{base}{suffix}"
 
 
-def build_short_form_youtube_description(title: str) -> str:
-    clean = title.strip()
-    lines = ["#shorts", "#садгуру"]
+def build_short_form_youtube_description(description: str) -> str:
+    clean = description.strip()
+    header = "#shorts #садгуру"
     if clean:
-        lines.append(clean)
-    return "\n".join(lines)
+        return f"{header}\n{clean}"
+    return header
+
+
+def _description_after_hashtag(description: str) -> str:
+    if description.startswith("Садгуру "):
+        return description[len("Садгуру ") :]
+    if description.startswith("садгуру "):
+        return description[len("садгуру ") :]
+    return description
+
+
+def build_long_form_social_caption(job: PublishJob) -> str:
+    """Format long-form Facebook/Instagram captions like published Sadhguru BG posts."""
+    title = job.title.strip().rstrip(".")
+    description = job.description.strip()
+    if not title:
+        if not description:
+            return QUOTE_HASHTAG
+        return f"{QUOTE_HASHTAG} {_description_after_hashtag(description)}"
+    if not description:
+        return f"{title}. {QUOTE_HASHTAG}"
+    if description.startswith(title):
+        rest = description[len(title) :].lstrip(" .")
+        if rest.startswith(QUOTE_HASHTAG):
+            return description
+        if rest.startswith(LEGACY_QUOTE_HASHTAG):
+            rest = rest[len(LEGACY_QUOTE_HASHTAG) :].lstrip()
+        rest = _description_after_hashtag(rest)
+        return f"{title}. {QUOTE_HASHTAG} {rest}" if rest else f"{title}. {QUOTE_HASHTAG}"
+    rest = _description_after_hashtag(description)
+    return f"{title}. {QUOTE_HASHTAG} {rest}"
+
+
+def inject_published_video_url(description: str, video_id: str) -> str:
+    """Insert the published YouTube short link before the long-form footer."""
+    short_url = f"https://youtu.be/{video_id}"
+    if short_url in description:
+        return description
+    marker = "\n\nOriginal video:"
+    if marker in description:
+        body, footer = description.split(marker, 1)
+        return f"{body.rstrip()}\n\n{short_url}{marker}{footer}"
+    body = description.rstrip()
+    return f"{body}\n\n{short_url}" if body else short_url
 
 
 QUOTE_HASHTAG = "#Садгуру"
@@ -158,22 +205,24 @@ def _quote_body(caption: str) -> str:
 
 
 def build_quote_youtube_title(caption: str) -> str:
-    """Build a YouTube title from quote text without the trailing #Садгуру hashtag."""
+    """Build a YouTube title from quote text with trailing #Садгуру."""
     body = _quote_body(caption)
+    suffix = f" {QUOTE_HASHTAG}"
+    max_body_len = YOUTUBE_TITLE_MAX_LENGTH - len(suffix)
     if not body:
-        return "Садгуру"
+        return QUOTE_HASHTAG
 
-    if len(body) <= YOUTUBE_TITLE_MAX_LENGTH:
-        return body
+    if len(body) <= max_body_len:
+        return f"{body}{suffix}"
 
     match = re.match(r"^(.+?[.!?])(?:\s|$)", body)
     first_sentence = match.group(1).strip() if match else body
-    if len(first_sentence) <= YOUTUBE_TITLE_MAX_LENGTH:
-        return first_sentence
+    if len(first_sentence) <= max_body_len:
+        return f"{first_sentence}{suffix}"
 
     ellipsis = "..."
-    max_len = YOUTUBE_TITLE_MAX_LENGTH - len(ellipsis)
-    return f"{first_sentence[:max_len].rstrip()}{ellipsis}"
+    max_len = max_body_len - len(ellipsis)
+    return f"{first_sentence[:max_len].rstrip()}{ellipsis}{suffix}"
 
 
 def build_quote_youtube_description(caption: str) -> str:
@@ -187,16 +236,34 @@ def build_quote_social_caption(caption: str) -> str:
     return build_quote_post_caption(caption)
 
 
-def build_short_form_social_caption(job: PublishJob) -> str:
-    title = job.title.strip()
+def _append_trailing_hashtag(text: str) -> str:
+    clean = text.strip()
+    if not clean:
+        return QUOTE_HASHTAG
+    if clean.endswith(QUOTE_HASHTAG):
+        return clean
+    if clean.endswith(LEGACY_QUOTE_HASHTAG):
+        return f"{clean[: -len(LEGACY_QUOTE_HASHTAG)].rstrip()} {QUOTE_HASHTAG}"
+    return f"{clean} {QUOTE_HASHTAG}"
+
+
+def build_facebook_video_caption(job: PublishJob) -> str:
+    """Facebook caption: title, optional description, then #Садгуру at the end."""
+    title = job.title.strip().rstrip(".")
     description = job.description.strip()
     if not title:
-        return description
+        return build_quote_post_caption(description)
     if not description:
-        return f"{title}. [#Садгуру]"
+        return f"{title}. {QUOTE_HASHTAG}"
     if description.startswith(title):
-        return f"{title}. [#Садгуру] {description[len(title):].lstrip(' .')}"
-    return f"{title}. [#Садгуру] {description}"
+        body = description
+    else:
+        body = f"{title}. {description}"
+    return _append_trailing_hashtag(body)
+
+
+def build_short_form_social_caption(job: PublishJob) -> str:
+    return build_facebook_video_caption(job)
 
 
 def prepare_publish_job(
@@ -241,7 +308,9 @@ def _prepare_post_format_job(
     )
     if platform == "youtube":
         return replace(job, description=description, tags=list(YOUTUBE_TAGS_POST))
-    return replace(job, description=description)
+    if platform == "facebook":
+        return replace(job, description=build_facebook_video_caption(job))
+    return replace(job, description=build_long_form_social_caption(job))
 
 
 def _prepare_short_form_job(
@@ -273,10 +342,13 @@ def _prepare_short_form_job(
         return replace(
             job,
             title=build_short_form_youtube_title(job.title),
-            description=build_short_form_youtube_description(job.title),
-            tags=list(YOUTUBE_TAGS_SHORT),
+            description=build_short_form_youtube_description(
+                job.description or job.title
+            ),
+            tags=list(YOUTUBE_TAGS_POST),
         )
     if job.content_kind == "image" and job.description.strip():
         return replace(job, description=build_quote_post_caption(job.description))
-    caption = build_short_form_social_caption(job)
-    return replace(job, description=caption)
+    if platform == "facebook":
+        return replace(job, description=build_facebook_video_caption(job))
+    return replace(job, description=build_short_form_social_caption(job))

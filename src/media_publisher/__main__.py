@@ -314,8 +314,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Schedule or publish today's quote from the monthly Canva PDF in "
-            "downloads/canva. The design is resolved by title in the 'Цитати на Садгуру' "
-            "Canva folder, e.g. 'Юли 2026' (Instagram uses 'Юли 2026 IG'). "
+            "downloads/canva. The design is resolved by title in the DMQ templates "
+            "folder, e.g. 'Юли 2026 FB/YT DMQ Template Final' (Instagram uses "
+            "'Юли 2026 IG DMQ Template Final'). "
             "Each PDF page is one day of the month (page N = day N). Images become short "
             "videos for YouTube (scheduled Short with image thumbnail). Facebook and "
             "Instagram use the rendered page image (Instagram is published automatically "
@@ -683,6 +684,8 @@ def build_quotes_pipeline_settings(
         youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
         youtube_token=PROJECT_ROOT / settings.youtube_token,
         youtube_channel_handle=settings.youtube_channel_handle,
+        youtube_playlist_title=settings.youtube_playlist_title,
+        youtube_playlist_id=settings.youtube_playlist_id,
         ffmpeg_path=settings.happyscribe_ffmpeg,
         canva_quotes_design_id=settings.canva_quotes_design_id,
         canva_quotes_folder_id=resolve_canva_quotes_folder_id(settings),
@@ -833,6 +836,8 @@ def build_publish_pipeline_settings(
         youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
         youtube_token=PROJECT_ROOT / settings.youtube_token,
         youtube_channel_handle=settings.youtube_channel_handle,
+        youtube_playlist_title=settings.youtube_playlist_title,
+        youtube_playlist_id=settings.youtube_playlist_id,
         template_urls=template_urls_from_settings(settings),
         meta_page_id=meta_page_id,
         meta_instagram_account_id=meta_instagram_account_id,
@@ -843,6 +848,7 @@ def build_publish_pipeline_settings(
         publish_on_date=publish_on_date,
         regenerate_videos=regenerate_videos,
         use_web_export=use_web_export,
+        happyscribe_published_folder_id=settings.happyscribe_published_folder_id,
     )
 
 
@@ -1541,6 +1547,8 @@ def main() -> int:
                 expected_channel_handle=settings.youtube_channel_handle,
                 ffmpeg_path=settings.happyscribe_ffmpeg,
                 cover_end_seconds=settings.youtube_short_cover_end_seconds,
+                playlist_id=settings.youtube_playlist_id,
+                playlist_title=settings.youtube_playlist_title,
                 **template_urls_from_settings(settings),
             )
             permalink = youtube_video_url(video_id)

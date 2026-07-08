@@ -15,6 +15,7 @@ from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
     FIELD_TITLE,
+    FIELD_TRANSLATION_RESOURCES,
     FIELD_VIDEO_NAME_TRANSLATED,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
@@ -78,6 +79,8 @@ class PublishPipelineSettings:
     youtube_client_secrets: Path
     youtube_token: Path
     youtube_channel_handle: str
+    youtube_playlist_title: str
+    youtube_playlist_id: str | None
     template_urls: dict[str, str]
     meta_page_id: str
     meta_instagram_account_id: str
@@ -88,6 +91,7 @@ class PublishPipelineSettings:
     publish_on_date: date | None = None
     regenerate_videos: bool = False
     use_web_export: bool = False
+    happyscribe_published_folder_id: str | None = None
     youtube_short_cover_end_seconds: float = 2.0
 
 
@@ -124,6 +128,8 @@ def publish_platform_task(
             expected_channel_handle=settings.youtube_channel_handle,
             ffmpeg_path=settings.ffmpeg_path,
             cover_end_seconds=settings.youtube_short_cover_end_seconds,
+            playlist_id=settings.youtube_playlist_id,
+            playlist_title=settings.youtube_playlist_title,
             **settings.template_urls,
         )
         return youtube_video_url(video_id)
@@ -208,7 +214,15 @@ def run_publish_pipeline(
 
     results: list[PlatformPublishResult] = []
     grouped = group_tasks_by_record(tasks)
-    library_transcriptions = happyscribe.list_library_transcriptions(happyscribe_location)
+    extra_folders = (
+        [settings.happyscribe_published_folder_id]
+        if settings.happyscribe_published_folder_id
+        else []
+    )
+    library_transcriptions = happyscribe.list_search_transcriptions(
+        happyscribe_location,
+        extra_folder_ids=extra_folders,
+    )
 
     for record_id, record_tasks in grouped.items():
         if settings.publish_immediately:
@@ -241,6 +255,7 @@ def run_publish_pipeline(
 
         catalog_name = catalog_name_from_task(record_tasks[0])
         title = record_tasks[0].job.title
+        smartcat_url = record_tasks[0].job.metadata.get(FIELD_TRANSLATION_RESOURCES)
         print_line(f"Processing {record_id}\t{catalog_name}\t{title}")
 
         try:
@@ -257,6 +272,7 @@ def run_publish_pipeline(
                 transcriptions=library_transcriptions,
                 force_regenerate=settings.regenerate_videos,
                 use_web_export=settings.use_web_export,
+                smartcat_url=smartcat_url,
             )
             print_line(f"  Video: {video_path}")
         except (HappyScribeError, HappyScribeWebError) as exc:

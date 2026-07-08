@@ -70,6 +70,20 @@ class CanvaHelperTests(unittest.TestCase):
             "https://www.canva.com/design/DAGaqof2VGI/edit",
         )
 
+    def test_resolve_canva_url_normalizes_login_folder_redirect(self) -> None:
+        class FakeResponse:
+            url = "https://www.canva.com/login/?redirect=%2Ffolder%2FFAHOmUvMRtk"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse()):
+            resolved = resolve_canva_url("https://canva.link/mkc9c31v441jey0")
+        self.assertEqual(resolved, "https://www.canva.com/folder/FAHOmUvMRtk")
+
     def test_download_design_images_downloads_all_pages(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             client = CanvaClientTests()._client(tmpdir)
@@ -297,7 +311,7 @@ class CanvaClientTests(unittest.TestCase):
                     download_dir,
                     year=2026,
                     month=7,
-                    design_title="Юли 2026",
+                    design_title="Юли 2026 FB/YT DMQ Template Final",
                 )
 
             self.assertEqual(result.name, "quotes-2026-07.pdf")
@@ -320,7 +334,7 @@ class CanvaClientTests(unittest.TestCase):
                     download_dir,
                     year=2026,
                     month=7,
-                    design_title="Юли 2026 IG",
+                    design_title="Юли 2026 IG DMQ Template Final",
                     variant="ig",
                 )
 

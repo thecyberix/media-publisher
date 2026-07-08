@@ -62,14 +62,26 @@ class QuoteDateParsingTests(unittest.TestCase):
 
 class QuoteCanvaTitleTests(unittest.TestCase):
     def test_quote_canva_design_title(self) -> None:
-        self.assertEqual(quote_canva_design_title(2026, 7), "Юли 2026")
-        self.assertEqual(quote_canva_design_title(2026, 1), "Януари 2026")
+        self.assertEqual(
+            quote_canva_design_title(2026, 7),
+            "Юли 2026 FB/YT DMQ Template Final",
+        )
+        self.assertEqual(
+            quote_canva_design_title(2026, 1),
+            "Януари 2026 FB/YT DMQ Template Final",
+        )
 
     def test_quote_canva_ig_design_title(self) -> None:
         from media_publisher.sources.quotes import quote_canva_ig_design_title
 
-        self.assertEqual(quote_canva_ig_design_title(2026, 7), "Юли 2026 IG")
-        self.assertEqual(quote_canva_ig_design_title(2026, 1), "Януари 2026 IG")
+        self.assertEqual(
+            quote_canva_ig_design_title(2026, 7),
+            "Юли 2026 IG DMQ Template Final",
+        )
+        self.assertEqual(
+            quote_canva_ig_design_title(2026, 1),
+            "Януари 2026 IG DMQ Template Final",
+        )
 
 
 class MonthlyQuoteDiscoveryTests(unittest.TestCase):
@@ -160,6 +172,8 @@ class QuotesPipelineTests(unittest.TestCase):
             "youtube_client_secrets": Path("auth/youtube-client.json"),
             "youtube_token": Path("auth/youtube-token.json"),
             "youtube_channel_handle": "SadhguruBulgarian",
+            "youtube_playlist_title": "Съзнателна Планета",
+            "youtube_playlist_id": None,
             "ffmpeg_path": "ffmpeg",
         }
         defaults.update(kwargs)

@@ -12,6 +12,7 @@ class ImageVideoError(RuntimeError):
 SHORT_VIDEO_WIDTH = 1080
 SHORT_VIDEO_HEIGHT = 1920
 SHORT_COVER_END_SECONDS = 2.0
+QUOTE_VIDEO_DURATION_SECONDS = 10.0
 
 
 def _resolve_ffmpeg(ffmpeg_path: str | None = None) -> str:
@@ -115,7 +116,7 @@ def image_to_quote_video(
     destination: Path,
     *,
     ffmpeg_path: str | None = None,
-    duration_seconds: float = 5.0,
+    duration_seconds: float = QUOTE_VIDEO_DURATION_SECONDS,
 ) -> Path:
     """Convert a still quote image into a vertical MP4 for YouTube Shorts."""
     source = image_path.resolve()
@@ -170,10 +171,12 @@ def ensure_quote_video(
     work_dir: Path,
     *,
     ffmpeg_path: str | None = None,
+    duration_seconds: float = QUOTE_VIDEO_DURATION_SECONDS,
 ) -> Path:
     """Build or reuse a cached MP4 derived from a quote image."""
     work_dir.mkdir(parents=True, exist_ok=True)
-    destination = work_dir / f"{image_path.stem}_quote.mp4"
+    duration_label = int(duration_seconds) if duration_seconds == int(duration_seconds) else duration_seconds
+    destination = work_dir / f"{image_path.stem}_quote_{duration_label}s.mp4"
     if destination.is_file():
         if destination.stat().st_mtime >= image_path.stat().st_mtime:
             return destination
@@ -181,4 +184,5 @@ def ensure_quote_video(
         image_path,
         destination,
         ffmpeg_path=ffmpeg_path,
+        duration_seconds=duration_seconds,
     )

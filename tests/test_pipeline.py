@@ -88,6 +88,26 @@ class PipelineHelperTests(unittest.TestCase):
                 "From Choosing Between Ducati"
             ),
         )
+        self.assertEqual(
+            normalize_name_for_catalog_match(
+                "Krishna Janmashtami Is Not Just About Krishnas Birth(bg).srt"
+            ),
+            normalize_name_for_catalog_match(
+                "Krishna Janmashtami Is Not Just About Krishnas Birth"
+            ),
+        )
+
+    def test_find_transcription_for_catalog_matches_srt_only_export(self) -> None:
+        transcriptions = [
+            HappyScribeTranscription(
+                id="tx-srt",
+                name="Launch video(bg).srt",
+                state="automatic_done",
+            )
+        ]
+        found = find_transcription_for_catalog(transcriptions, "Launch video")
+        self.assertIsNotNone(found)
+        self.assertEqual(found.id, "tx-srt")
 
     def test_filter_tasks_for_local_date(self) -> None:
         from datetime import date
@@ -183,10 +203,10 @@ class PublishPipelineTests(unittest.TestCase):
             "canva_download_dir": Path("downloads/canva"),
             "canva_client": unittest.mock.Mock(),
             "canva_long_video_thumbnails_url": (
-                "https://www.canva.com/folder/FAHOgLx_jAw"
+                "https://canva.link/mkc9c31v441jey0"
             ),
             "canva_short_video_thumbnails_url": (
-                "https://www.canva.com/folder/FAHOgF-NT8Q"
+                "https://canva.link/aqmh5jedqw5g0ei"
             ),
             "happyscribe_download_dir": Path("downloads/happyscribe"),
             "happyscribe_browser_state": Path("auth/happyscribe-session.json"),
@@ -198,6 +218,8 @@ class PublishPipelineTests(unittest.TestCase):
             "youtube_client_secrets": Path("auth/youtube-client.json"),
             "youtube_token": Path("auth/youtube-token.json"),
             "youtube_channel_handle": "SadhguruBulgarian",
+            "youtube_playlist_title": "Съзнателна Планета",
+            "youtube_playlist_id": None,
             "template_urls": {},
             "meta_page_id": "page",
             "meta_instagram_account_id": "ig",
@@ -242,7 +264,7 @@ class PublishPipelineTests(unittest.TestCase):
 
         with patch.object(client, "list_records", return_value=[record]), patch.object(
             happyscribe,
-            "list_library_transcriptions",
+            "list_search_transcriptions",
             return_value=[],
         ), patch(
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
@@ -293,7 +315,7 @@ class PublishPipelineTests(unittest.TestCase):
 
         with patch.object(client, "list_records", return_value=[record]), patch.object(
             happyscribe,
-            "list_library_transcriptions",
+            "list_search_transcriptions",
             return_value=[],
         ), patch(
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
@@ -347,7 +369,7 @@ class PublishPipelineTests(unittest.TestCase):
             return_value=[],
         ), patch.object(
             happyscribe,
-            "list_library_transcriptions",
+            "list_search_transcriptions",
             return_value=[],
         ), patch(
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
@@ -418,7 +440,7 @@ class PublishPipelineTests(unittest.TestCase):
             return_value=[],
         ), patch.object(
             happyscribe,
-            "list_library_transcriptions",
+            "list_search_transcriptions",
             return_value=[],
         ), patch(
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
@@ -487,7 +509,7 @@ class PublishPipelineTests(unittest.TestCase):
             return_value=[],
         ), patch.object(
             happyscribe,
-            "list_library_transcriptions",
+            "list_search_transcriptions",
             return_value=[],
         ), patch(
             "media_publisher.pipeline.ensure_catalog_video_downloaded",

@@ -19,8 +19,8 @@ QUOTE_RENDER_DIRNAME = ".renders"
 QUOTE_IG_RENDER_DIRNAME = ".renders-ig"
 QUOTE_VIDEO_DIRNAME = ".videos"
 STATE_FILENAME = ".schedule-state.json"
-QUOTE_CANVA_DESIGN_TITLE_TEMPLATE = "{month_name} {year}"
-QUOTE_CANVA_IG_DESIGN_TITLE_TEMPLATE = "{month_name} {year} IG"
+QUOTE_CANVA_DESIGN_TITLE_TEMPLATE = "{month_name} {year} FB/YT DMQ Template Final"
+QUOTE_CANVA_IG_DESIGN_TITLE_TEMPLATE = "{month_name} {year} IG DMQ Template Final"
 
 BULGARIAN_MONTHS: dict[str, int] = {
     "януари": 1,

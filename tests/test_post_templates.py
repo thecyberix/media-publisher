@@ -5,12 +5,14 @@ import unittest
 from media_publisher.models import PublishJob
 from media_publisher.post_templates import (
     build_long_form_description,
+    build_long_form_social_caption,
     build_quote_post_caption,
     build_quote_youtube_description,
     build_quote_youtube_title,
     build_short_form_social_caption,
     build_short_form_youtube_description,
     build_short_form_youtube_title,
+    inject_published_video_url,
     prepare_publish_job,
 )
 
@@ -49,19 +51,18 @@ class PostTemplateTests(unittest.TestCase):
         prepared = prepare_publish_job(job, "youtube")
         self.assertEqual(
             prepared.title,
-            "Животът е относно съзнателност, а не относно грижи, неосъзнати подтици или конфликти.",
+            "Животът е относно съзнателност, а не относно грижи, неосъзнати подтици или конфликти. #Садгуру",
         )
         self.assertTrue(prepared.description.startswith("#садгуру\n"))
         self.assertIn("Нека следващите месеци", prepared.description)
         self.assertNotIn("#Садгуру", prepared.description)
-        self.assertNotIn("#Садгуру", prepared.title)
+        self.assertTrue(prepared.title.endswith("#Садгуру"))
 
     def test_build_quote_youtube_title_truncates_long_first_sentence(self) -> None:
         long_sentence = "А" * 120 + "."
         title = build_quote_youtube_title(long_sentence)
         self.assertLessEqual(len(title), 100)
-        self.assertTrue(title.endswith("..."))
-        self.assertNotIn("#Садгуру", title)
+        self.assertTrue(title.endswith("... #Садгуру"))
 
     def test_build_quote_post_caption_matches_facebook_template(self) -> None:
         quote = (
@@ -102,10 +103,11 @@ class PostTemplateTests(unittest.TestCase):
         )
         self.assertEqual(
             prepared.description,
-            "#shorts\n#садгуру\nНакарайте всичко да работи за вас",
+            "#shorts #садгуру\n"
+            "Садгуру обяснява защо балансът е най-важното качество.",
         )
-        self.assertIn("духовно развитие", prepared.tags)
-        self.assertNotIn("садгуру българия", prepared.tags)
+        self.assertIn("садгуру българия", prepared.tags)
+        self.assertNotIn("духовно развитие", prepared.tags)
 
     def test_short_form_facebook_caption(self) -> None:
         job = PublishJob(
@@ -116,11 +118,11 @@ class PostTemplateTests(unittest.TestCase):
         prepared = prepare_publish_job(job, "facebook")
         self.assertEqual(
             prepared.description,
-            "Накарайте всичко да работи за вас. [#Садгуру] "
-            "Садгуру обяснява защо балансът е най-важното качество.",
+            "Накарайте всичко да работи за вас. "
+            "Садгуру обяснява защо балансът е най-важното качество. #Садгуру",
         )
 
-    def test_long_form_facebook_uses_social_footer(self) -> None:
+    def test_long_form_facebook_uses_hashtag_caption(self) -> None:
         job = PublishJob(
             title="Когато Садгуру откри Нагамани – бижуто на кобрата",
             description="Основен текст.",
@@ -128,7 +130,33 @@ class PostTemplateTests(unittest.TestCase):
             video_format="post",
         )
         prepared = prepare_publish_job(job, "facebook")
-        self.assertIn("Основен текст.", prepared.description)
+        self.assertEqual(
+            prepared.description,
+            "Когато Садгуру откри Нагамани – бижуто на кобрата. Основен текст. #Садгуру",
+        )
+        self.assertNotIn("Original video:", prepared.description)
+
+    def test_short_form_youtube_uses_title_when_description_missing(self) -> None:
+        job = PublishJob(
+            title="Накарайте всичко да работи за вас",
+            description="",
+            video_format="short_form",
+        )
+        prepared = prepare_publish_job(job, "youtube")
+        self.assertEqual(
+            prepared.description,
+            "#shorts #садгуру\nНакарайте всичко да работи за вас",
+        )
+
+    def test_long_form_youtube_uses_title_when_description_missing(self) -> None:
+        job = PublishJob(
+            title="Заглавие на видеото",
+            description="",
+            video_url="https://youtu.be/original",
+            video_format="post",
+        )
+        prepared = prepare_publish_job(job, "youtube")
+        self.assertIn("Заглавие на видеото", prepared.description)
         self.assertIn("Original video:", prepared.description)
 
     def test_build_short_form_youtube_title_truncates_to_limit(self) -> None:
@@ -145,8 +173,11 @@ class PostTemplateTests(unittest.TestCase):
 
     def test_build_short_form_youtube_description(self) -> None:
         self.assertEqual(
-            build_short_form_youtube_description("Накарайте всичко да работи за вас"),
-            "#shorts\n#садгуру\nНакарайте всичко да работи за вас",
+            build_short_form_youtube_description(
+                "Садгуру обяснява защо балансът е най-важното качество."
+            ),
+            "#shorts #садгуру\n"
+            "Садгуру обяснява защо балансът е най-важното качество.",
         )
 
     def test_build_short_form_social_caption(self) -> None:
@@ -158,7 +189,46 @@ class PostTemplateTests(unittest.TestCase):
                     video_format="short_form",
                 )
             ),
-            "Заглавие. [#Садгуру] Описание на видеото.",
+            "Заглавие. Описание на видеото. #Садгуру",
+        )
+
+    def test_build_long_form_social_caption(self) -> None:
+        self.assertEqual(
+            build_long_form_social_caption(
+                PublishJob(
+                    title="Когато Садгуру откри Нагамани – бижуто на кобрата",
+                    description=(
+                        "Садгуру разказва за един увлекателен случай, при който е открил нагамани."
+                    ),
+                    video_format="post",
+                )
+            ),
+            "Когато Садгуру откри Нагамани – бижуто на кобрата. "
+            "#Садгуру разказва за един увлекателен случай, при който е открил нагамани.",
+        )
+        self.assertEqual(
+            build_long_form_social_caption(
+                PublishJob(
+                    title="Когато Садгуру откри Нагамани – бижуто на кобрата",
+                    description="Основен текст.",
+                    video_format="post",
+                )
+            ),
+            "Когато Садгуру откри Нагамани – бижуто на кобрата. #Садгуру Основен текст.",
+        )
+
+    def test_inject_published_video_url(self) -> None:
+        description = (
+            "Основен текст.\n\n"
+            "Original video: https://youtu.be/wCnnfKRycwI\n\n"
+            "Footer"
+        )
+        self.assertEqual(
+            inject_published_video_url(description, "ewFr6ZU1Jnk"),
+            "Основен текст.\n\n"
+            "https://youtu.be/ewFr6ZU1Jnk\n\n"
+            "Original video: https://youtu.be/wCnnfKRycwI\n\n"
+            "Footer",
         )
 
     def test_build_long_form_description_without_body(self) -> None:
@@ -169,6 +239,7 @@ class PostTemplateTests(unittest.TestCase):
                 video_format="post",
             )
         )
+        self.assertIn("Заглавие", text)
         self.assertIn("Original video:", text)
         self.assertIn("facebook.com/SadhguruBulgarian", text)
 

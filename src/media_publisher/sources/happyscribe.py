@@ -18,6 +18,8 @@ DEFAULT_API_BASE = "https://www.happyscribe.com/api/v1"
 DEFAULT_USER_AGENT = "media-publisher/0.1"
 DEFAULT_FFMPEG = "ffmpeg"
 DEFAULT_FFPROBE = "ffprobe"
+# Shared HappyScribe folder used for published/archived videos in this workspace.
+DEFAULT_PUBLISHED_FOLDER_ID = "23170478"
 # libass scales MarginV/FontSize from this play resolution for plain SRT input.
 LIBASS_DEFAULT_PLAY_RES_Y = 288
 EXPORT_POLL_INTERVAL_SECONDS = 1.0
@@ -64,10 +66,11 @@ class SubtitleBurnStyle:
     """Approximate HappyScribe burned-in subtitle styling for ffmpeg/libass."""
 
     font_name: str = "Arial"
-    font_size: int = 8
     bold: bool = True
-    # MarginV for bottom-centered text: distance up from the bottom edge (video pixels).
-    margin_bottom_px: int = 200
+    # Values tuned on short-form reels (1080x1920) and scaled for other resolutions.
+    reference_video_height: int = 1920
+    reference_font_size: int = 8
+    reference_margin_bottom_px: int = 200
     primary_colour: str = "&H00FFFFFF"
     outline_colour: str = "&H00000000"
     outline: int = 1
@@ -206,8 +209,8 @@ def normalize_name_for_catalog_match(name: str) -> str:
     if text.upper().startswith("SRT_"):
         text = text[4:].strip()
     text = re.sub(r"\(\d+\)$", "", text).strip()
-    text = re.sub(r"\(bg\)$", "", text, flags=re.IGNORECASE).strip()
     stem = Path(text).stem
+    stem = re.sub(r"\(bg\)$", "", stem, flags=re.IGNORECASE).strip()
     return re.sub(r"[^a-z0-9]+", "", stem.casefold())
 
 
@@ -233,18 +236,22 @@ def find_transcription_for_catalog(
     transcriptions: list[HappyScribeTranscription],
     catalog_name: str,
 ) -> HappyScribeTranscription | None:
-    """Match a catalog Original Video Name to a source HappyScribe transcription."""
+    """Match a catalog Original Video Name to a HappyScribe transcription."""
     catalog_key = normalize_name_for_catalog_match(catalog_name)
     if not catalog_key:
         return None
 
-    matches: list[HappyScribeTranscription] = []
+    source_matches: list[HappyScribeTranscription] = []
+    export_matches: list[HappyScribeTranscription] = []
     for transcription in transcriptions:
-        if is_subtitled_export_name(transcription.name):
+        if normalize_name_for_catalog_match(transcription.name) != catalog_key:
             continue
-        if normalize_name_for_catalog_match(transcription.name) == catalog_key:
-            matches.append(transcription)
+        if is_subtitled_export_name(transcription.name):
+            export_matches.append(transcription)
+        else:
+            source_matches.append(transcription)
 
+    matches = source_matches or export_matches
     if not matches:
         return None
     if len(matches) == 1:
@@ -256,6 +263,85 @@ def find_transcription_for_catalog(
         return prefixed, name.casefold()
 
     return sorted(matches, key=sort_key)[0]
+
+
+def srt_name_from_smartcat_url(url: str) -> str | None:
+    """Extract the SRT/document filename encoded in a SmartCat editor URL."""
+    text = url.strip()
+    if not text:
+        return None
+
+    parsed = urllib.parse.urlparse(text)
+    query = urllib.parse.parse_qs(parsed.query)
+
+    for key in ("search", "fileName", "filename", "name"):
+        values = query.get(key)
+        if values:
+            candidate = urllib.parse.unquote(values[0]).strip()
+            if candidate:
+                return candidate
+
+    back_url = query.get("backUrl", [""])[0]
+    if back_url:
+        back_path = urllib.parse.unquote(back_url)
+        back_query = urllib.parse.parse_qs(urllib.parse.urlparse(back_path).query)
+        for key in ("search", "fileName", "filename", "name"):
+            values = back_query.get(key)
+            if values:
+                candidate = urllib.parse.unquote(values[0]).strip()
+                if candidate:
+                    return candidate
+
+        search_match = re.search(
+            r"[?&]search=([^&]+)",
+            urllib.parse.unquote(urllib.parse.unquote(back_url)),
+        )
+        if search_match:
+            candidate = urllib.parse.unquote(search_match.group(1)).strip()
+            if candidate:
+                return candidate
+
+    return None
+
+
+def catalog_names_for_record(
+    title: str,
+    smartcat_url: str | None = None,
+) -> list[str]:
+    """Return catalog names to try, preferring the SmartCat SRT filename."""
+    names: list[str] = []
+    if smartcat_url:
+        srt_name = srt_name_from_smartcat_url(smartcat_url)
+        if srt_name:
+            names.append(srt_name)
+            stem = Path(srt_name).stem
+            if stem and stem not in names:
+                names.append(stem)
+    if title and title not in names:
+        names.append(title)
+    return names
+
+
+def find_transcription_for_catalog_names(
+    transcriptions: list[HappyScribeTranscription],
+    catalog_names: list[str],
+) -> tuple[HappyScribeTranscription | None, str | None]:
+    """Try several catalog names and return the first HappyScribe match."""
+    for name in catalog_names:
+        match = find_transcription_for_catalog(transcriptions, name)
+        if match is not None:
+            return match, name
+    return None, None
+
+
+def merge_transcriptions(
+    *groups: list[HappyScribeTranscription],
+) -> list[HappyScribeTranscription]:
+    merged: dict[str, HappyScribeTranscription] = {}
+    for group in groups:
+        for transcription in group:
+            merged[transcription.id] = transcription
+    return list(merged.values())
 
 
 def ensure_catalog_video_downloaded(
@@ -272,6 +358,7 @@ def ensure_catalog_video_downloaded(
     transcriptions: list[HappyScribeTranscription] | None = None,
     force_regenerate: bool = False,
     use_web_export: bool = False,
+    smartcat_url: str | None = None,
 ) -> Path:
     """Return a local subtitled video file for a catalog title, downloading if needed."""
     if force_regenerate:
@@ -283,10 +370,16 @@ def ensure_catalog_video_downloaded(
 
     if transcriptions is None:
         transcriptions = client.list_library_transcriptions(location)
-    transcription = find_transcription_for_catalog(transcriptions, catalog_name)
+    catalog_names = catalog_names_for_record(catalog_name, smartcat_url)
+    transcription, _matched_by = find_transcription_for_catalog_names(
+        transcriptions,
+        catalog_names,
+    )
     if transcription is None:
+        tried = ", ".join(repr(name) for name in catalog_names)
         raise HappyScribeError(
-            f"No HappyScribe transcription found for catalog title {catalog_name!r}."
+            f"No HappyScribe transcription found for catalog title {catalog_name!r}. "
+            f"Tried: {tried}"
         )
     if transcription.state != TRANSCRIPTION_STATE_READY:
         raise HappyScribeError(
@@ -378,10 +471,11 @@ def resolve_ffmpeg_path(ffmpeg_path: str | None = None) -> str:
     )
 
 
-def probe_video_height(video_path: Path) -> int:
+def probe_video_dimensions(video_path: Path) -> tuple[int, int]:
+    """Return (width, height) for the first video stream."""
     ffprobe = shutil.which(DEFAULT_FFPROBE)
     if ffprobe is None:
-        return 1080
+        return 1920, 1080
 
     result = subprocess.run(
         [
@@ -391,9 +485,9 @@ def probe_video_height(video_path: Path) -> int:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=height",
+            "stream=width,height",
             "-of",
-            "csv=p=0",
+            "csv=p=0:s=x",
             str(video_path.resolve()),
         ],
         capture_output=True,
@@ -403,12 +497,28 @@ def probe_video_height(video_path: Path) -> int:
         check=False,
     )
     if result.returncode != 0:
-        return 1080
+        return 1920, 1080
 
+    raw = result.stdout.strip()
+    if "x" not in raw:
+        return 1920, 1080
+
+    width_text, height_text = raw.split("x", 1)
     try:
-        return max(1, int(result.stdout.strip()))
+        width = max(1, int(width_text))
+        height = max(1, int(height_text))
     except ValueError:
-        return 1080
+        return 1920, 1080
+    return width, height
+
+
+def probe_video_height(video_path: Path) -> int:
+    return probe_video_dimensions(video_path)[1]
+
+
+def is_portrait_video(width: int, height: int) -> bool:
+    """Treat portrait/vertical videos as reels for subtitle scaling."""
+    return height >= width
 
 
 def video_margin_to_libass_margin_v(margin_v_video: int, video_height: int) -> int:
@@ -419,17 +529,60 @@ def video_margin_to_libass_margin_v(margin_v_video: int, video_height: int) -> i
     )
 
 
+def rendered_font_size_video_px(font_size_libass: int, video_height: int) -> int:
+    """Return the burned-in subtitle font size in video pixels."""
+    return max(
+        1,
+        round(font_size_libass * max(1, video_height) / LIBASS_DEFAULT_PLAY_RES_Y),
+    )
+
+
+def scale_subtitle_burn_metrics(
+    video_height: int,
+    style: SubtitleBurnStyle = DEFAULT_SUBTITLE_BURN_STYLE,
+    *,
+    proportional_font: bool = False,
+) -> tuple[int, int]:
+    """Scale font size and bottom margin from the reel reference resolution."""
+    reference_height = max(1, style.reference_video_height)
+    height = max(1, video_height)
+    scale = height / reference_height
+
+    if proportional_font:
+        # Reels: keep libass font size fixed; libass scales text with video height.
+        font_size = max(1, style.reference_font_size)
+    else:
+        # Long-form landscape: keep rendered font size stable across resolutions.
+        font_size = max(1, round(style.reference_font_size / scale))
+    line_height_video = rendered_font_size_video_px(font_size, height)
+    if proportional_font:
+        # Reels: fixed bottom inset tuned on 1080x1920 exports.
+        margin_v_video = max(8, style.reference_margin_bottom_px)
+    else:
+        margin_v_video = max(
+            8,
+            round(style.reference_margin_bottom_px * scale) + line_height_video,
+        )
+    return font_size, margin_v_video
+
+
 def build_subtitle_force_style(
     video_height: int,
     style: SubtitleBurnStyle = DEFAULT_SUBTITLE_BURN_STYLE,
+    *,
+    proportional_font: bool = False,
 ) -> str:
-    margin_v_video = max(8, style.margin_bottom_px)
+    font_size, margin_v_video = scale_subtitle_burn_metrics(
+        video_height,
+        style,
+        proportional_font=proportional_font,
+    )
     margin_v = video_margin_to_libass_margin_v(margin_v_video, video_height)
     return ",".join(
         (
             f"FontName={style.font_name}",
             f"Bold={1 if style.bold else 0}",
-            f"FontSize={style.font_size}",
+            f"FontSize={font_size}",
             f"PrimaryColour={style.primary_colour}",
             f"OutlineColour={style.outline_colour}",
             f"BorderStyle={style.border_style}",
@@ -455,8 +608,13 @@ def burn_subtitles_into_video(
     safe_subtitle_path = work_dir / "subtitles.burn.srt"
     shutil.copy(subtitle_path, safe_subtitle_path)
 
-    video_height = probe_video_height(video_path)
-    force_style = build_subtitle_force_style(video_height, style)
+    video_width, video_height = probe_video_dimensions(video_path)
+    proportional_font = is_portrait_video(video_width, video_height)
+    force_style = build_subtitle_force_style(
+        video_height,
+        style,
+        proportional_font=proportional_font,
+    )
     subtitle_filter = f"subtitles=subtitles.burn.srt:force_style='{force_style}'"
 
     command = [
@@ -662,6 +820,27 @@ class HappyScribeClient:
             organization_id=location.organization_id,
             folder_id=location.folder_id,
         )
+
+    def list_search_transcriptions(
+        self,
+        location: HappyScribeLibraryLocation,
+        *,
+        extra_folder_ids: list[str] | None = None,
+    ) -> list[HappyScribeTranscription]:
+        """List transcriptions from the primary folder plus any extra library folders."""
+        groups = [self.list_library_transcriptions(location)]
+        for folder_id in extra_folder_ids or []:
+            if folder_id == location.folder_id:
+                continue
+            groups.append(
+                self.list_library_transcriptions(
+                    HappyScribeLibraryLocation(
+                        organization_id=location.organization_id,
+                        folder_id=folder_id,
+                    )
+                )
+            )
+        return merge_transcriptions(*groups)
 
     def get_transcription(self, transcription_id: str) -> HappyScribeTranscription:
         response = self._request("GET", self._url(f"transcriptions/{transcription_id}"))

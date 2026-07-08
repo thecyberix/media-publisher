@@ -54,6 +54,8 @@ class QuotesPipelineSettings:
     youtube_client_secrets: Path
     youtube_token: Path
     youtube_channel_handle: str
+    youtube_playlist_title: str
+    youtube_playlist_id: str | None
     ffmpeg_path: str | None
     canva_quotes_design_id: str | None = None
     canva_quotes_folder_id: str | None = None
@@ -335,6 +337,8 @@ def run_quotes_pipeline(
                     youtube_token=settings.youtube_token,
                     youtube_channel_handle=settings.youtube_channel_handle,
                     youtube_work_dir=quote_video_dir,
+                    youtube_playlist_id=settings.youtube_playlist_id,
+                    youtube_playlist_title=settings.youtube_playlist_title,
                     ffmpeg_path=settings.ffmpeg_path,
                     template_urls=settings.template_urls,
                 )

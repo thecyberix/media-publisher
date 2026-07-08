@@ -17,6 +17,7 @@ from media_publisher.sources.canva import (
     CanvaThumbnailTarget,
     CanvaToken,
     catalog_video_name_from_job,
+    find_cached_thumbnail_path,
     ensure_catalog_thumbnail_from_canva,
     parse_canva_resource,
     resolve_thumbnail_target,
@@ -52,6 +53,33 @@ class CanvaThumbnailHelperTests(unittest.TestCase):
         path = thumbnail_destination_path(Path("downloads/canva"), 'Title: "Demo"')
         self.assertEqual(path, Path("downloads/canva/Title_ _Demo_.png"))
 
+    def test_find_cached_thumbnail_path_accepts_trailing_comma_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            cached = download_dir / (
+                "Responding To A Question From Bibek Debroy Sadhguru Explains Why "
+                "Shiva Has A Cobra Around His Neck And The Significance Of The "
+                "Sacred Serpent In The,.png"
+            )
+            cached.write_bytes(b"png")
+            found = find_cached_thumbnail_path(
+                download_dir,
+                (
+                    "Responding To A Question From Bibek Debroy Sadhguru Explains Why "
+                    "Shiva Has A Cobra Around His Neck And The Significance Of The "
+                    "Sacred Serpent In The"
+                ),
+            )
+        self.assertEqual(found, cached)
+
+    def test_find_cached_thumbnail_path_accepts_youtube_thumb_jpg(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            cached = download_dir / "Launch video.youtube-thumb.jpg"
+            cached.write_bytes(b"jpg")
+            found = find_cached_thumbnail_path(download_dir, "Launch video")
+        self.assertEqual(found, cached)
+
     def test_parse_canva_resource_detects_folder(self) -> None:
         with patch(
             "media_publisher.sources.canva.resolve_canva_url",
@@ -60,6 +88,17 @@ class CanvaThumbnailHelperTests(unittest.TestCase):
             resource_type, resource_id = parse_canva_resource("https://canva.link/example")
         self.assertEqual(resource_type, "folder")
         self.assertEqual(resource_id, "FAF2lZtloor")
+
+    def test_parse_canva_resource_detects_long_thumbnail_folder_shortlink(self) -> None:
+        with patch(
+            "media_publisher.sources.canva.resolve_canva_url",
+            return_value="https://www.canva.com/folder/FAHOmUvMRtk",
+        ):
+            resource_type, resource_id = parse_canva_resource(
+                CANVA_LONG_VIDEO_THUMBNAILS_URL
+            )
+        self.assertEqual(resource_type, "folder")
+        self.assertEqual(resource_id, "FAHOmUvMRtk")
 
 
 class CanvaThumbnailClientTests(unittest.TestCase):

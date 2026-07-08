@@ -59,9 +59,9 @@ def _format_canva_http_error(method: str, path: str, code: int, detail: str) -> 
         f"{message} Re-authorize Canva with scopes: {' '.join(DEFAULT_SCOPES)} "
         "(run `python -m media_publisher --canva-auth`)."
     )
-CANVA_LONG_VIDEO_THUMBNAILS_URL = "https://www.canva.com/folder/FAHOgLx_jAw"
-CANVA_SHORT_VIDEO_THUMBNAILS_URL = "https://www.canva.com/folder/FAHOgF-NT8Q"
-CANVA_QUOTES_FOLDER_URL = "https://www.canva.com/folder/FAHOgWUCQqs"
+CANVA_LONG_VIDEO_THUMBNAILS_URL = "https://canva.link/mkc9c31v441jey0"
+CANVA_SHORT_VIDEO_THUMBNAILS_URL = "https://canva.link/aqmh5jedqw5g0ei"
+CANVA_QUOTES_FOLDER_URL = "https://www.canva.com/folder/FAF9ECD0M-k"
 ORIGINAL_VIDEO_NAME_KEY = "Original Video Name"
 EXPORT_POLL_INTERVAL_SECONDS = 2.0
 EXPORT_POLL_MAX_ATTEMPTS = 60
@@ -81,7 +81,11 @@ CANVA_FOLDER_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?canva\.com/folder/([A-Za-z0-9_-]+)",
     re.IGNORECASE,
 )
-DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; media-publisher/0.1)"
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
 
 
 def decode_access_token_scopes(access_token: str) -> tuple[str, ...]:
@@ -180,25 +184,46 @@ def is_shortlink(value: str) -> bool:
     return bool(CANVA_SHORTLINK_RE.search(value.strip()))
 
 
+def _normalize_resolved_canva_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.path.rstrip("/") != "/login":
+        return url
+
+    redirect = urllib.parse.parse_qs(parsed.query).get("redirect", [""])[0]
+    if not redirect:
+        return url
+
+    redirect_path = urllib.parse.unquote(redirect)
+    if redirect_path.startswith("/"):
+        return f"https://www.canva.com{redirect_path}"
+    return redirect_path
+
+
 def resolve_canva_url(url: str) -> str:
     text = url.strip()
     if not is_shortlink(text):
         return text
 
-    request = urllib.request.Request(text, method="GET")
-    request.add_header("User-Agent", DEFAULT_USER_AGENT)
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.url
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace").strip()
-        raise CanvaError(
-            f"Failed to resolve Canva short link {text!r}: HTTP {exc.code}: {detail}"
-        ) from exc
-    except urllib.error.URLError as exc:
-        raise CanvaError(
-            f"Failed to resolve Canva short link {text!r}: {exc.reason}"
-        ) from exc
+    last_error: CanvaError | None = None
+    for method in ("HEAD", "GET"):
+        request = urllib.request.Request(text, method=method)
+        request.add_header("User-Agent", DEFAULT_USER_AGENT)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return _normalize_resolved_canva_url(response.url)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            last_error = CanvaError(
+                f"Failed to resolve Canva short link {text!r}: HTTP {exc.code}: {detail}"
+            )
+        except urllib.error.URLError as exc:
+            last_error = CanvaError(
+                f"Failed to resolve Canva short link {text!r}: {exc.reason}"
+            )
+
+    if last_error is not None:
+        raise last_error
+    raise CanvaError(f"Failed to resolve Canva short link {text!r}")
 
 
 def titles_match(expected: str, actual: str | None) -> bool:
@@ -224,6 +249,39 @@ def catalog_video_name_from_job(job: PublishJob) -> str:
 
 def thumbnail_destination_path(download_dir: Path, video_name: str) -> Path:
     return download_dir / f"{_safe_filename(video_name)}.png"
+
+
+_CACHED_THUMBNAIL_EXTENSIONS = (".png", ".jpg", ".jpeg", ".youtube-thumb.jpg")
+
+
+def _thumbnail_lookup_names(video_name: str) -> list[str]:
+    text = video_name.strip()
+    if not text:
+        return []
+
+    names = [text]
+    stripped = text.rstrip(" ,.")
+    if stripped and stripped not in names:
+        names.append(stripped)
+    return names
+
+
+def find_cached_thumbnail_path(download_dir: Path, video_name: str) -> Path | None:
+    """Return a manually placed thumbnail if one exists under common naming variants."""
+    if not download_dir.is_dir():
+        return None
+
+    for name in _thumbnail_lookup_names(video_name):
+        base = _safe_filename(name)
+        bases = [base]
+        if not base.endswith(","):
+            bases.append(f"{base},")
+        for stem in bases:
+            for extension in _CACHED_THUMBNAIL_EXTENSIONS:
+                candidate = download_dir / f"{stem}{extension}"
+                if candidate.is_file():
+                    return candidate
+    return None
 
 
 def parse_canva_resource(value: str) -> tuple[Literal["folder", "design"], str]:
@@ -1212,9 +1270,11 @@ def ensure_catalog_thumbnail_from_canva(
 ) -> PublishJob:
     """Download a catalog thumbnail PNG from Canva and attach it to the publish job."""
     lookup_name = catalog_video_name_from_job(job)
+    cached = find_cached_thumbnail_path(download_dir, lookup_name)
+    if cached is not None:
+        return replace(job, thumbnail_path=str(cached))
+
     destination = thumbnail_destination_path(download_dir, lookup_name)
-    if destination.is_file():
-        return replace(job, thumbnail_path=str(destination))
 
     catalog_ref = thumbnail_catalog_url_for_format(
         job.video_format,
