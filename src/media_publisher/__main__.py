@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from media_publisher.config import load_settings, update_env_values
+from media_publisher.runtime_env import maybe_persist_canva_token
 from media_publisher.models import PlatformName
 from media_publisher.scheduling import (
     PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
@@ -332,6 +333,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Publish only to PLATFORM (youtube, facebook, or instagram). "
             "Repeat for multiple platforms. Default: all still-pending platforms. "
             "Applies to the default video pipeline, --watch, --list-pending, and --quotes."
+        ),
+    )
+    parser.add_argument(
+        "--skip-thumbnails",
+        action="store_true",
+        help=(
+            "Skip downloading video thumbnails from Canva (use cached local thumbnails only). "
+            "Useful when running locally to avoid Canva OAuth token refresh."
         ),
     )
     parser.add_argument(
@@ -807,6 +816,7 @@ def build_publish_pipeline_settings(
     meta_page_id: str,
     meta_instagram_account_id: str,
     headless: bool,
+    skip_thumbnails: bool = False,
     publish_immediately: bool = False,
     private_test: bool = False,
     publish_on_date=None,
@@ -814,7 +824,7 @@ def build_publish_pipeline_settings(
     use_web_export: bool = False,
 ) -> PublishPipelineSettings:
     canva_client = None
-    if not canva_settings_missing(settings):
+    if not skip_thumbnails and not canva_settings_missing(settings):
         canva_client = canva_client_from_settings(settings)
 
     return PublishPipelineSettings(
@@ -825,6 +835,7 @@ def build_publish_pipeline_settings(
         canva_client=canva_client,
         canva_long_video_thumbnails_url=settings.canva_long_video_thumbnails_url,
         canva_short_video_thumbnails_url=settings.canva_short_video_thumbnails_url,
+        skip_thumbnails=skip_thumbnails,
         happyscribe_download_dir=happyscribe_download_dir_from_settings(settings),
         happyscribe_browser_state=happyscribe_browser_state_path(settings),
         happyscribe_browser_profile=happyscribe_browser_profile_path(settings),
@@ -943,6 +954,7 @@ def run_default_publish(settings, args) -> int:
                 meta_page_id=page_id,
                 meta_instagram_account_id=instagram_account_id,
                 headless=args.happyscribe_export_headless,
+                skip_thumbnails=bool(getattr(args, "skip_thumbnails", False)),
                 publish_immediately=publish_immediately,
                 private_test=private_test,
                 publish_on_date=publish_on_date,
@@ -1689,4 +1701,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_code = main()
+    try:
+        message = maybe_persist_canva_token(PROJECT_ROOT)
+        if message:
+            print_console(message)
+    except RuntimeError as exc:
+        print_console(f"Warning: {exc}")
+    sys.exit(exit_code)

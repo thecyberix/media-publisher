@@ -93,6 +93,7 @@ class PublishPipelineSettings:
     use_web_export: bool = False
     happyscribe_published_folder_id: str | None = None
     youtube_short_cover_end_seconds: float = 2.0
+    skip_thumbnails: bool = False
 
 
 def group_tasks_by_record(
@@ -290,7 +291,7 @@ def run_publish_pipeline(
             continue
 
         thumbnail_path: str | None = None
-        if settings.canva_client is not None:
+        if not settings.skip_thumbnails and settings.canva_client is not None:
             try:
                 thumbnail_job = ensure_catalog_thumbnail_from_canva(
                     record_tasks[0].job,

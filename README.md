@@ -57,6 +57,7 @@ Set these under **Settings → Secrets and variables → Actions → Secrets**:
 | `CANVA_CLIENT_ID` | Canva OAuth client ID |
 | `CANVA_CLIENT_SECRET` | Canva OAuth client secret |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json` |
+| `CANVA_TOKEN_SYNC_PAT` | GitHub PAT with **Secrets: Read and write** for this repo (auto-updates `CANVA_TOKEN_JSON` after CI refresh) |
 | `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
 | `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
 | `META_APP_ID` | Meta app ID |
@@ -80,7 +81,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 
 At startup, `load_settings()` reads environment variables (injected by GitHub Actions from secrets) and, when `*_JSON` variables are set, writes them to `credentials/` before the app runs. Locally, if those `*_JSON` variables are unset, existing files in `credentials/` are used as before.
 
-**Canva token rotation:** Canva issues a new refresh token on every refresh. Only the latest refresh token works. If GitHub Actions refreshes the token during a run, you must copy the updated `credentials/canva-token.json` back into the `CANVA_TOKEN_JSON` secret before the next run. The same applies if you re-authorize locally or run a command that refreshes the token while a stale copy still lives in GitHub Secrets.
+**Canva token rotation:** Canva issues a new refresh token on every refresh. Only the latest refresh token works. In GitHub Actions, add a fine-grained PAT with **Secrets: Read and write** as `CANVA_TOKEN_SYNC_PAT`; after each run that refreshes the token, the app updates `CANVA_TOKEN_JSON` automatically via `gh secret set`. Create the PAT under GitHub → Settings → Developer settings → Fine-grained tokens (repository access: this repo only). Locally, leave `CANVA_TOKEN_SYNC_PAT` unset.
 
 ### Manual publish run
 

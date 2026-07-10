@@ -554,7 +554,8 @@ class CanvaClient:
                     "(`python -m media_publisher --canva-auth` then `--canva-auth-code`), "
                     "then update the GitHub secret CANVA_TOKEN_JSON with the full contents "
                     "of credentials/canva-token.json. Canva refresh tokens are single-use: "
-                    "if CI or --test-canva refreshed the token, any older copy is revoked."
+                    "if CI refreshed the token without CANVA_TOKEN_SYNC_PAT configured, "
+                    "any older copy in GitHub Secrets is revoked."
                 )
             raise CanvaError(message) from exc
         except urllib.error.URLError as exc:

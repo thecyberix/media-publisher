@@ -208,6 +208,7 @@ class PublishPipelineTests(unittest.TestCase):
             "canva_short_video_thumbnails_url": (
                 "https://canva.link/aqmh5jedqw5g0ei"
             ),
+            "skip_thumbnails": False,
             "happyscribe_download_dir": Path("downloads/happyscribe"),
             "happyscribe_browser_state": Path("auth/happyscribe-session.json"),
             "happyscribe_browser_profile": None,
@@ -244,6 +245,46 @@ class PublishPipelineTests(unittest.TestCase):
             )
         self.assertEqual(exit_code, 0)
         self.assertEqual(results, [])
+
+    def test_run_publish_pipeline_skips_thumbnails_when_configured(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        happyscribe = HappyScribeClient("hs-test")
+        location = HappyScribeLibraryLocation("1", "2")
+        settings = self._pipeline_settings(skip_thumbnails=True, canva_client=unittest.mock.Mock())
+
+        from datetime import datetime, timezone
+        from media_publisher.models import PlatformScheduleTask, PublishJob
+
+        job = PublishJob(title="Demo", metadata={"Original Video Name": "Launch video"})
+        tasks = [
+            PlatformScheduleTask(
+                platform="youtube",
+                publish_at=datetime.now(timezone.utc),
+                job=job,
+                record_id="rec1",
+            )
+        ]
+
+        with (
+            patch("media_publisher.pipeline.fetch_pending_schedule_tasks", return_value=tasks),
+            patch("media_publisher.pipeline.fetch_missing_translation_reports", return_value=[]),
+            patch("media_publisher.pipeline.filter_ready_tasks", return_value=tasks),
+            patch("media_publisher.pipeline.ensure_catalog_video_downloaded", return_value=Path("video.mp4")),
+            patch("media_publisher.pipeline.resolve_video_duration_seconds", return_value=10.0),
+            patch("media_publisher.pipeline.publish_to_youtube", return_value="yt"),
+            patch("media_publisher.pipeline.mark_platform_scheduled"),
+            patch("media_publisher.pipeline.ensure_catalog_thumbnail_from_canva") as thumb_mock,
+            patch.object(happyscribe, "list_search_transcriptions", return_value=[]),
+        ):
+            exit_code, _ = run_publish_pipeline(
+                client,
+                happyscribe,
+                location,
+                settings,
+                print_line=lambda _: None,
+            )
+        self.assertEqual(exit_code, 0)
+        thumb_mock.assert_not_called()
 
     def test_run_publish_pipeline_publishes_and_updates_airtable(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
