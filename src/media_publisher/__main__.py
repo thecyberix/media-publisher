@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 from media_publisher.config import load_settings, update_env_values
@@ -40,6 +41,20 @@ from media_publisher.publishers.youtube import (
     publish_to_youtube,
     youtube_video_url,
 )
+from media_publisher.analytics.channel_report import (
+    ChannelReportError,
+    _enabled_platforms,
+    ensure_report_write_ranges_unprotected,
+    inspect_channel_report_sheet,
+    load_channel_report_mapping,
+    parse_month_cell,
+    update_channel_report,
+)
+from media_publisher.analytics.channel_report_snapshots import (
+    ChannelReportSnapshotError,
+    capture_channel_report_snapshots,
+)
+from media_publisher.sources.google_sheets import GoogleSheetsClient, GoogleSheetsError
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
@@ -342,6 +357,64 @@ def build_parser() -> argparse.ArgumentParser:
             "Skip downloading video thumbnails from Canva (use cached local thumbnails only). "
             "Useful when running locally to avoid Canva OAuth token refresh."
         ),
+    )
+    parser.add_argument(
+        "--fix-channel-report-protection",
+        action="store_true",
+        help=(
+            "Extend sheet-wide protection holes on the Bulgarian tab so Views Actual "
+            "rows can be updated by the service account."
+        ),
+    )
+    parser.add_argument(
+        "--channel-report-all-months",
+        action="store_true",
+        help=(
+            "Update every month column through the last complete calendar month. "
+            "Default: only the last complete month."
+        ),
+    )
+    parser.add_argument(
+        "--channel-report-month",
+        metavar="YYYY-MM",
+        help="Update a single report month, e.g. 2026-02.",
+    )
+    parser.add_argument(
+        "--inspect-channel-report",
+        action="store_true",
+        help=(
+            "Print the configured Bulgarian channel report sheet layout "
+            "(requires Google Sheets service account access)."
+        ),
+    )
+    parser.add_argument(
+        "--update-channel-report",
+        action="store_true",
+        help=(
+            "Fetch monthly YouTube/Facebook/Instagram views and write them into "
+            "the configured Google Sheet report tab."
+        ),
+    )
+    parser.add_argument(
+        "--channel-report-recent-months",
+        action="store_true",
+        help=(
+            "Update the last complete month and the current in-progress month. "
+            "Useful for weekly refreshes without backfilling older months."
+        ),
+    )
+    parser.add_argument(
+        "--channel-report-snapshot",
+        action="store_true",
+        help=(
+            "Capture follower/subscriber counts into the local snapshot store. "
+            "Run daily so short-retention Meta metrics are not lost."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run-channel-report",
+        action="store_true",
+        help="Show channel report updates without writing to Google Sheets.",
     )
     parser.add_argument(
         "--watch",
@@ -667,8 +740,240 @@ def cli_requested_action(args) -> bool:
             args.schedule_instagram,
             args.quotes,
             args.watch is not None,
+            args.inspect_channel_report,
+            args.fix_channel_report_protection,
+            args.update_channel_report,
+            args.dry_run_channel_report,
+            args.channel_report_snapshot,
+            args.channel_report_recent_months,
         )
     )
+
+
+def channel_report_mapping_path(settings) -> Path:
+    path = Path(settings.channel_report_mapping)
+    if path.is_absolute():
+        return path
+    return PROJECT_ROOT / path
+
+
+def google_sheets_client_from_settings(settings) -> GoogleSheetsClient:
+    return GoogleSheetsClient.from_service_account(
+        PROJECT_ROOT / settings.google_sheets_service_account
+    )
+
+
+def youtube_channel_id_from_settings(settings) -> str | None:
+    url = settings.youtube_channel_url.strip()
+    marker = "/channel/"
+    if marker in url:
+        channel_id = url.rsplit(marker, 1)[-1].split("/", 1)[0].split("?", 1)[0]
+        return channel_id or None
+    return None
+
+
+def channel_report_snapshot_path(settings) -> Path:
+    path = Path(settings.channel_report_snapshots)
+    if path.is_absolute():
+        return path
+    return PROJECT_ROOT / path
+
+
+def run_inspect_channel_report(settings) -> int:
+    mapping_path = channel_report_mapping_path(settings)
+    try:
+        mapping = load_channel_report_mapping(mapping_path)
+        sheets = google_sheets_client_from_settings(settings)
+        rows = inspect_channel_report_sheet(sheets, mapping)
+    except (ChannelReportError, GoogleSheetsError) as exc:
+        print(f"Channel report inspect failed: {exc}")
+        return 1
+
+    sheet_title = sheets.resolve_sheet_title(
+        mapping.spreadsheet_id,
+        sheet_gid=mapping.sheet_gid,
+        sheet_title=mapping.sheet_title,
+    )
+    print(f"Spreadsheet: {mapping.spreadsheet_id}")
+    print(f"Tab: {sheet_title} (gid={mapping.sheet_gid})")
+    print(f"Mapping file: {mapping_path}")
+    for index, row in enumerate(rows, start=1):
+        print_console("\t".join(row) if row else "")
+        if index >= 25:
+            break
+    return 0
+
+
+def run_capture_channel_report_snapshots(settings) -> int:
+    missing: list[str] = []
+    if not settings.meta_access_token:
+        missing.append("META_ACCESS_TOKEN")
+    if not youtube_settings_complete(settings):
+        missing.extend(youtube_settings_missing(settings))
+    if missing:
+        print("Missing required settings:", ", ".join(dict.fromkeys(missing)))
+        return 1
+
+    try:
+        youtube_client = youtube_client_from_settings(settings)
+        meta_client = meta_client_from_settings(settings)
+        page_id, instagram_account_id, _ = resolve_meta_targets(settings)
+        result = capture_channel_report_snapshots(
+            store_path=channel_report_snapshot_path(settings),
+            meta_client=meta_client,
+            meta_page_id=page_id or None,
+            meta_instagram_account_id=instagram_account_id or None,
+            youtube_client=youtube_client,
+            youtube_channel_id=youtube_channel_id_from_settings(settings),
+        )
+    except (ChannelReportSnapshotError, MetaError, YouTubePublishError) as exc:
+        print(f"Channel report snapshot failed: {exc}")
+        return 1
+
+    print(f"Captured follower snapshots for {result.captured_on.isoformat()}:")
+    for platform, metric_key, value in result.recorded:
+        print(f"  {platform} {metric_key}: {int(value)}")
+    if not result.recorded:
+        print("  (no values recorded)")
+    return 0
+
+
+def parse_channel_report_target_month(value: str | None) -> date | None:
+    if not value:
+        return None
+    parsed = parse_month_cell(value.strip())
+    if parsed is None:
+        raise ChannelReportError(
+            f"Invalid --channel-report-month value {value!r}; expected YYYY-MM"
+        )
+    return date(parsed[0], parsed[1], 1)
+
+
+def run_update_channel_report(
+    settings,
+    *,
+    dry_run: bool = False,
+    all_months: bool = False,
+    recent_months: bool = False,
+    target_month: date | None = None,
+    capture_snapshots: bool = False,
+) -> int:
+    mapping_path = channel_report_mapping_path(settings)
+    missing: list[str] = []
+    if not (PROJECT_ROOT / settings.google_sheets_service_account).exists():
+        missing.append(f"Google Sheets service account ({settings.google_sheets_service_account})")
+
+    try:
+        mapping = load_channel_report_mapping(mapping_path)
+    except ChannelReportError as exc:
+        print(f"Channel report update failed: {exc}")
+        return 1
+
+    platforms = _enabled_platforms(mapping)
+    if "youtube" in platforms and not youtube_settings_complete(settings):
+        missing.extend(youtube_settings_missing(settings))
+    if platforms.intersection({"facebook", "instagram"}) and not settings.meta_access_token:
+        missing.append("META_ACCESS_TOKEN")
+    if missing and not dry_run:
+        print("Missing required settings:", ", ".join(dict.fromkeys(missing)))
+        return 1
+
+    try:
+        sheets = google_sheets_client_from_settings(settings)
+        youtube_client = None
+        if youtube_settings_complete(settings):
+            youtube_client = youtube_client_from_settings(settings)
+        meta_client = None
+        page_id = ""
+        instagram_account_id = ""
+        if settings.meta_access_token:
+            page_id, instagram_account_id, _ = resolve_meta_targets(settings)
+            meta_client = meta_client_from_settings(settings)
+        result = update_channel_report(
+            mapping=mapping,
+            sheets_client=sheets,
+            youtube_client=youtube_client,
+            youtube_channel_id=youtube_channel_id_from_settings(settings),
+            meta_client=meta_client,
+            meta_page_id=page_id or None,
+            meta_instagram_account_id=instagram_account_id or None,
+            dry_run=dry_run,
+            target_month=target_month,
+            all_months=all_months,
+            recent_months=recent_months,
+            snapshot_store_path=channel_report_snapshot_path(settings),
+            capture_snapshots=capture_snapshots,
+        )
+    except (
+        ChannelReportError,
+        GoogleSheetsError,
+        YouTubePublishError,
+        MetaError,
+    ) as exc:
+        print(f"Channel report update failed: {exc}")
+        return 1
+
+    updates = result.updates
+    label = "Would update" if dry_run else "Updated"
+    if not updates:
+        print("No channel report cells matched the configured month rows.")
+        return 0
+    written_count = len(updates) - len(result.skipped_cells)
+    print(f"{label} {written_count} cell(s):")
+    for item in updates:
+        if item.cell in result.skipped_cells:
+            continue
+        print_console(
+            f"{item.cell}\t{item.platform}\t{item.year:04d}-{item.month:02d}\t{item.views}"
+        )
+    if result.skipped_cells:
+        service_account_path = PROJECT_ROOT / settings.google_sheets_service_account
+        email_hint = ""
+        if service_account_path.is_file():
+            try:
+                import json as json_module
+
+                payload = json_module.loads(service_account_path.read_text(encoding="utf-8"))
+                email = payload.get("client_email")
+                if isinstance(email, str) and email:
+                    email_hint = f" Service account: {email}."
+            except (OSError, ValueError):
+                pass
+        print(
+            f"Skipped {len(result.skipped_cells)} protected cell(s).{email_hint} "
+            "In Google Sheets: Data → Protect sheets and ranges → edit the rule → "
+            "add the service account email under 'Except specified people who can edit'."
+        )
+    return 0
+
+
+def run_fix_channel_report_protection(settings) -> int:
+    mapping_path = channel_report_mapping_path(settings)
+    if not (PROJECT_ROOT / settings.google_sheets_service_account).exists():
+        print(
+            "Missing required settings: "
+            f"Google Sheets service account ({settings.google_sheets_service_account})"
+        )
+        return 1
+    try:
+        mapping = load_channel_report_mapping(mapping_path)
+        sheets = google_sheets_client_from_settings(settings)
+        merged = ensure_report_write_ranges_unprotected(sheets, mapping)
+    except (ChannelReportError, GoogleSheetsError) as exc:
+        print(f"Channel report protection fix failed: {exc}")
+        return 1
+
+    print(f"Bulgarian tab now has {len(merged)} unprotected write range(s).")
+    for item in merged:
+        if not isinstance(item, dict):
+            continue
+        print_console(
+            "rows "
+            f"{int(item.get('startRowIndex', 0)) + 1}-"
+            f"{int(item.get('endRowIndex', 0))} "
+            f"cols {item.get('startColumnIndex')}-{item.get('endColumnIndex')}"
+        )
+    return 0
 
 
 def build_quotes_pipeline_settings(
@@ -1683,6 +1988,30 @@ def main() -> int:
             print_console("Stopped.")
             return 0
 
+    if args.fix_channel_report_protection:
+        return run_fix_channel_report_protection(settings)
+
+    if args.inspect_channel_report:
+        return run_inspect_channel_report(settings)
+
+    if args.channel_report_snapshot:
+        return run_capture_channel_report_snapshots(settings)
+
+    if args.update_channel_report or args.dry_run_channel_report:
+        try:
+            target_month = parse_channel_report_target_month(args.channel_report_month)
+        except ChannelReportError as exc:
+            print(str(exc))
+            return 1
+        return run_update_channel_report(
+            settings,
+            dry_run=args.dry_run_channel_report,
+            all_months=args.channel_report_all_months,
+            recent_months=args.channel_report_recent_months,
+            target_month=target_month,
+            capture_snapshots=not args.dry_run_channel_report,
+        )
+
     if args.quotes:
         return run_quotes_publish(settings, args)
 
@@ -1695,7 +2024,8 @@ def main() -> int:
         "--happyscribe-save-session, --happyscribe-import-session, --export-happyscribe-web, --burn-happyscribe-video, "
         "--canva-auth, --canva-download, --canva-resolve, --test-canva, --youtube-auth, --test-youtube, "
         "--test-meta, --resolve-meta, --meta-setup-token, --schedule-youtube, "
-        "--schedule-facebook, --schedule-instagram, --quotes, --schedule, or --watch"
+        "--schedule-facebook, --schedule-instagram, --quotes, --schedule, --watch, "
+        "--inspect-channel-report, or --update-channel-report"
     )
     return 2
 

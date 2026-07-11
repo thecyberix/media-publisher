@@ -30,6 +30,7 @@ DEFAULT_REDIRECT_URI = "http://127.0.0.1:8766/callback"
 DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
 )
 DEFAULT_CHANNEL_HANDLE = "SadhguruBulgarian"
 DEFAULT_YOUTUBE_PLAYLIST_TITLE = "Съзнателна Планета"

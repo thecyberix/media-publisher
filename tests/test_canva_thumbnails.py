@@ -10,6 +10,7 @@ from media_publisher.sources.canva import (
     CANVA_LONG_VIDEO_THUMBNAILS_URL,
     CANVA_SHORT_VIDEO_THUMBNAILS_URL,
     DEFAULT_SCOPES,
+    ORIGINAL_VIDEO_NAME_KEY,
     CanvaClient,
     CanvaDesignPageInfo,
     CanvaDesignSummary,
@@ -42,7 +43,7 @@ class CanvaThumbnailHelperTests(unittest.TestCase):
     def test_catalog_video_name_from_job_uses_original_video_name(self) -> None:
         job = PublishJob(
             title="Преведено заглавие",
-            metadata={"Original Video Name": "Original English Title"},
+            metadata={ORIGINAL_VIDEO_NAME_KEY: "Original English Title"},
         )
         self.assertEqual(catalog_video_name_from_job(job), "Original English Title")
 
@@ -225,7 +226,7 @@ class CanvaThumbnailClientTests(unittest.TestCase):
             cached.write_bytes(b"png")
             job = PublishJob(
                 title="Преведено заглавие",
-                metadata={"Original Video Name": "Launch video"},
+                metadata={ORIGINAL_VIDEO_NAME_KEY: "Launch video"},
                 video_format="post",
             )
             client = self._client(tmpdir)
@@ -244,7 +245,7 @@ class CanvaThumbnailClientTests(unittest.TestCase):
             destination = thumbnail_destination_path(download_dir, "Launch video")
             job = PublishJob(
                 title="Преведено заглавие",
-                metadata={"Original Video Name": "Launch video"},
+                metadata={ORIGINAL_VIDEO_NAME_KEY: "Launch video"},
                 video_format="short_form",
             )
             client = self._client(tmpdir)

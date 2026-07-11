@@ -37,7 +37,7 @@ def _task(record_id: str, platform: str, title: str = "Translated title") -> Pla
         publish_at=publish_at,
         job=job,
         record_id=record_id,
-        record_fields={"Original Video Name": "Original catalog name"},
+        record_fields={FIELD_TITLE: "Original catalog name"},
     )
 
 
@@ -255,7 +255,7 @@ class PublishPipelineTests(unittest.TestCase):
         from datetime import datetime, timezone
         from media_publisher.models import PlatformScheduleTask, PublishJob
 
-        job = PublishJob(title="Demo", metadata={"Original Video Name": "Launch video"})
+        job = PublishJob(title="Demo", metadata={FIELD_TITLE: "Launch video"})
         tasks = [
             PlatformScheduleTask(
                 platform="youtube",

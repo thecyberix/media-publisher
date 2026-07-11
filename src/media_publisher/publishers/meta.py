@@ -1025,6 +1025,54 @@ class MetaClient:
             raise MetaError("Meta Instagram publish response is missing media id")
         return media_id
 
+    def get_page_insights(
+        self,
+        page_id: str,
+        *,
+        metric: str,
+        since: int,
+        until: int,
+        period: str = "day",
+    ) -> dict[str, Any]:
+        response = self._request(
+            "GET",
+            f"{page_id}/insights",
+            query={
+                "metric": metric,
+                "period": period,
+                "since": since,
+                "until": until,
+            },
+        )
+        if not isinstance(response, dict):
+            raise MetaError("Meta page insights response is invalid")
+        return response
+
+    def get_instagram_account_insights(
+        self,
+        instagram_account_id: str,
+        *,
+        metric: str,
+        since: int,
+        until: int,
+        period: str = "day",
+        metric_type: str = "total_value",
+    ) -> dict[str, Any]:
+        response = self._request(
+            "GET",
+            f"{instagram_account_id}/insights",
+            query={
+                "metric": metric,
+                "period": period,
+                "since": since,
+                "until": until,
+                "metric_type": metric_type,
+            },
+        )
+        if not isinstance(response, dict):
+            raise MetaError("Meta Instagram insights response is invalid")
+        return response
+
     def get_facebook_video_permalink(self, video_id: str) -> str:
         response = self._request(
             "GET",

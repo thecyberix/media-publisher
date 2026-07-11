@@ -60,6 +60,7 @@ Set these under **Settings → Secrets and variables → Actions → Secrets**:
 | `CANVA_TOKEN_SYNC_PAT` | GitHub PAT with **Secrets: Read and write** for this repo (auto-updates `CANVA_TOKEN_JSON` after CI refresh) |
 | `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
 | `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (shared with catalog-parser; written to `credentials/google-sheets-service-account.json` for channel reports) |
 | `META_APP_ID` | Meta app ID |
 | `META_APP_SECRET` | Meta app secret |
 | `META_ACCESS_TOKEN` | Long-lived Meta page access token |
@@ -81,7 +82,29 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 
 At startup, `load_settings()` reads environment variables (injected by GitHub Actions from secrets) and, when `*_JSON` variables are set, writes them to `credentials/` before the app runs. Locally, if those `*_JSON` variables are unset, existing files in `credentials/` are used as before.
 
+**Sharing Google credentials with catalog-parser:** Both repos can use the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret (the service account key from your Google Cloud project). In an organization, create it once under **Settings → Secrets and variables → Actions → Organization secrets**, grant access to both `catalog-parser` and `media-publisher`, and reference `${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}` in each workflow. Repository-level secrets work too, but you must paste the same JSON into each repo separately. YouTube upload/analytics still needs this repo’s own `YOUTUBE_CLIENT_SECRETS_JSON` and `YOUTUBE_TOKEN_JSON` (OAuth user token — not shared with catalog-parser).
+
 **Canva token rotation:** Canva issues a new refresh token on every refresh. Only the latest refresh token works. In GitHub Actions, add a fine-grained PAT with **Secrets: Read and write** as `CANVA_TOKEN_SYNC_PAT`; after each run that refreshes the token, the app updates `CANVA_TOKEN_JSON` automatically via `gh secret set`. Create the PAT under GitHub → Settings → Developer settings → Fine-grained tokens (repository access: this repo only). Locally, leave `CANVA_TOKEN_SYNC_PAT` unset.
+
+### Channel report (monthly views)
+
+| Workflow | Purpose |
+|----------|---------|
+| `channel-report.yml` | Monthly update of **Views Actual** in the Bulgarian Google Sheet tab |
+
+Scheduled for the **2nd of each month at 06:00 UTC** (updates the previous complete month). Manual run: **Actions → Channel report → Run workflow**.
+
+Local commands:
+
+```powershell
+python -m media_publisher --dry-run-channel-report
+python -m media_publisher --update-channel-report
+python scripts/update_channel_report.py --dry-run
+python -m media_publisher --update-channel-report --channel-report-all-months
+python -m media_publisher --update-channel-report --channel-report-month 2026-02
+```
+
+Requires `GOOGLE_SERVICE_ACCOUNT_JSON`, YouTube OAuth token with `yt-analytics.readonly`, and Meta page token with `read_insights` + `instagram_manage_insights`. Mapping: `config/channel_report_bulgarian.json`.
 
 ### Manual publish run
 

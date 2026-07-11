@@ -23,6 +23,7 @@ from media_publisher.publishers.meta import (
 from media_publisher.sources.airtable import (
     AirtableRecord,
     DEFAULT_PUBLISH_TIMEZONE,
+    FIELD_TITLE,
     record_schedule_tasks,
 )
 
@@ -47,7 +48,7 @@ class AirtablePublishAtTests(unittest.TestCase):
                 id="recABC",
                 fields={
                     "Status": "5. Synchronization done",
-                    "Original Video Name": "Sample Title",
+                    FIELD_TITLE: "Sample Title",
                     "Video name translated": "Преведено заглавие",
                     "SG-YT-Date published": "2026-07-05",
                 },

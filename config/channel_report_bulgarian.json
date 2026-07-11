@@ -1,0 +1,13 @@
+{
+  "spreadsheet_id": "180B7x0FY4DDyYgEswWrkYPoXCLvOJxFvM2HRt3iM3LA",
+  "sheet_gid": 1179708,
+  "layout": "kpi_dashboard",
+  "month_header_row": 3,
+  "metric_column_index": 5,
+  "platform_sections": {
+    "youtube": {"start_row": 43, "end_row": 55},
+    "instagram": {"start_row": 76, "end_row": 88},
+    "facebook": {"start_row": 142, "end_row": 154}
+  },
+  "timezone": "Europe/Sofia"
+}

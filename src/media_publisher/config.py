@@ -49,6 +49,9 @@ class Settings:
     youtube_short_cover_end_seconds: float = 2.0
     youtube_playlist_title: str = "Съзнателна Планета"
     youtube_playlist_id: str | None = None
+    channel_report_mapping: str = "config/channel_report_bulgarian.json"
+    channel_report_snapshots: str = "data/channel_report_snapshots.json"
+    google_sheets_service_account: str = "credentials/google-sheets-service-account.json"
     meta_access_token: str | None = None
     meta_page_id: str | None = None
     meta_instagram_account_id: str | None = None
@@ -195,6 +198,19 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "Съзнателна Планета",
         youtube_playlist_id=optional("YOUTUBE_PLAYLIST_ID"),
+        channel_report_mapping=os.getenv(
+            "CHANNEL_REPORT_MAPPING", "config/channel_report_bulgarian.json"
+        ).strip()
+        or "config/channel_report_bulgarian.json",
+        channel_report_snapshots=os.getenv(
+            "CHANNEL_REPORT_SNAPSHOTS", "data/channel_report_snapshots.json"
+        ).strip()
+        or "data/channel_report_snapshots.json",
+        google_sheets_service_account=os.getenv(
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT",
+            "credentials/google-sheets-service-account.json",
+        ).strip()
+        or "credentials/google-sheets-service-account.json",
         meta_access_token=optional("META_ACCESS_TOKEN"),
         meta_page_id=optional("META_PAGE_ID"),
         meta_instagram_account_id=optional("META_INSTAGRAM_ACCOUNT_ID"),

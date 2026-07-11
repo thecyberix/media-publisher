@@ -18,6 +18,7 @@ from media_publisher.sources.airtable import (
     FIELD_SG_YT_PUBLISHED,
     FIELD_SMEDIA_UPLOADED,
     FIELD_STATUS,
+    FIELD_TITLE,
     FIELD_VIDEO_NAME_TRANSLATED,
     SMEDIA_OPTION_FACEBOOK,
     SMEDIA_OPTION_YOUTUBE,
@@ -56,7 +57,7 @@ class AirtableMappingTests(unittest.TestCase):
             AirtableRecord(
                 id="recABC",
                 fields={
-                    "Original Video Name": "Sample Title",
+                    FIELD_TITLE: "Sample Title",
                     "Video name translated": "Преведено заглавие",
                     "Video description translated": "Преведено описание",
                     "Original Video": "https://example.com/video",
@@ -69,7 +70,7 @@ class AirtableMappingTests(unittest.TestCase):
         )
         self.assertEqual(job.title, "Преведено заглавие")
         self.assertEqual(job.description, "Преведено описание")
-        self.assertEqual(job.metadata["Original Video Name"], "Sample Title")
+        self.assertEqual(job.metadata[FIELD_TITLE], "Sample Title")
         self.assertEqual(job.video_url, "https://example.com/video")
         self.assertEqual(job.airtable_record_id, "recABC")
         self.assertEqual(job.tags, [])
@@ -85,19 +86,19 @@ class AirtableMappingTests(unittest.TestCase):
             AirtableRecord(
                 id="recABC",
                 fields={
-                    "Original Video Name": "Sample Title",
+                    FIELD_TITLE: "Sample Title",
                 },
             )
         )
         self.assertEqual(job.title, "")
-        self.assertEqual(job.metadata["Original Video Name"], "Sample Title")
+        self.assertEqual(job.metadata[FIELD_TITLE], "Sample Title")
 
     def test_record_to_publish_job_maps_canva_design(self) -> None:
         job = record_to_publish_job(
             AirtableRecord(
                 id="recABC",
                 fields={
-                    "Original Video Name": "Sample Title",
+                    FIELD_TITLE: "Sample Title",
                     "Canva Design": "https://www.canva.com/design/DAGabc123/view",
                 },
             )
@@ -118,7 +119,7 @@ class CatalogScheduleTests(unittest.TestCase):
             id="recABC",
             fields={
                 FIELD_STATUS: "5. Synchronization done",
-                "Original Video Name": "Launch video",
+                FIELD_TITLE: "Launch video",
                 FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
                 FIELD_SG_YT_DATE: "2026-07-05",
                 FIELD_SG_FB_DATE: "2026-07-06",
@@ -136,7 +137,7 @@ class CatalogScheduleTests(unittest.TestCase):
             id="recABC",
             fields={
                 FIELD_STATUS: "5. Synchronization done",
-                "Original Video Name": "Launch video",
+                FIELD_TITLE: "Launch video",
                 FIELD_SG_YT_DATE: "2026-07-05",
             },
         )
@@ -148,7 +149,7 @@ class CatalogScheduleTests(unittest.TestCase):
                 id="recABC",
                 fields={
                     FIELD_STATUS: "5. Synchronization done",
-                    "Original Video Name": "Launch video",
+                    FIELD_TITLE: "Launch video",
                     FIELD_SG_YT_DATE: "2026-07-05",
                     FIELD_SG_FB_DATE: "2026-07-06",
                 },
@@ -166,7 +167,7 @@ class CatalogScheduleTests(unittest.TestCase):
             id="recABC",
             fields={
                 FIELD_STATUS: "5. Synchronization done",
-                "Original Video Name": "Launch video",
+                FIELD_TITLE: "Launch video",
                 FIELD_SG_IG_DATE: "2026-07-07",
             },
         )
@@ -180,7 +181,7 @@ class CatalogScheduleTests(unittest.TestCase):
             id="recABC",
             fields={
                 FIELD_STATUS: "5. Synchronization done",
-                "Original Video Name": "Launch video",
+                FIELD_TITLE: "Launch video",
                 FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
                 FIELD_SG_YT_DATE: "2026-07-05",
                 FIELD_SG_YT_PUBLISHED: "https://www.youtube.com/watch?v=abc123",
@@ -204,7 +205,7 @@ class CatalogScheduleTests(unittest.TestCase):
             id="recABC",
             fields={
                 FIELD_STATUS: "5. Synchronization done",
-                "Original Video Name": "Launch video",
+                FIELD_TITLE: "Launch video",
                 FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
                 FIELD_SG_YT_DATE: "2026-07-05",
             },
@@ -246,7 +247,7 @@ class CatalogScheduleTests(unittest.TestCase):
             id="recABC",
             fields={
                 FIELD_STATUS: "5. Synchronization done",
-                "Original Video Name": "Launch video",
+                FIELD_TITLE: "Launch video",
                 FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
                 FIELD_SG_YT_DATE: "2026-07-07",
                 FIELD_SG_FB_DATE: "2026-07-07",
@@ -263,7 +264,7 @@ class CatalogScheduleTests(unittest.TestCase):
             id="recABC",
             fields={
                 FIELD_STATUS: "5. Synchronization done",
-                "Original Video Name": "Launch video",
+                FIELD_TITLE: "Launch video",
                 FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
                 FIELD_SG_IG_DATE: "2026-07-07",
             },
@@ -292,13 +293,13 @@ class AirtableClientTests(unittest.TestCase):
             request_mock.side_effect = [
                 {
                     "records": [
-                        {"id": "rec1", "fields": {"Original Video Name": "A"}},
+                        {"id": "rec1", "fields": {FIELD_TITLE: "A"}},
                     ],
                     "offset": "itr123",
                 },
                 {
                     "records": [
-                        {"id": "rec2", "fields": {"Original Video Name": "B"}},
+                        {"id": "rec2", "fields": {FIELD_TITLE: "B"}},
                     ],
                 },
             ]
@@ -313,22 +314,22 @@ class AirtableClientTests(unittest.TestCase):
         with patch.object(client, "_request") as request_mock:
             request_mock.return_value = {
                 "id": "rec1",
-                "fields": {"Original Video Name": "Updated"},
+                "fields": {FIELD_TITLE: "Updated"},
             }
-            record = client.update_record("rec1", {"Original Video Name": "Updated"})
+            record = client.update_record("rec1", {FIELD_TITLE: "Updated"})
 
         self.assertEqual(record.id, "rec1")
-        self.assertEqual(record.fields["Original Video Name"], "Updated")
+        self.assertEqual(record.fields[FIELD_TITLE], "Updated")
         request_mock.assert_called_once()
         self.assertEqual(request_mock.call_args.args[0], "PATCH")
         self.assertEqual(
             request_mock.call_args.kwargs["body"],
-            {"fields": {"Original Video Name": "Updated"}},
+            {"fields": {FIELD_TITLE: "Updated"}},
         )
 
     def test_update_records_batches(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
-        updates = [(f"rec{i}", {"Original Video Name": f"Title {i}"}) for i in range(11)]
+        updates = [(f"rec{i}", {FIELD_TITLE: f"Title {i}"}) for i in range(11)]
 
         with patch.object(client, "_request") as request_mock:
             request_mock.side_effect = [

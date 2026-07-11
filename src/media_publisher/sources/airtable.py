@@ -19,7 +19,7 @@ MAX_BATCH_SIZE = 10
 
 FIELD_ORIGINAL_VIDEO = "Original Video"
 FIELD_DURATION = "Duration"
-FIELD_TITLE = "Original Video Name"
+FIELD_TITLE = "Title"
 FIELD_VIDEO_NAME_TRANSLATED = "Video name translated"
 FIELD_VIDEO_DESCRIPTION_TRANSLATED = "Video description translated"
 FIELD_TYPE = "Type"

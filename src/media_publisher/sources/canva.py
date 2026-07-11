@@ -62,7 +62,7 @@ def _format_canva_http_error(method: str, path: str, code: int, detail: str) -> 
 CANVA_LONG_VIDEO_THUMBNAILS_URL = "https://canva.link/mkc9c31v441jey0"
 CANVA_SHORT_VIDEO_THUMBNAILS_URL = "https://canva.link/aqmh5jedqw5g0ei"
 CANVA_QUOTES_FOLDER_URL = "https://www.canva.com/folder/FAF9ECD0M-k"
-ORIGINAL_VIDEO_NAME_KEY = "Original Video Name"
+ORIGINAL_VIDEO_NAME_KEY = "Title"
 EXPORT_POLL_INTERVAL_SECONDS = 2.0
 EXPORT_POLL_MAX_ATTEMPTS = 60
 

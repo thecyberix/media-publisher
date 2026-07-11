@@ -1,0 +1,61 @@
+name: Channel report
+
+# Runs on the 2nd of each month at 06:00 UTC (08:00 UTC+2 / 09:00 UTC+3 in summer).
+# Updates KPI dashboard metrics for the previous complete calendar month.
+# Follower counts come from data/channel_report_snapshots.json (captured daily).
+on:
+  schedule:
+    - cron: "0 6 2 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview updates without writing to Google Sheets
+        type: boolean
+        default: false
+      all_months:
+        description: Backfill every month through the last complete month
+        type: boolean
+        default: false
+      month:
+        description: Optional single month to update (YYYY-MM)
+        type: string
+        default: ""
+
+env:
+  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+  YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
+  YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+  META_APP_ID: ${{ secrets.META_APP_ID }}
+  META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+  META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+  META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
+  META_INSTAGRAM_ACCOUNT_ID: ${{ secrets.META_INSTAGRAM_ACCOUNT_ID }}
+
+jobs:
+  update-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: pip install -e ".[sheets]"
+
+      - name: Update channel report
+        run: |
+          EXTRA_ARGS="--update-channel-report"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            EXTRA_ARGS="--dry-run-channel-report"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.all_months }}" = "true" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --channel-report-all-months"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.month }}" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --channel-report-month ${{ inputs.month }}"
+          fi
+          python -m media_publisher $EXTRA_ARGS
