@@ -236,7 +236,7 @@ def find_transcription_for_catalog(
     transcriptions: list[HappyScribeTranscription],
     catalog_name: str,
 ) -> HappyScribeTranscription | None:
-    """Match a catalog Original Video Name to a HappyScribe transcription."""
+    """Match a catalog Title to a HappyScribe transcription."""
     catalog_key = normalize_name_for_catalog_match(catalog_name)
     if not catalog_key:
         return None

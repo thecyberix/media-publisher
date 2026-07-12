@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import urllib.error
 import urllib.parse
@@ -15,13 +16,17 @@ from media_publisher.models import PlatformName, PlatformScheduleTask, PublishJo
 from media_publisher.sources.canva import FIELD_CANVA_DESIGN, METADATA_CANVA_DESIGN_ID
 
 DEFAULT_API_BASE = "https://api.airtable.com/v0"
+DEFAULT_CONTENT_API_BASE = "https://content.airtable.com/v0"
 MAX_BATCH_SIZE = 10
 
 FIELD_ORIGINAL_VIDEO = "Original Video"
+FIELD_ORIGINAL_VIDEO_THUMBNAIL = "Original Video Thumbnail"
+FIELD_YT_TITLE = "Original Video Name"
 FIELD_DURATION = "Duration"
 FIELD_TITLE = "Title"
 FIELD_VIDEO_NAME_TRANSLATED = "Video name translated"
 FIELD_VIDEO_DESCRIPTION_TRANSLATED = "Video description translated"
+FIELD_VIDEO_CAPTION_TRANSLATED = "Video caption translated"
 FIELD_TYPE = "Type"
 TYPE_VIDEO = "Video"
 TYPE_SHORT = "Short"
@@ -95,6 +100,37 @@ def _field_text(value: Any) -> str | None:
 
 class AirtableError(RuntimeError):
     pass
+
+
+def catalog_title(fields: dict[str, Any]) -> str:
+    """Return the catalog video title (Airtable ``Title`` field)."""
+    return _field_text(fields.get(FIELD_TITLE)) or "Untitled"
+
+
+def catalog_yt_title(fields: dict[str, Any]) -> str | None:
+    """Return the YouTube title from Airtable ``Original Video Name`` (ytTitle)."""
+    return _field_text(fields.get(FIELD_YT_TITLE))
+
+
+def has_original_video_thumbnail(fields: dict[str, Any]) -> bool:
+    value = fields.get(FIELD_ORIGINAL_VIDEO_THUMBNAIL)
+    return isinstance(value, list) and bool(value)
+
+
+def build_airtable_attachment(
+    url: str,
+    *,
+    filename: str | None = None,
+) -> list[dict[str, str]]:
+    attachment: dict[str, str] = {"url": url.strip()}
+    if filename and filename.strip():
+        attachment["filename"] = filename.strip()
+    return [attachment]
+
+
+def catalog_original_video_name(fields: dict[str, Any]) -> str:
+    """Backward-compatible alias for :func:`catalog_title`."""
+    return catalog_title(fields)
 
 
 def _field_multi_select(value: Any) -> list[str]:
@@ -246,6 +282,7 @@ def record_to_publish_job(record: AirtableRecord) -> PublishJob:
         FIELD_CANVA_DESIGN,
         FIELD_VIDEO_NAME_TRANSLATED,
         FIELD_VIDEO_DESCRIPTION_TRANSLATED,
+        FIELD_YT_TITLE,
     ):
         value = fields.get(key)
         if value is None:
@@ -638,6 +675,47 @@ class AirtableClient:
             "PATCH",
             self._record_url(record_id),
             body={"fields": fields},
+        )
+        if not isinstance(response, dict):
+            raise AirtableError("Airtable response is not a record object")
+        return self._parse_record(response)
+
+    def upload_attachment(
+        self,
+        record_id: str,
+        field_name: str,
+        file_path: Path,
+        *,
+        content_type: str = "image/jpeg",
+        replace: bool = True,
+    ) -> AirtableRecord:
+        """Upload a local file directly to an attachment field (max 5 MB).
+
+        By default replaces any existing attachments in the field. Airtable's
+        uploadAttachment endpoint appends; we clear the field first when
+        replace=True.
+        """
+        if replace:
+            self.update_record(record_id, {field_name: []})
+
+        encoded_field = urllib.parse.quote(field_name, safe="")
+        url = (
+            f"{DEFAULT_CONTENT_API_BASE}/{self.base_id}/"
+            f"{urllib.parse.quote(record_id, safe='')}/{encoded_field}/uploadAttachment"
+        )
+        file_bytes = file_path.read_bytes()
+        if len(file_bytes) > 5 * 1024 * 1024:
+            raise AirtableError(
+                f"Attachment {file_path.name!r} exceeds Airtable's 5 MB upload limit"
+            )
+        response = self._request(
+            "POST",
+            url,
+            body={
+                "contentType": content_type,
+                "file": base64.b64encode(file_bytes).decode("ascii"),
+                "filename": file_path.name,
+            },
         )
         if not isinstance(response, dict):
             raise AirtableError("Airtable response is not a record object")

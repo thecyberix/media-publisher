@@ -1,0 +1,63 @@
+name: Weekly work report
+
+# Monday 06:00 UTC = 09:00 in UTC+3
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+env:
+  NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
+
+jobs:
+  weekly-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Restore status history from latest daily workflow
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p output/workflow
+          latest_run=$(gh run list --workflow=catalog-daily-workflow.yml --status=success --limit 10 --json databaseId -q '.[0].databaseId' || true)
+          if [ -n "$latest_run" ]; then
+            gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
+            if [ -f /tmp/workflow-state-restore/output/workflow/status_history.json ]; then
+              cp /tmp/workflow-state-restore/output/workflow/status_history.json output/workflow/
+            fi
+          fi
+
+      - name: Send weekly translation/editing report
+        env:
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+        run: python scripts/catalog/send_weekly_work_report.py --send
+
+      - name: Send weekly report failure email
+        if: failure()
+        env:
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+        run: |
+          python scripts/catalog/send_notification_email.py \
+            --subject "catalog-parser: weekly work report failed" \
+            --body "$(cat <<'EOF'
+          The weekly translation/editing report workflow failed.
+
+          Repository: ${{ github.repository }}
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )"

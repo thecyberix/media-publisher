@@ -663,8 +663,11 @@ class CanvaClient:
         *,
         export_format: str = "png",
         pages: list[int] | None = None,
+        quality: int = 90,
     ) -> CanvaExportJob:
         format_body: dict[str, Any] = {"type": export_format}
+        if export_format.casefold() in {"jpg", "jpeg"}:
+            format_body["quality"] = quality
         if pages:
             format_body["pages"] = pages
 
@@ -925,11 +928,13 @@ class CanvaClient:
         *,
         export_format: str = "png",
         pages: list[int] | None = None,
+        quality: int = 90,
     ) -> CanvaExportJob:
         job = self.create_export_job(
             design_id,
             export_format=export_format,
             pages=pages,
+            quality=quality,
         )
         if job.status == "success" and job.urls:
             return job

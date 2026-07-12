@@ -1,0 +1,194 @@
+name: Daily catalog workflow
+
+# Scheduled runs use UTC only — GitHub does not allow env vars in cron expressions.
+# Default: 21:00 UTC = midnight in UTC+3. Edit the cron line below to change the time.
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Plan actions without modifying Airtable or Drive
+        type: boolean
+        default: false
+
+concurrency:
+  group: catalog-workflow
+  cancel-in-progress: false
+
+env:
+  NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
+
+jobs:
+  check-smartcat-session:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          playwright install chromium
+
+      - name: Restore Smartcat session
+        env:
+          SMARTCAT_STORAGE_STATE_JSON: ${{ secrets.SMARTCAT_STORAGE_STATE_JSON }}
+        run: |
+          if [ -z "$SMARTCAT_STORAGE_STATE_JSON" ]; then
+            echo "No SMARTCAT_STORAGE_STATE_JSON secret configured"
+            exit 0
+          fi
+          printf '%s' "$SMARTCAT_STORAGE_STATE_JSON" > smartcat-state.json
+
+      - name: Check Smartcat session
+        id: smartcat_check
+        run: |
+          if [ ! -f smartcat-state.json ]; then
+            echo "SKIP: SMARTCAT_STORAGE_STATE_JSON secret not configured"
+            exit 0
+          fi
+          python scripts/catalog/test_smartcat_session.py --storage-state smartcat-state.json
+        env:
+          SMARTCAT_UI_BASE: https://ea.smartcat.com
+
+      - name: Send Smartcat expiration email
+        if: failure() && steps.smartcat_check.outcome == 'failure'
+        env:
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+        run: |
+          python scripts/catalog/send_notification_email.py \
+            --subject "catalog-parser: Smartcat session expired" \
+            --body "$(cat <<'EOF'
+          The scheduled GitHub Actions Smartcat session check failed.
+
+          Ingest from Google Sheets will not work until the session is renewed.
+
+          Fix locally:
+            1. python -m catalog_parser --smartcat-login
+            2. Copy the new smartcat-state.json into the GitHub secret SMARTCAT_STORAGE_STATE_JSON
+
+          Repository: ${{ github.repository }}
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )"
+
+  workflow:
+    runs-on: ubuntu-latest
+    needs: check-smartcat-session
+    if: >-
+      always() &&
+      (needs.check-smartcat-session.result == 'success' || needs.check-smartcat-session.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          playwright install chromium
+
+      - name: Restore Smartcat session
+        env:
+          SMARTCAT_STORAGE_STATE_JSON: ${{ secrets.SMARTCAT_STORAGE_STATE_JSON }}
+        run: |
+          if [ -z "$SMARTCAT_STORAGE_STATE_JSON" ]; then
+            echo "No SMARTCAT_STORAGE_STATE_JSON secret configured"
+            exit 0
+          fi
+          printf '%s' "$SMARTCAT_STORAGE_STATE_JSON" > smartcat-state.json
+
+      - name: Restore workflow state from previous run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p output/workflow output/backups
+          latest_run=$(gh run list --workflow=catalog-daily-workflow.yml --status=success --limit 10 --json databaseId -q '.[0].databaseId' || true)
+          if [ -n "$latest_run" ]; then
+            gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
+            if [ -f /tmp/workflow-state-restore/output/workflow/status_history.json ]; then
+              cp /tmp/workflow-state-restore/output/workflow/status_history.json output/workflow/
+            fi
+            if [ -f /tmp/workflow-state-restore/output/backups/airtable-latest.json ]; then
+              cp /tmp/workflow-state-restore/output/backups/airtable-latest.json output/backups/
+            fi
+          fi
+
+      - name: Show Drive service account email
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python scripts/catalog/print_google_service_account_email.py
+
+      - name: Run workflow orchestrator
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
+          OUTPUT_DRIVE_FOLDER: ${{ vars.OUTPUT_DRIVE_FOLDER || secrets.OUTPUT_DRIVE_FOLDER }}
+          WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SMARTCAT_STORAGE_STATE: smartcat-state.json
+          CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
+          CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+          CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
+          CANVA_TOKEN_SYNC_PAT: ${{ secrets.CANVA_TOKEN_SYNC_PAT }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            python -m catalog_parser --dry-run
+          else
+            python -m catalog_parser
+          fi
+
+      - name: Upload Airtable backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airtable-backup-${{ github.run_number }}
+          path: output/backups/airtable-latest.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload workflow state artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-state
+          path: |
+            output/workflow/status_history.json
+            output/backups/airtable-latest.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Send workflow failure email
+        if: failure()
+        env:
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+        run: |
+          python scripts/catalog/send_notification_email.py \
+            --subject "catalog-parser: daily workflow failed" \
+            --body "$(cat <<'EOF'
+          The catalog-parser GitHub Actions workflow failed.
+
+          Check the logs for details (Airtable, Drive, ingest, or other errors).
+
+          Repository: ${{ github.repository }}
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )"

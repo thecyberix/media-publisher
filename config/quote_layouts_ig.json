@@ -1,0 +1,111 @@
+{
+  "variant": "ig",
+  "description": "IG DMQ Template Final (1080x1350)",
+  "source_templates": "config/quote_templates/ig",
+  "canva_design_id": "DAG3WUCy8VA",
+  "canvas": {
+    "width": 1080,
+    "height": 1350
+  },
+  "structure": {
+    "photo_area_ratio": 0.5815,
+    "white_panel_top_px": 785,
+    "quote_icon_center_y_px": 785,
+    "quote_icon": {
+      "center_x_px": 540,
+      "center_y_px": 785,
+      "radius_px": 52
+    },
+    "signature_top_px": 1175,
+    "brand_watermark": {
+      "text": "Садгуру България",
+      "color": "#FFFFFF",
+      "x_px": 10,
+      "y_px": 7,
+      "font_size_px": 18,
+      "font_family": "Segoe UI",
+      "font_weight": "bold"
+    }
+  },
+  "typography": {
+    "font_family": "Times New Roman",
+    "font_weight": "normal",
+    "font_size_px": 46,
+    "line_height_px": 58,
+    "line_spacing_px": 55,
+    "color": "#000000",
+    "align": "center"
+  },
+  "layouts": {
+    "1": {
+      "max_lines": 1,
+      "text_box_px": {
+        "x": 50,
+        "y": 940,
+        "width": 980,
+        "height": 70
+      },
+      "line_centers_px": [
+        973.8
+      ],
+      "font_size_px": 46,
+      "line_height_px": 60,
+      "line_spacing_px": 55
+    },
+    "2": {
+      "max_lines": 2,
+      "text_box_px": {
+        "x": 50,
+        "y": 920,
+        "width": 980,
+        "height": 140
+      },
+      "line_centers_px": [
+        973.8,
+        1029.0
+      ],
+      "font_size_px": 46,
+      "line_height_px": 70,
+      "line_spacing_px": 55
+    },
+    "3": {
+      "max_lines": 3,
+      "text_box_px": {
+        "x": 50,
+        "y": 870,
+        "width": 980,
+        "height": 200
+      },
+      "line_centers_px": [
+        915.4,
+        970.2,
+        1025.2
+      ],
+      "font_size_px": 46,
+      "line_height_px": 58,
+      "line_spacing_px": 55
+    },
+    "4": {
+      "max_lines": 4,
+      "text_box_px": {
+        "x": 50,
+        "y": 850,
+        "width": 980,
+        "height": 260
+      },
+      "line_centers_px": [
+        903.1,
+        958.4,
+        1013.3,
+        1067.9
+      ],
+      "font_size_px": 46,
+      "line_height_px": 58,
+      "line_spacing_px": 55
+    }
+  },
+  "layout_selection": {
+    "rule": "Choose layout by wrapped line count (1-4).",
+    "wrap_width_px": 980
+  }
+}

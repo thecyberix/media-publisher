@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import json
 import time
 import urllib.error
@@ -42,6 +43,32 @@ def _is_protected_cell_error(exc: GoogleSheetsError) -> bool:
 class SheetTab:
     sheet_id: int
     title: str
+
+
+def format_sheet_tab_title(year: int, month: int) -> str:
+    """Format a quotes spreadsheet tab title such as 'Jul 2026'."""
+    if month < 1 or month > 12:
+        raise GoogleSheetsError(f"Invalid month number: {month}")
+    return f"{calendar.month_abbr[month]} {year}"
+
+
+def list_sheet_tabs(payload: dict[str, Any]) -> list[SheetTab]:
+    sheets = payload.get("sheets", [])
+    if not isinstance(sheets, list):
+        raise GoogleSheetsError("Spreadsheet response is missing sheets")
+
+    tabs: list[SheetTab] = []
+    for sheet in sheets:
+        if not isinstance(sheet, dict):
+            continue
+        properties = sheet.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        sheet_id = properties.get("sheetId")
+        title = properties.get("title")
+        if isinstance(sheet_id, int) and isinstance(title, str):
+            tabs.append(SheetTab(sheet_id=sheet_id, title=title))
+    return tabs
 
 
 def _load_service_account(path: Path) -> dict[str, Any]:
@@ -136,6 +163,57 @@ class GoogleSheetsClient:
     def get_spreadsheet(self, spreadsheet_id: str) -> dict[str, Any]:
         return self._request("GET", f"{SHEETS_API_BASE}/{spreadsheet_id}")
 
+    def list_tabs(self, spreadsheet_id: str) -> list[SheetTab]:
+        return list_sheet_tabs(self.get_spreadsheet(spreadsheet_id))
+
+    def resolve_sheet_tab(
+        self,
+        spreadsheet_id: str,
+        *,
+        sheet_gid: int | None = None,
+        sheet_title: str | None = None,
+    ) -> SheetTab:
+        tabs = self.list_tabs(spreadsheet_id)
+        if sheet_title and sheet_title.strip():
+            target = sheet_title.strip()
+            for tab in tabs:
+                if tab.title == target:
+                    return tab
+            raise GoogleSheetsError(
+                f"Sheet tab {target!r} was not found in spreadsheet {spreadsheet_id!r}"
+            )
+        if sheet_gid is not None:
+            for tab in tabs:
+                if tab.sheet_id == sheet_gid:
+                    return tab
+            raise GoogleSheetsError(
+                f"Sheet gid {sheet_gid} was not found in spreadsheet {spreadsheet_id!r}"
+            )
+        if len(tabs) == 1:
+            return tabs[0]
+        names = ", ".join(tab.title for tab in tabs)
+        raise GoogleSheetsError(
+            f"Sheet title is required; available tabs: {names}"
+        )
+
+    def resolve_sheet_tab_for_month(
+        self,
+        spreadsheet_id: str,
+        *,
+        year: int,
+        month: int,
+    ) -> SheetTab:
+        expected_title = format_sheet_tab_title(year, month)
+        tabs = self.list_tabs(spreadsheet_id)
+        for tab in tabs:
+            if tab.title == expected_title:
+                return tab
+        available = ", ".join(tab.title for tab in tabs)
+        raise GoogleSheetsError(
+            f"Quotes sheet tab {expected_title!r} was not found in spreadsheet "
+            f"{spreadsheet_id!r}. Available tabs: {available}"
+        )
+
     def resolve_sheet_title(
         self,
         spreadsheet_id: str,
@@ -143,40 +221,11 @@ class GoogleSheetsClient:
         sheet_gid: int | None = None,
         sheet_title: str | None = None,
     ) -> str:
-        if sheet_title and sheet_title.strip():
-            return sheet_title.strip()
-
-        payload = self.get_spreadsheet(spreadsheet_id)
-        sheets = payload.get("sheets", [])
-        if not isinstance(sheets, list):
-            raise GoogleSheetsError("Spreadsheet response is missing sheets")
-
-        tabs: list[SheetTab] = []
-        for sheet in sheets:
-            if not isinstance(sheet, dict):
-                continue
-            properties = sheet.get("properties")
-            if not isinstance(properties, dict):
-                continue
-            sheet_id = properties.get("sheetId")
-            title = properties.get("title")
-            if isinstance(sheet_id, int) and isinstance(title, str):
-                tabs.append(SheetTab(sheet_id=sheet_id, title=title))
-
-        if sheet_gid is not None:
-            for tab in tabs:
-                if tab.sheet_id == sheet_gid:
-                    return tab.title
-            raise GoogleSheetsError(
-                f"Sheet gid {sheet_gid} was not found in spreadsheet {spreadsheet_id!r}"
-            )
-
-        if len(tabs) == 1:
-            return tabs[0].title
-        names = ", ".join(tab.title for tab in tabs)
-        raise GoogleSheetsError(
-            f"Sheet title is required; available tabs: {names}"
-        )
+        return self.resolve_sheet_tab(
+            spreadsheet_id,
+            sheet_gid=sheet_gid,
+            sheet_title=sheet_title,
+        ).title
 
     def get_values(self, spreadsheet_id: str, range_a1: str) -> list[list[str]]:
         encoded_range = urllib.parse.quote(range_a1, safe="")

@@ -1,0 +1,62 @@
+{
+  "description": "Daily quote generation sources for media-publisher.",
+  "canva_templates": {
+    "fbyt": {
+      "design_id": "DAG3WawoBjI",
+      "design_url": "https://www.canva.com/design/DAG3WawoBjI/pX8vDFsXQnVYm4jmtJOq5A/edit",
+      "title": "FB/YT DMQ Template Final",
+      "layout_pages": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4
+      },
+      "layouts_config": "config/quote_layouts_fbyt.json",
+      "local_dir": "config/quote_templates/fbyt"
+    },
+    "ig": {
+      "design_id": "DAG3WUCy8VA",
+      "design_url": "https://www.canva.com/design/DAG3WUCy8VA/hjkFTMznUM8rtU3sw3umvA/edit",
+      "title": "IG DMQ Template Final",
+      "layout_pages": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4
+      },
+      "layouts_config": "config/quote_layouts_ig.json",
+      "local_dir": "config/quote_templates/ig"
+    }
+  },
+  "backgrounds_drive": {
+    "root_folder_id": "1RSOpu3XrQfJ4NYLsAjR8bAmGVAT_F_eR",
+    "root_folder_url": "https://drive.google.com/drive/u/1/folders/1RSOpu3XrQfJ4NYLsAjR8bAmGVAT_F_eR",
+    "year_folder_pattern": "SQ Photos {year}",
+    "month_folder_pattern": "{month:02d} {month_abbr} {year}",
+    "filename_day_pattern": "{month_abbr}-{day}-",
+    "variants": {
+      "fbyt": {
+        "subdir": null,
+        "download_dir": "downloads/quotes/backgrounds/fbyt"
+      },
+      "ig": {
+        "subdir": "For Instagram",
+        "download_dir": "downloads/quotes/backgrounds/ig"
+      }
+    }
+  },
+  "quotes_sheet": {
+    "spreadsheet_id": "13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec",
+    "spreadsheet_url": "https://docs.google.com/spreadsheets/d/13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec/edit",
+    "sheet_title_pattern": "{month_abbr} {year}",
+    "text_bg_column": "Translation",
+    "text_en_column": "English",
+    "ready_column": "Ready ",
+    "date_column": "Date",
+    "prefer_ready_text": true
+  },
+  "renders": {
+    "fbyt_dir": "downloads/quotes/renders/fbyt",
+    "ig_dir": "downloads/quotes/renders/ig"
+  }
+}

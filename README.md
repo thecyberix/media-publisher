@@ -1,14 +1,12 @@
 # media-publisher
 
-Extract publishing metadata from **Airtable**, **HappyScribe**, and **Canva**, then publish videos to **YouTube**, **Facebook**, and **Instagram** via their APIs.
+Extract publishing metadata from **Airtable**, **HappyScribe**, and **Canva**, then publish videos to **YouTube**, **Facebook**, and **Instagram**. Also includes the **catalog-parser** ingest and daily translation workflow (Google Sheets → Smartcat/Drive → Airtable).
 
 ## Pipeline
 
 ```
-Airtable  ──┐
-HappyScribe ├── collect & normalize ──► publish ──► YouTube
-Canva       ──┘                         │           Facebook
-                                        └──────────► Instagram
+Google Sheet ──► catalog-parser ingest ──► Airtable ──► media-publisher ──► YouTube / Facebook / Instagram
+                      Smartcat / Drive / Canva              HappyScribe / Canva
 ```
 
 ## Setup (local)
@@ -30,7 +28,14 @@ python -m media_publisher --help
 python -m media_publisher --check-config
 python -m media_publisher                  # publish today's catalog videos
 python -m media_publisher --quotes           # publish today's quote posts
+
+python -m catalog_parser                   # daily translation workflow (default)
+python -m catalog_parser ingest            # parse Google Sheet → enrich → Airtable
+python -m catalog_parser --smartcat-login  # renew Smartcat browser session
+python -m catalog_parser --canva-auth      # Canva OAuth for ingest thumbnails
 ```
+
+See `docs/catalog-github-actions.md` for catalog workflow secrets and schedule.
 
 ## GitHub Actions (scheduled publishing)
 
@@ -40,6 +45,8 @@ Two workflows live under `.github/workflows/`:
 |----------|---------|
 | `ci.yml` | Runs unit tests on push/PR |
 | `publish.yml` | Scheduled + manual publishing |
+| `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync |
+| `catalog-weekly-work-report.yml` | Weekly translation/editing report email |
 
 ### Repository secrets
 
@@ -48,8 +55,9 @@ Set these under **Settings → Secrets and variables → Actions → Secrets**:
 | Secret | Purpose |
 |--------|---------|
 | `AIRTABLE_TOKEN` | Airtable personal access token |
-| `AIRTABLE_BASE_ID` | Airtable base ID |
-| `AIRTABLE_TABLE_NAME` | Airtable table name |
+| `AIRTABLE_BASE_ID` | `appbIH4wzW6ZRUnF5` (Translator's Paradise base) |
+| `AIRTABLE_TABLE_NAME` | `Translator's Paradise` |
+| `AIRTABLE_VIEW` | Optional — leave unset for publishing/audits (uses full table) |
 | `HAPPYSCRIBE_API_KEY` | HappyScribe API key |
 | `HAPPYSCRIBE_LIBRARY_URL` | HappyScribe library URL (or use org + folder IDs below) |
 | `HAPPYSCRIBE_ORGANIZATION_ID` | Optional if `HAPPYSCRIBE_LIBRARY_URL` is set |
@@ -82,9 +90,9 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 
 At startup, `load_settings()` reads environment variables (injected by GitHub Actions from secrets) and, when `*_JSON` variables are set, writes them to `credentials/` before the app runs. Locally, if those `*_JSON` variables are unset, existing files in `credentials/` are used as before.
 
-**Sharing Google credentials with catalog-parser:** Both repos can use the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret (the service account key from your Google Cloud project). In an organization, create it once under **Settings → Secrets and variables → Actions → Organization secrets**, grant access to both `catalog-parser` and `media-publisher`, and reference `${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}` in each workflow. Repository-level secrets work too, but you must paste the same JSON into each repo separately. YouTube upload/analytics still needs this repo’s own `YOUTUBE_CLIENT_SECRETS_JSON` and `YOUTUBE_TOKEN_JSON` (OAuth user token — not shared with catalog-parser).
+**Sharing Google credentials:** Use one `GOOGLE_SERVICE_ACCOUNT_JSON` org/repo secret for catalog ingest, channel reports, and Drive access.
 
-**Canva token rotation:** Canva issues a new refresh token on every refresh. Only the latest refresh token works. In GitHub Actions, add a fine-grained PAT with **Secrets: Read and write** as `CANVA_TOKEN_SYNC_PAT`; after each run that refreshes the token, the app updates `CANVA_TOKEN_JSON` automatically via `gh secret set`. Create the PAT under GitHub → Settings → Developer settings → Fine-grained tokens (repository access: this repo only). Locally, leave `CANVA_TOKEN_SYNC_PAT` unset.
+**Canva (shared):** Publishing and catalog ingest use the same `CANVA_CLIENT_ID` / `CANVA_TOKEN_JSON` → `credentials/canva-token.json`. One `CANVA_TOKEN_SYNC_PAT` keeps the token secret updated after CI refresh.
 
 ### Channel report (monthly views)
 
@@ -113,16 +121,15 @@ In GitHub: **Actions → Publish → Run workflow**. Choose `videos`, `quotes`, 
 ## Project layout
 
 ```
-src/media_publisher/
-  __main__.py          CLI entry point
-  config.py            env / settings loading
-  runtime_env.py       materialize credential files from env (CI)
-  models.py            shared record types
-  sources/             data extraction
-  publishers/          platform publishing
+src/media_publisher/     publishing CLI, sources, publishers
+src/catalog_parser/      catalog ingest + daily workflow orchestrator
+scripts/catalog/         catalog maintenance and CI helper scripts
+config/workflow_config.example.json
 .github/workflows/
-  ci.yml               unit tests
-  publish.yml          scheduled publishing
+  ci.yml
+  publish.yml
+  catalog-daily-workflow.yml
+  catalog-weekly-work-report.yml
 ```
 
 ## API credentials (local)

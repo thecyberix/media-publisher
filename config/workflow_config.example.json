@@ -1,0 +1,22 @@
+{
+  "output_drive_folder": "https://drive.google.com/drive/folders/1sE-DZV2lrRJxEK7Fnjw7uU8y0KXg7imd",
+  "profiles": {
+    "translators": [
+      {
+        "name": "Translator Name",
+        "weekly_capacity_reels": 30,
+        "preferred_translation_type": "Reel"
+      }
+    ],
+    "editors": [
+      {
+        "name": "Editor Name",
+        "weekly_capacity_reels": 30,
+        "preferred_editing_type": "Video"
+      }
+    ]
+  },
+  "work_dir": "_tmp_drive_mix",
+  "target_reel_to_video_ratio": 6,
+  "max_video_seconds": 900
+}
