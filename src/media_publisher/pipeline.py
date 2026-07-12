@@ -27,7 +27,16 @@ from media_publisher.sources.happyscribe import (
     HappyScribeLibraryLocation,
     ensure_catalog_video_downloaded,
 )
-from media_publisher.sources.canva import CanvaClient, CanvaError, ensure_catalog_thumbnail_from_canva
+from media_publisher.sources.canva import CanvaClient, CanvaError
+from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
+from media_publisher.sources.publish_media import (
+    PublishMediaCleanup,
+    merge_publish_media_cleanup,
+    apply_publish_media_cleanup,
+    resolve_publish_thumbnail,
+    resolve_publish_video,
+)
+from media_publisher.sources.tn_publish import TnPublishSettings
 from media_publisher.scheduling import (
     filter_ready_tasks,
     filter_tasks_for_local_date,
@@ -39,8 +48,6 @@ from media_publisher.sources.happyscribe_web import HappyScribeWebError
 from media_publisher.video_duration import (
     instagram_duration_skip_message,
     instagram_exceeds_api_limit,
-    instagram_long_form_skip_message,
-    instagram_skips_long_form_video,
     resolve_video_duration_seconds,
 )
 
@@ -94,6 +101,13 @@ class PublishPipelineSettings:
     happyscribe_published_folder_id: str | None = None
     youtube_short_cover_end_seconds: float = 2.0
     skip_thumbnails: bool = False
+    publish_override_drive_folder_id: str = ""
+    publish_override_thumbnails_subfolder: str = "Thumbnails"
+    publish_override_videos_subfolder: str = "Videos"
+    canva_published_subfolder_name: str = "Published"
+    google_drive_service_account: Path | None = None
+    publish_media_download_dir: Path | None = None
+    tn_publish_settings: TnPublishSettings | None = None
 
 
 def group_tasks_by_record(
@@ -257,54 +271,111 @@ def run_publish_pipeline(
         catalog_name = catalog_name_from_task(record_tasks[0])
         title = record_tasks[0].job.title
         smartcat_url = record_tasks[0].job.metadata.get(FIELD_TRANSLATION_RESOURCES)
+        record_fields = dict(record_tasks[0].record_fields)
+        lookup_title = record_fields.get(FIELD_TITLE) or catalog_name
         print_line(f"Processing {record_id}\t{catalog_name}\t{title}")
 
-        try:
-            video_path = ensure_catalog_video_downloaded(
-                catalog_name,
-                download_dir=settings.happyscribe_download_dir,
-                client=happyscribe,
-                location=happyscribe_location,
-                browser_state_path=settings.happyscribe_browser_state,
-                browser_profile_dir=settings.happyscribe_browser_profile,
-                browser_channel=settings.happyscribe_browser_channel,
-                api_key=settings.happyscribe_api_key,
-                headless=settings.happyscribe_headless,
-                transcriptions=library_transcriptions,
-                force_regenerate=settings.regenerate_videos,
-                use_web_export=settings.use_web_export,
-                smartcat_url=smartcat_url,
-            )
-            print_line(f"  Video: {video_path}")
-        except (HappyScribeError, HappyScribeWebError) as exc:
-            message = str(exc)
-            print_line(f"  Video download failed: {message}")
-            for task in record_tasks:
-                results.append(
-                    PlatformPublishResult(
-                        record_id=record_id,
-                        platform=task.platform,
-                        title=title,
-                        error=message,
-                    )
-                )
-            continue
-
-        thumbnail_path: str | None = None
-        if not settings.skip_thumbnails and settings.canva_client is not None:
+        drive_client: GoogleDriveClient | None = None
+        if settings.google_drive_service_account and settings.google_drive_service_account.exists():
             try:
-                thumbnail_job = ensure_catalog_thumbnail_from_canva(
+                drive_client = GoogleDriveClient.from_service_account(
+                    settings.google_drive_service_account
+                )
+            except GoogleDriveError as exc:
+                print_line(f"  Drive client unavailable: {exc}")
+
+        media_download_dir = settings.publish_media_download_dir or (
+            settings.canva_download_dir.parent / "publish-media"
+        )
+        media_download_dir.mkdir(parents=True, exist_ok=True)
+
+        publish_cleanup: PublishMediaCleanup | None = None
+        video_path: Path | None = None
+        thumbnail_path: str | None = None
+
+        if not settings.skip_thumbnails:
+            try:
+                thumbnail_result = resolve_publish_thumbnail(
                     record_tasks[0].job,
-                    client=settings.canva_client,
-                    download_dir=settings.canva_download_dir,
+                    record_fields,
+                    title=str(lookup_title),
+                    canva_client=settings.canva_client,
+                    drive=drive_client,
+                    canva_download_dir=settings.canva_download_dir,
                     long_catalog_url=settings.canva_long_video_thumbnails_url,
                     short_catalog_url=settings.canva_short_video_thumbnails_url,
+                    override_root_folder_id=settings.publish_override_drive_folder_id,
+                    thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
+                    published_subfolder_name=settings.canva_published_subfolder_name,
+                    tn_settings=settings.tn_publish_settings
+                    or TnPublishSettings(
+                        original_dir=settings.project_root / "downloads/original-thumbnails",
+                        cache_dir=settings.project_root / "downloads/tn-cache",
+                        output_dir=settings.project_root / "downloads/tn-rendered",
+                        english_override_file=settings.project_root
+                        / "downloads/tn-english-overrides.json",
+                    ),
                 )
-                thumbnail_path = thumbnail_job.thumbnail_path
+                thumbnail_path = (
+                    str(thumbnail_result.path) if thumbnail_result.path else None
+                )
+                publish_cleanup = merge_publish_media_cleanup(
+                    publish_cleanup, thumbnail_result.cleanup
+                )
                 if thumbnail_path:
-                    print_line(f"  Thumbnail: {thumbnail_path}")
+                    print_line(
+                        f"  Thumbnail ({thumbnail_result.source}): {thumbnail_path}"
+                    )
             except CanvaError as exc:
-                print_line(f"  Thumbnail download failed: {exc}")
+                print_line(f"  Thumbnail resolution failed: {exc}")
+
+        if drive_client is not None and settings.publish_override_drive_folder_id:
+            video_override = resolve_publish_video(
+                record_fields,
+                title=str(lookup_title),
+                drive=drive_client,
+                override_root_folder_id=settings.publish_override_drive_folder_id,
+                videos_subfolder=settings.publish_override_videos_subfolder,
+                download_dir=media_download_dir,
+            )
+            if video_override.path is not None:
+                video_path = video_override.path
+                publish_cleanup = merge_publish_media_cleanup(
+                    publish_cleanup, video_override.cleanup
+                )
+                print_line(f"  Video ({video_override.source}): {video_path}")
+
+        if video_path is None:
+            try:
+                video_path = ensure_catalog_video_downloaded(
+                    catalog_name,
+                    download_dir=settings.happyscribe_download_dir,
+                    client=happyscribe,
+                    location=happyscribe_location,
+                    browser_state_path=settings.happyscribe_browser_state,
+                    browser_profile_dir=settings.happyscribe_browser_profile,
+                    browser_channel=settings.happyscribe_browser_channel,
+                    api_key=settings.happyscribe_api_key,
+                    headless=settings.happyscribe_headless,
+                    transcriptions=library_transcriptions,
+                    force_regenerate=settings.regenerate_videos,
+                    use_web_export=settings.use_web_export,
+                    smartcat_url=smartcat_url,
+                )
+                print_line(f"  Video: {video_path}")
+            except (HappyScribeError, HappyScribeWebError) as exc:
+                message = str(exc)
+                print_line(f"  Video download failed: {message}")
+                for task in record_tasks:
+                    results.append(
+                        PlatformPublishResult(
+                            record_id=record_id,
+                            platform=task.platform,
+                            title=title,
+                            error=message,
+                        )
+                    )
+                continue
 
         duration_seconds = resolve_video_duration_seconds(
             video_path=video_path,
@@ -321,17 +392,7 @@ def run_publish_pipeline(
                 task for task in ready_tasks if task.platform != "instagram"
             ]
 
-        if any(
-            task.platform == "instagram"
-            and instagram_skips_long_form_video(task.job.video_format)
-            for task in ready_tasks
-        ):
-            print_line(f"  {instagram_long_form_skip_message()}")
-            ready_tasks = [
-                task for task in ready_tasks if task.platform != "instagram"
-            ]
-
-        record_fields = dict(record_tasks[0].record_fields)
+        record_success_count = 0
         for task in ready_tasks:
             task = replace(task, job=replace(task.job))
             task.job.video_path = str(video_path)
@@ -389,6 +450,7 @@ def run_publish_pipeline(
                         permalink=permalink,
                     )
                 )
+                record_success_count += 1
             except (
                 AirtableError,
                 YouTubePublishError,
@@ -406,6 +468,14 @@ def run_publish_pipeline(
                         error=message,
                     )
                 )
+
+        if record_success_count == len(ready_tasks) and publish_cleanup is not None:
+            apply_publish_media_cleanup(
+                publish_cleanup,
+                drive=drive_client,
+                canva_client=settings.canva_client,
+                log=print_line,
+            )
 
     failures = [result for result in results if not result.success]
     successes = [result for result in results if result.success]

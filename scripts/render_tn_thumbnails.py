@@ -14,6 +14,7 @@ from media_publisher.config import load_settings
 from media_publisher.sources.airtable import (
     FIELD_STATUS,
     FIELD_TYPE,
+    FIELD_VIDEO_CAPTION_TRANSLATED,
     FIELD_VIDEO_FOLDER,
     TYPE_QUOTE,
     AirtableClient,
@@ -23,6 +24,7 @@ from media_publisher.sources.google_drive import GoogleDriveClient
 from media_publisher.sources.source_thumbnail import original_thumbnail_destination
 from media_publisher.sources.tn_docx import (
     TN_LABEL,
+    caption_lines_for_render,
     document_sort_key,
     extract_labeled_table,
     extract_tn_text,
@@ -144,6 +146,17 @@ def main() -> int:
         default=DEFAULT_OVERRIDE_FILE,
         help="JSON map of catalog title -> English TN text for videos missing Drive docs",
     )
+    parser.add_argument(
+        "--status",
+        action="append",
+        dest="status_filters",
+        help="Only render videos whose workflow status contains this text (repeatable)",
+    )
+    parser.add_argument(
+        "--require-translated-caption",
+        action="store_true",
+        help="Only render videos with Video caption translated set in Airtable",
+    )
     args = parser.parse_args()
 
     english_overrides = load_english_overrides(args.english_override_file)
@@ -167,6 +180,14 @@ def main() -> int:
         bucket = status_bucket(fields.get(FIELD_STATUS))
         if bucket is None:
             continue
+        if args.status_filters and not any(
+            needle.casefold() in bucket.casefold() for needle in args.status_filters
+        ):
+            continue
+        caption_translated = fields.get(FIELD_VIDEO_CAPTION_TRANSLATED)
+        if args.require_translated_caption:
+            if not isinstance(caption_translated, str) or not caption_translated.strip():
+                continue
         folder_id = parse_folder_id(fields.get(FIELD_VIDEO_FOLDER))
         if folder_id is None:
             continue
@@ -191,6 +212,11 @@ def main() -> int:
                 "type": str(fields.get(FIELD_TYPE) or ""),
                 "images": images,
                 "docs": docs,
+                "caption_translated": (
+                    caption_translated.strip()
+                    if isinstance(caption_translated, str)
+                    else None
+                ),
             }
         )
 
@@ -229,19 +255,31 @@ def main() -> int:
             print()
             continue
 
-        english = find_english_text(drive, item["docs"])
+        caption_translated = item.get("caption_translated")
+        if caption_translated:
+            caption_lines = caption_lines_for_render(caption_translated)
+            english = "\n".join(caption_lines)
+            caption_source = "airtable-translated"
+        else:
+            english = find_english_text(drive, item["docs"])
+            caption_source = "drive-doc"
+            if not english:
+                english = english_override_for_title(english_overrides, title)
+                caption_source = "override"
         if not english:
-            english = english_override_for_title(english_overrides, title)
-        if not english:
-            failed.append((title, "missing English TN text in Drive doc"))
-            print("  result: FAILED (missing English TN text)")
+            failed.append((title, "missing TN caption text"))
+            print("  result: FAILED (missing TN caption text)")
             print()
             continue
 
         matched_layer: ImageSize | None = None
         matched_file = None
         cached_path: Path | None = None
-        for child in sorted(item["images"], key=lambda row: row.name.casefold()):
+        def template_sort_key(row) -> tuple[int, str]:
+            name = row.name.casefold()
+            return (0 if name.endswith(".psd") else 1, name)
+
+        for child in sorted(item["images"], key=template_sort_key):
             cache_path = args.cache_dir / safe_cache_name(child.name)
             if not cache_path.exists():
                 drive.download_file(child.id, cache_path)
@@ -261,7 +299,7 @@ def main() -> int:
 
         print(f"  original: {original_size.width}x{original_size.height}")
         print(f"  template: {matched_file} ({matched_layer.source})")
-        print(f"  english:  {english[:100]}{'...' if len(english) > 100 else ''}")
+        print(f"  caption ({caption_source}):  {english[:100]}{'...' if len(english) > 100 else ''}")
 
         try:
             template, line_styles = load_template_image(cached_path, matched_layer)

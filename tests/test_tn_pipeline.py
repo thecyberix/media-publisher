@@ -100,6 +100,28 @@ class TnHelperTests(unittest.TestCase):
         styled = apply_typography_preferences(assigned, kailash_layout=True)
         self.assertEqual(len(styled), 2)
 
+    def test_kailash_four_line_caption_maps_to_two_blocks(self) -> None:
+        from media_publisher.sources.tn_text_mapping import (
+            assign_english_to_line_styles,
+            kailash_template_line_styles,
+        )
+
+        styles = kailash_template_line_styles(1280, 720)
+        assigned = assign_english_to_line_styles(
+            "Бързи Въпроси\nсъс Садгуру\nОкеан или\nПланини?",
+            styles,
+        )
+        self.assertEqual(assigned[0].rendered_text, "Бързи Въпроси със Садгуру")
+        self.assertEqual(assigned[1].rendered_text, "Океан или Планини?")
+        self.assertEqual(
+            assigned[0].block_line_parts,
+            ("Бързи Въпроси", "със Садгуру"),
+        )
+        self.assertEqual(
+            assigned[1].block_line_parts,
+            ("Океан или", "Планини?"),
+        )
+
     def test_krishna_uppercase(self) -> None:
         from media_publisher.sources.tn_text_mapping import apply_typography_preferences
 
@@ -290,6 +312,33 @@ class TnHelperTests(unittest.TestCase):
         self.assertEqual(styled[0].block_line_parts, ())
         self.assertGreater(styled[0].font_size_px, 97)
 
+    def test_consciousness_five_line_bulgarian_mapping(self) -> None:
+        from media_publisher.sources.tn_text_mapping import map_english_to_placeholder_lines
+
+        placeholders = (
+            "Is",
+            "Consciousness",
+            "a Miracle?",
+            "Prof. Steven",
+            "Pinker &",
+            "Sadhguru",
+        )
+        mapped = map_english_to_placeholder_lines(
+            "Съзнанието\nчудо ли е?\nПроф. Стивън\nПинкър и\nСадгуру",
+            placeholders,
+        )
+        self.assertEqual(
+            mapped,
+            [
+                "Съзнанието",
+                "чудо ли е?",
+                "",
+                "Проф. Стивън",
+                "Пинкър и",
+                "Садгуру",
+            ],
+        )
+
     def test_consciousness_uniform_font_uses_sadhguru_size(self) -> None:
         from media_publisher.sources.tn_renderer import _consciousness_uniform_font_sizes
 
@@ -302,10 +351,16 @@ class TnHelperTests(unittest.TestCase):
             TnLineStyle("Sadhguru", "Sadhguru", (0, 680, 865, 816), 184, "#FFBB38"),
         ]
         uniform = _consciousness_uniform_font_sizes(styles)
-        sadhguru_size = uniform[-1].fixed_font_size_px
-        self.assertIsNotNone(sadhguru_size)
-        for style in uniform:
-            self.assertEqual(style.fixed_font_size_px, sadhguru_size)
+        title_size = uniform[0].fixed_font_size_px
+        credit_size = uniform[3].fixed_font_size_px
+        self.assertIsNotNone(title_size)
+        self.assertIsNotNone(credit_size)
+        for index, style in enumerate(uniform):
+            if index < 3:
+                self.assertEqual(style.fixed_font_size_px, title_size)
+            else:
+                self.assertEqual(style.fixed_font_size_px, credit_size)
+        self.assertLessEqual(credit_size, title_size)
 
     def test_consolidate_consciousness_title_block(self) -> None:
         styles = [
@@ -346,6 +401,21 @@ class TnHelperTests(unittest.TestCase):
             styles,
         )
         self.assertEqual(assigned[0].rendered_text, "Prof. Steven Pinker & Sadhguru")
+
+        bulgarian_styles = [
+            TnLineStyle(
+                placeholder_text="Prof. Steven",
+                rendered_text="Prof. Steven",
+                bbox=(0, 0, 100, 40),
+                font_size_px=97,
+                color_hex="#FFBB38",
+            ),
+        ]
+        bulgarian_assigned = assign_english_to_line_styles(
+            "Проф. Стивън",
+            bulgarian_styles,
+        )
+        self.assertEqual(bulgarian_assigned[0].rendered_text, "Проф. Стивън")
 
         self.assertEqual(
             english_lines_for_render("Line one\nLine two"),

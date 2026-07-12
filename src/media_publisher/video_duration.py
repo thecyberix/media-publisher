@@ -5,7 +5,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from media_publisher.models import VideoFormat
 from media_publisher.sources.airtable import FIELD_DURATION
 
 MAX_INSTAGRAM_VIDEO_SECONDS = 15 * 60
@@ -114,17 +113,6 @@ def instagram_duration_skip_message(duration_seconds: float) -> str:
     return (
         f"instagram: skipped — video is {minutes:.1f} minutes; "
         "Instagram Graph API Reels limit is 15 minutes"
-    )
-
-
-def instagram_skips_long_form_video(video_format: VideoFormat) -> bool:
-    return video_format == "post"
-
-
-def instagram_long_form_skip_message() -> str:
-    return (
-        "instagram: skipped — long-form Video uploads are not supported "
-        "(Instagram Graph API local upload fails for catalog videos; Short/Reel only)"
     )
 
 

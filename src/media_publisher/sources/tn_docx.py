@@ -127,3 +127,20 @@ def english_lines_for_render(english: str) -> list[str]:
         return parts
     compact = re.sub(r"\s+", " ", english.strip())
     return [compact] if compact else []
+
+
+def caption_lines_for_render(caption: str) -> list[str]:
+    """Split translated TN caption text on newlines or `` / `` markers."""
+    normalized = caption.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+    newline_parts = [part.strip() for part in normalized.splitlines() if part.strip()]
+    if len(newline_parts) > 1:
+        return newline_parts
+    slash_parts = [part.strip() for part in re.split(r"\s*/\s*", normalized) if part.strip()]
+    if len(slash_parts) > 1:
+        return slash_parts
+    if newline_parts:
+        return newline_parts
+    compact = re.sub(r"\s+", " ", normalized)
+    return [compact] if compact else []

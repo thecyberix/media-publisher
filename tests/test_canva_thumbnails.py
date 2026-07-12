@@ -93,13 +93,13 @@ class CanvaThumbnailHelperTests(unittest.TestCase):
     def test_parse_canva_resource_detects_long_thumbnail_folder_shortlink(self) -> None:
         with patch(
             "media_publisher.sources.canva.resolve_canva_url",
-            return_value="https://www.canva.com/folder/FAHOmUvMRtk",
+            return_value="https://www.canva.com/folder/FAHOgLx_jAw",
         ):
             resource_type, resource_id = parse_canva_resource(
                 CANVA_LONG_VIDEO_THUMBNAILS_URL
             )
         self.assertEqual(resource_type, "folder")
-        self.assertEqual(resource_id, "FAHOmUvMRtk")
+        self.assertEqual(resource_id, "FAHOgLx_jAw")
 
 
 class CanvaThumbnailClientTests(unittest.TestCase):

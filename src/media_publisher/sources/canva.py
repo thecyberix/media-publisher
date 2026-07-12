@@ -22,6 +22,7 @@ DEFAULT_SCOPES = (
     "design:content:read",
     "design:meta:read",
     "folder:read",
+    "folder:write",
 )
 QUOTES_LOOKUP_SCOPES = DEFAULT_SCOPES
 
@@ -59,8 +60,8 @@ def _format_canva_http_error(method: str, path: str, code: int, detail: str) -> 
         f"{message} Re-authorize Canva with scopes: {' '.join(DEFAULT_SCOPES)} "
         "(run `python -m media_publisher --canva-auth`)."
     )
-CANVA_LONG_VIDEO_THUMBNAILS_URL = "https://canva.link/mkc9c31v441jey0"
-CANVA_SHORT_VIDEO_THUMBNAILS_URL = "https://canva.link/aqmh5jedqw5g0ei"
+CANVA_LONG_VIDEO_THUMBNAILS_URL = "https://www.canva.com/folder/FAHOgLx_jAw"
+CANVA_SHORT_VIDEO_THUMBNAILS_URL = "https://www.canva.com/folder/FAHOgF-NT8Q"
 CANVA_QUOTES_FOLDER_URL = "https://www.canva.com/folder/FAF9ECD0M-k"
 ORIGINAL_VIDEO_NAME_KEY = "Title"
 EXPORT_POLL_INTERVAL_SECONDS = 2.0
@@ -134,6 +135,12 @@ class CanvaToken:
     expires_at: float
     scope: str | None = None
     token_type: str = "Bearer"
+
+
+@dataclass(frozen=True)
+class CanvaFolderSummary:
+    id: str
+    name: str
 
 
 @dataclass(frozen=True)
@@ -831,6 +838,73 @@ class CanvaClient:
 
         raise CanvaError(
             f"No Canva design found with title {title!r} in folder {folder_id!r}"
+        )
+
+    def list_folder_items(
+        self,
+        folder_id: str,
+        *,
+        item_types: str = "design,folder",
+        continuation: str | None = None,
+        limit: int = 100,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        params: dict[str, str | int] = {
+            "limit": limit,
+            "item_types": item_types,
+        }
+        if continuation:
+            params["continuation"] = continuation
+
+        response = self._request("GET", f"folders/{folder_id}/items", query=params)
+        if not isinstance(response, dict):
+            raise CanvaError("Canva folder items response is invalid")
+
+        items = response.get("items", [])
+        if not isinstance(items, list):
+            items = []
+        next_continuation = response.get("continuation")
+        if isinstance(next_continuation, str) and next_continuation.strip():
+            return items, next_continuation
+        return items, None
+
+    def find_subfolder(self, folder_id: str, folder_name: str) -> CanvaFolderSummary | None:
+        target = folder_name.casefold().strip()
+        if not target:
+            return None
+
+        continuation: str | None = None
+        while True:
+            items, continuation = self.list_folder_items(
+                folder_id,
+                item_types="folder",
+                continuation=continuation,
+            )
+            for item in items:
+                if not isinstance(item, dict) or item.get("type") != "folder":
+                    continue
+                folder = item.get("folder")
+                if not isinstance(folder, dict):
+                    continue
+                sub_id = folder.get("id")
+                name = folder.get("name")
+                if (
+                    isinstance(sub_id, str)
+                    and isinstance(name, str)
+                    and name.casefold().strip() == target
+                ):
+                    return CanvaFolderSummary(id=sub_id, name=name)
+            if not continuation:
+                break
+        return None
+
+    def move_folder_item(self, *, item_id: str, to_folder_id: str) -> None:
+        self._request(
+            "POST",
+            "folders/move",
+            body={
+                "item_id": item_id,
+                "to_folder_id": to_folder_id,
+            },
         )
 
     def list_design_pages_info(self, design_id: str) -> list[CanvaDesignPageInfo]:

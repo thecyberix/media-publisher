@@ -289,6 +289,8 @@ def _segment_row_width(
     *,
     allow_auto_bold: bool,
 ) -> int:
+    if not segments:
+        return 0
     fonts = _build_segment_fonts(list(segments), size, allow_auto_bold=allow_auto_bold)
     return sum(
         _measure_text(font, segment.text)[0]
@@ -553,6 +555,28 @@ def _segments_for_block_part(
     return tuple(matched)
 
 
+def _segment_row_text_bbox(
+    draw: ImageDraw.ImageDraw,
+    segments: tuple[TnTextSegment, ...],
+    fonts: list[ImageFont.FreeTypeFont],
+    x: int,
+    y: int,
+) -> tuple[int, int, int, int]:
+    left = top = right = bottom = 0
+    cursor = x
+    for index, (segment, font) in enumerate(zip(segments, fonts, strict=False)):
+        bbox = draw.textbbox((cursor, y), segment.text, font=font, anchor="lm")
+        if index == 0:
+            left, top, right, bottom = bbox
+        else:
+            left = min(left, bbox[0])
+            top = min(top, bbox[1])
+            right = max(right, bbox[2])
+            bottom = max(bottom, bbox[3])
+        cursor += _measure_text(font, segment.text)[0]
+    return left, top, right, bottom
+
+
 def _draw_segment_row(
     image: Image.Image,
     *,
@@ -589,29 +613,22 @@ def _draw_segment_row(
 
     draw = ImageDraw.Draw(image)
     if background_hex:
-        pad_x = max(6, int(reference_size * 0.14))
-        pad_y = max(4, int(reference_size * 0.10))
-        if alignment == "right":
-            rect = (
-                right - total_width - pad_x,
-                y - max_height // 2 - pad_y,
-                right,
-                y + max_height // 2 + pad_y,
-            )
-        elif alignment == "left":
-            rect = (
-                left,
-                y - max_height // 2 - pad_y,
-                left + total_width + pad_x,
-                y + max_height // 2 + pad_y,
-            )
-        else:
-            rect = (
-                x - pad_x,
-                y - max_height // 2 - pad_y,
-                x + total_width + pad_x,
-                y + max_height // 2 + pad_y,
-            )
+        pad_x = max(4, int(reference_size * 0.08))
+        pad_y_top = max(2, int(reference_size * 0.02))
+        pad_y_bottom = max(1, int(reference_size * 0.01))
+        text_left, text_top, text_right, text_bottom = _segment_row_text_bbox(
+            draw,
+            segments,
+            fonts,
+            x,
+            y,
+        )
+        rect = (
+            text_left - pad_x,
+            text_top - pad_y_top,
+            text_right + pad_x,
+            text_bottom + pad_y_bottom,
+        )
         draw.rectangle(rect, fill=background_hex)
 
     for segment, font in zip(segments, fonts, strict=False):
@@ -812,6 +829,8 @@ def _stacked_block_fits(
         )
     gap = _block_line_gap(max(row_sizes), style)
     total_height = sum(heights) + gap * (len(heights) - 1)
+    if not widths:
+        return False
     return max(widths) <= box_width * 0.98 and total_height <= box_height * 0.92
 
 
@@ -871,6 +890,8 @@ def _prepare_kailash_font_sizes(assigned: list[TnLineStyle]) -> list[TnLineStyle
     sub_base = _fit_block_font_size(subtitle, sub_lines)
     sub_sizes = _grow_stacked_font_sizes(subtitle, sub_lines, sub_base)
     ocean_segments = _segments_for_block_part(subtitle, sub_lines[0])
+    if not ocean_segments:
+        return assigned
     ocean_width = _segment_row_width(
         ocean_segments,
         sub_sizes[0],
@@ -922,11 +943,16 @@ def _prepare_kailash_font_sizes(assigned: list[TnLineStyle]) -> list[TnLineStyle
     ]
 
 
-def _style_with_fixed_font_size(style: TnLineStyle, size_px: int) -> TnLineStyle:
+def _style_with_fixed_font_size(
+    style: TnLineStyle,
+    size_px: int,
+    *,
+    bbox: tuple[int, int, int, int] | None = None,
+) -> TnLineStyle:
     return TnLineStyle(
         placeholder_text=style.placeholder_text,
         rendered_text=style.rendered_text,
-        bbox=style.bbox,
+        bbox=bbox or style.bbox,
         font_size_px=style.font_size_px,
         color_hex=style.color_hex,
         font_index=style.font_index,
@@ -945,22 +971,60 @@ def _style_with_fixed_font_size(style: TnLineStyle, size_px: int) -> TnLineStyle
     )
 
 
+CONSCIOUSNESS_CREDIT_FONT_SIZE_PX = 115
+CONSCIOUSNESS_CREDIT_SHIFT_FACTOR = 0.14
+
+
+def _shift_bbox_up(bbox: tuple[int, int, int, int], amount: int) -> tuple[int, int, int, int]:
+    left, top, right, bottom = bbox
+    return (left, top - amount, right, bottom - amount)
+
+
+def _consciousness_name_line_index(styles: list[TnLineStyle]) -> int:
+    for index, style in enumerate(styles):
+        if style.rendered_text.strip().casefold() in {"sadhguru", "садгуру"}:
+            return index
+        if style.placeholder_text.strip().casefold() == "sadhguru":
+            return index
+    return len(styles) - 1
+
+
 def _consciousness_uniform_font_sizes(styles: list[TnLineStyle]) -> list[TnLineStyle]:
     if len(styles) != 6:
         return styles
-    sadhguru_index = next(
-        (
-            index
-            for index, style in enumerate(styles)
-            if style.rendered_text.strip().casefold() == "sadhguru"
-        ),
-        len(styles) - 1,
-    )
+
+    title_count = 3
+    sadhguru_index = _consciousness_name_line_index(styles)
     fitted = _fit_line_fonts(styles[sadhguru_index])
     if not fitted:
         return styles
-    uniform_size = fitted[0][1].size
-    return [_style_with_fixed_font_size(style, uniform_size) for style in styles]
+    title_size = fitted[0][1].size
+
+    credit_sizes: list[int] = []
+    for style in styles[title_count:]:
+        fitted_credit = _fit_line_fonts(style)
+        if fitted_credit:
+            credit_sizes.append(fitted_credit[0][1].size)
+    credit_size = CONSCIOUSNESS_CREDIT_FONT_SIZE_PX
+    if credit_sizes:
+        credit_size = min(credit_size, min(credit_sizes))
+
+    _, credit_top, _, credit_bottom = styles[title_count].bbox
+    credit_shift = max(12, int(round((credit_bottom - credit_top) * CONSCIOUSNESS_CREDIT_SHIFT_FACTOR)))
+
+    result: list[TnLineStyle] = []
+    for index, style in enumerate(styles):
+        if index >= title_count:
+            result.append(
+                _style_with_fixed_font_size(
+                    style,
+                    credit_size,
+                    bbox=_shift_bbox_up(style.bbox, credit_shift),
+                )
+            )
+        else:
+            result.append(_style_with_fixed_font_size(style, title_size))
+    return result
 
 
 def render_tn_thumbnail(

@@ -34,8 +34,8 @@ class Settings:
     canva_redirect_uri: str = "http://127.0.0.1:8765/callback"
     canva_api_base: str = "https://api.canva.com/rest/v1"
     canva_download_dir: str = "downloads/canva"
-    canva_long_video_thumbnails_url: str = "https://canva.link/mkc9c31v441jey0"
-    canva_short_video_thumbnails_url: str = "https://canva.link/aqmh5jedqw5g0ei"
+    canva_long_video_thumbnails_url: str = "https://www.canva.com/folder/FAHOgLx_jAw"
+    canva_short_video_thumbnails_url: str = "https://www.canva.com/folder/FAHOgF-NT8Q"
     canva_quotes_design_id: str | None = None
     canva_quotes_folder_id: str = "https://www.canva.com/folder/FAF9ECD0M-k"
     quotes_publish_timezone: str = "Europe/Sofia"
@@ -52,6 +52,15 @@ class Settings:
     channel_report_mapping: str = "config/channel_report_bulgarian.json"
     channel_report_snapshots: str = "data/channel_report_snapshots.json"
     google_sheets_service_account: str = "credentials/google-sheets-service-account.json"
+    publish_override_drive_folder_id: str = "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ"
+    publish_override_thumbnails_subfolder: str = "Thumbnails"
+    publish_override_videos_subfolder: str = "Videos"
+    canva_published_subfolder_name: str = "Published"
+    tn_original_thumbnail_dir: str = "downloads/original-thumbnails"
+    tn_cache_dir: str = "downloads/tn-cache"
+    tn_render_output_dir: str = "downloads/tn-rendered"
+    tn_english_override_file: str = "downloads/tn-english-overrides.json"
+    publish_media_download_dir: str = "downloads/publish-media"
     meta_access_token: str | None = None
     meta_page_id: str | None = None
     meta_instagram_account_id: str | None = None
@@ -155,14 +164,14 @@ def load_settings(project_root: Path | None = None) -> Settings:
         or "downloads/canva",
         canva_long_video_thumbnails_url=os.getenv(
             "CANVA_LONG_VIDEO_THUMBNAILS_URL",
-            "https://canva.link/mkc9c31v441jey0",
+            "https://www.canva.com/folder/FAHOgLx_jAw",
         ).strip()
-        or "https://canva.link/mkc9c31v441jey0",
+        or "https://www.canva.com/folder/FAHOgLx_jAw",
         canva_short_video_thumbnails_url=os.getenv(
             "CANVA_SHORT_VIDEO_THUMBNAILS_URL",
-            "https://canva.link/aqmh5jedqw5g0ei",
+            "https://www.canva.com/folder/FAHOgF-NT8Q",
         ).strip()
-        or "https://canva.link/aqmh5jedqw5g0ei",
+        or "https://www.canva.com/folder/FAHOgF-NT8Q",
         canva_quotes_design_id=optional("CANVA_QUOTES_DESIGN_ID"),
         canva_quotes_folder_id=os.getenv(
             "CANVA_QUOTES_FOLDER_ID",
@@ -211,6 +220,48 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "credentials/google-sheets-service-account.json",
         ).strip()
         or "credentials/google-sheets-service-account.json",
+        publish_override_drive_folder_id=os.getenv(
+            "PUBLISH_OVERRIDE_DRIVE_FOLDER_ID",
+            "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ",
+        ).strip()
+        or "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ",
+        publish_override_thumbnails_subfolder=os.getenv(
+            "PUBLISH_OVERRIDE_THUMBNAILS_SUBFOLDER",
+            "Thumbnails",
+        ).strip()
+        or "Thumbnails",
+        publish_override_videos_subfolder=os.getenv(
+            "PUBLISH_OVERRIDE_VIDEOS_SUBFOLDER",
+            "Videos",
+        ).strip()
+        or "Videos",
+        canva_published_subfolder_name=os.getenv(
+            "CANVA_PUBLISHED_SUBFOLDER_NAME",
+            "Published",
+        ).strip()
+        or "Published",
+        tn_original_thumbnail_dir=os.getenv(
+            "TN_ORIGINAL_THUMBNAIL_DIR",
+            "downloads/original-thumbnails",
+        ).strip()
+        or "downloads/original-thumbnails",
+        tn_cache_dir=os.getenv("TN_CACHE_DIR", "downloads/tn-cache").strip()
+        or "downloads/tn-cache",
+        tn_render_output_dir=os.getenv(
+            "TN_RENDER_OUTPUT_DIR",
+            "downloads/tn-rendered",
+        ).strip()
+        or "downloads/tn-rendered",
+        tn_english_override_file=os.getenv(
+            "TN_ENGLISH_OVERRIDE_FILE",
+            "downloads/tn-english-overrides.json",
+        ).strip()
+        or "downloads/tn-english-overrides.json",
+        publish_media_download_dir=os.getenv(
+            "PUBLISH_MEDIA_DOWNLOAD_DIR",
+            "downloads/publish-media",
+        ).strip()
+        or "downloads/publish-media",
         meta_access_token=optional("META_ACCESS_TOKEN"),
         meta_page_id=optional("META_PAGE_ID"),
         meta_instagram_account_id=optional("META_INSTAGRAM_ACCOUNT_ID"),

@@ -17,11 +17,16 @@ from media_publisher.scheduling import (
 from media_publisher.video_duration import (
     instagram_duration_skip_message,
     instagram_exceeds_api_limit,
-    instagram_long_form_skip_message,
-    instagram_skips_long_form_video,
     resolve_video_duration_seconds,
 )
-from media_publisher.pipeline import PublishPipelineSettings, run_publish_pipeline
+from media_publisher.sources.publish_media import (
+    PublishMediaCleanup,
+    apply_publish_media_cleanup,
+    merge_publish_media_cleanup,
+    resolve_publish_thumbnail,
+    resolve_publish_video,
+)
+from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
 from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_pipeline
 from media_publisher.sources.quote_pdf import QuotePdfError
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
@@ -645,20 +650,87 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
             f"requires Status {STATUS_SYNC_DONE!r}, a publish date, and no existing permalink."
         )
     task = tasks[0]
-    if not canva_settings_missing(settings):
+    cleanup: PublishMediaCleanup | None = None
+    lookup_title = str(record.fields.get(FIELD_TITLE) or task.job.title)
+    drive_client = None
+    service_account = PROJECT_ROOT / settings.google_sheets_service_account
+    if service_account.exists():
         try:
+            drive_client = GoogleDriveClient.from_service_account(service_account)
+        except GoogleDriveError:
+            drive_client = None
+
+    if not getattr(settings, "skip_thumbnails", False):
+        canva_client = None
+        if not canva_settings_missing(settings):
             canva_client = canva_client_from_settings(settings)
-            enriched = ensure_catalog_thumbnail_from_canva(
+        try:
+            thumbnail_result = resolve_publish_thumbnail(
                 task.job,
-                client=canva_client,
-                download_dir=canva_download_dir_from_settings(settings),
+                dict(record.fields),
+                title=lookup_title,
+                canva_client=canva_client,
+                drive=drive_client,
+                canva_download_dir=canva_download_dir_from_settings(settings),
                 long_catalog_url=settings.canva_long_video_thumbnails_url,
                 short_catalog_url=settings.canva_short_video_thumbnails_url,
+                override_root_folder_id=settings.publish_override_drive_folder_id,
+                thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
+                published_subfolder_name=settings.canva_published_subfolder_name,
+                tn_settings=TnPublishSettings(
+                    original_dir=PROJECT_ROOT / settings.tn_original_thumbnail_dir,
+                    cache_dir=PROJECT_ROOT / settings.tn_cache_dir,
+                    output_dir=PROJECT_ROOT / settings.tn_render_output_dir,
+                    english_override_file=PROJECT_ROOT / settings.tn_english_override_file,
+                ),
             )
-            task = replace(task, job=enriched)
+            cleanup = merge_publish_media_cleanup(cleanup, thumbnail_result.cleanup)
+            if thumbnail_result.path is not None:
+                task = replace(
+                    task,
+                    job=replace(task.job, thumbnail_path=str(thumbnail_result.path)),
+                )
         except CanvaError as exc:
-            print(f"Canva thumbnail lookup failed: {exc}")
-    return task, client
+            print(f"Thumbnail lookup failed: {exc}")
+
+    if drive_client is not None and settings.publish_override_drive_folder_id:
+        video_override = resolve_publish_video(
+            dict(record.fields),
+            title=lookup_title,
+            drive=drive_client,
+            override_root_folder_id=settings.publish_override_drive_folder_id,
+            videos_subfolder=settings.publish_override_videos_subfolder,
+            download_dir=PROJECT_ROOT / settings.publish_media_download_dir,
+        )
+        cleanup = merge_publish_media_cleanup(cleanup, video_override.cleanup)
+        if video_override.path is not None:
+            task = replace(
+                task,
+                job=replace(task.job, video_path=str(video_override.path)),
+            )
+
+    return task, client, cleanup
+
+
+def finish_schedule_publish_cleanup(settings, cleanup: PublishMediaCleanup | None) -> None:
+    if cleanup is None:
+        return
+    drive_client = None
+    service_account = PROJECT_ROOT / settings.google_sheets_service_account
+    if service_account.exists():
+        try:
+            drive_client = GoogleDriveClient.from_service_account(service_account)
+        except GoogleDriveError:
+            drive_client = None
+    canva_client = None
+    if not canva_settings_missing(settings):
+        canva_client = canva_client_from_settings(settings)
+    apply_publish_media_cleanup(
+        cleanup,
+        drive=drive_client,
+        canva_client=canva_client,
+        log=print,
+    )
 
 
 def load_publish_job_from_airtable(settings, record_id: str):
@@ -1165,6 +1237,18 @@ def build_publish_pipeline_settings(
         regenerate_videos=regenerate_videos,
         use_web_export=use_web_export,
         happyscribe_published_folder_id=settings.happyscribe_published_folder_id,
+        publish_override_drive_folder_id=settings.publish_override_drive_folder_id,
+        publish_override_thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
+        publish_override_videos_subfolder=settings.publish_override_videos_subfolder,
+        canva_published_subfolder_name=settings.canva_published_subfolder_name,
+        google_drive_service_account=PROJECT_ROOT / settings.google_sheets_service_account,
+        publish_media_download_dir=PROJECT_ROOT / settings.publish_media_download_dir,
+        tn_publish_settings=TnPublishSettings(
+            original_dir=PROJECT_ROOT / settings.tn_original_thumbnail_dir,
+            cache_dir=PROJECT_ROOT / settings.tn_cache_dir,
+            output_dir=PROJECT_ROOT / settings.tn_render_output_dir,
+            english_override_file=PROJECT_ROOT / settings.tn_english_override_file,
+        ),
     )
 
 
@@ -1855,8 +1939,11 @@ def main() -> int:
             print("Missing required settings:", ", ".join(missing))
             return 1
         try:
-            task, airtable = load_schedule_task(settings, args.schedule_youtube, "youtube")
-            attach_local_video_path(task.job, settings)
+            task, airtable, publish_cleanup = load_schedule_task(
+                settings, args.schedule_youtube, "youtube"
+            )
+            if not task.job.video_path:
+                attach_local_video_path(task.job, settings)
             video_id = publish_to_youtube(
                 task.job,
                 client_secrets_path=PROJECT_ROOT / settings.youtube_client_secrets,
@@ -1876,6 +1963,7 @@ def main() -> int:
                 platform="youtube",
                 permalink=permalink,
             )
+            finish_schedule_publish_cleanup(settings, publish_cleanup)
         except (AirtableError, YouTubePublishError) as exc:
             print(f"YouTube scheduling failed: {exc}")
             return 1
@@ -1893,7 +1981,11 @@ def main() -> int:
             return 1
         try:
             page_id, _, page_info = resolve_meta_targets(settings)
-            task, airtable = load_schedule_task(settings, args.schedule_facebook, "facebook")
+            task, airtable, publish_cleanup = load_schedule_task(
+                settings, args.schedule_facebook, "facebook"
+            )
+            if not task.job.video_path:
+                attach_local_video_path(task.job, settings)
             meta_client = meta_client_from_settings(settings)
             post_id = publish_to_facebook(
                 task.job,
@@ -1910,6 +2002,7 @@ def main() -> int:
                 platform="facebook",
                 permalink=permalink,
             )
+            finish_schedule_publish_cleanup(settings, publish_cleanup)
         except (AirtableError, FacebookPublishError, MetaError) as exc:
             print(f"Facebook scheduling failed: {exc}")
             return 1
@@ -1927,7 +2020,11 @@ def main() -> int:
             return 1
         try:
             page_id, instagram_account_id, page_info = resolve_meta_targets(settings)
-            task, airtable = load_schedule_task(settings, args.schedule_instagram, "instagram")
+            task, airtable, publish_cleanup = load_schedule_task(
+                settings, args.schedule_instagram, "instagram"
+            )
+            if not task.job.video_path:
+                attach_local_video_path(task.job, settings)
             if not instagram_is_due(task.publish_at):
                 print(instagram_wait_message(task.publish_at))
                 return 0
@@ -1938,9 +2035,6 @@ def main() -> int:
             if instagram_exceeds_api_limit(duration_seconds):
                 assert duration_seconds is not None
                 print(instagram_duration_skip_message(duration_seconds))
-                return 0
-            if instagram_skips_long_form_video(task.job.video_format):
-                print(instagram_long_form_skip_message())
                 return 0
             if (
                 task.job.video_path
@@ -1970,6 +2064,7 @@ def main() -> int:
                 platform="instagram",
                 permalink=permalink,
             )
+            finish_schedule_publish_cleanup(settings, publish_cleanup)
         except (AirtableError, InstagramPublishError, MetaError) as exc:
             print(f"Instagram scheduling failed: {exc}")
             return 1

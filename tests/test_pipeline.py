@@ -23,6 +23,7 @@ from media_publisher.sources.happyscribe import (
     normalize_name_for_catalog_match,
 )
 from media_publisher.sources.canva import CanvaError
+from media_publisher.sources.publish_media import PublishThumbnailResult
 
 
 def _task(record_id: str, platform: str, title: str = "Translated title") -> PlatformScheduleTask:
@@ -273,7 +274,7 @@ class PublishPipelineTests(unittest.TestCase):
             patch("media_publisher.pipeline.resolve_video_duration_seconds", return_value=10.0),
             patch("media_publisher.pipeline.publish_to_youtube", return_value="yt"),
             patch("media_publisher.pipeline.mark_platform_scheduled"),
-            patch("media_publisher.pipeline.ensure_catalog_thumbnail_from_canva") as thumb_mock,
+            patch("media_publisher.pipeline.resolve_publish_thumbnail") as thumb_mock,
             patch.object(happyscribe, "list_search_transcriptions", return_value=[]),
         ):
             exit_code, _ = run_publish_pipeline(
@@ -311,10 +312,10 @@ class PublishPipelineTests(unittest.TestCase):
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
             return_value=video_path,
         ), patch(
-            "media_publisher.pipeline.ensure_catalog_thumbnail_from_canva",
-            side_effect=lambda job, **_: replace(
-                job,
-                thumbnail_path=str(thumbnail_path),
+            "media_publisher.pipeline.resolve_publish_thumbnail",
+            side_effect=lambda *args, **kwargs: PublishThumbnailResult(
+                path=thumbnail_path,
+                source="test",
             ),
         ), patch(
             "media_publisher.pipeline.publish_platform_task",
@@ -362,7 +363,7 @@ class PublishPipelineTests(unittest.TestCase):
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
             return_value=video_path,
         ), patch(
-            "media_publisher.pipeline.ensure_catalog_thumbnail_from_canva",
+            "media_publisher.pipeline.resolve_publish_thumbnail",
             side_effect=CanvaError("No thumbnail page matching title"),
         ), patch(
             "media_publisher.pipeline.publish_platform_task",
@@ -416,8 +417,8 @@ class PublishPipelineTests(unittest.TestCase):
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
             return_value=video_path,
         ), patch(
-            "media_publisher.pipeline.ensure_catalog_thumbnail_from_canva",
-            side_effect=lambda job, **_: job,
+            "media_publisher.pipeline.resolve_publish_thumbnail",
+            side_effect=lambda *args, **kwargs: PublishThumbnailResult(path=None),
         ), patch(
             "media_publisher.pipeline.publish_platform_task",
             return_value="https://example.com/post",
@@ -487,8 +488,8 @@ class PublishPipelineTests(unittest.TestCase):
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
             return_value=video_path,
         ), patch(
-            "media_publisher.pipeline.ensure_catalog_thumbnail_from_canva",
-            side_effect=lambda job, **_: job,
+            "media_publisher.pipeline.resolve_publish_thumbnail",
+            side_effect=lambda *args, **kwargs: PublishThumbnailResult(path=None),
         ), patch(
             "media_publisher.pipeline.publish_platform_task",
             return_value="https://example.com/post",
@@ -512,7 +513,7 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertEqual(publish_mock.call_count, 1)
         self.assertTrue(any("instagram: skipped" in message for message in messages))
 
-    def test_run_publish_pipeline_skips_instagram_for_long_form_video(self) -> None:
+    def test_run_publish_pipeline_publishes_instagram_for_long_form_video(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")
         location = HappyScribeLibraryLocation("1", "2")
@@ -556,8 +557,8 @@ class PublishPipelineTests(unittest.TestCase):
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
             return_value=video_path,
         ), patch(
-            "media_publisher.pipeline.ensure_catalog_thumbnail_from_canva",
-            side_effect=lambda job, **_: job,
+            "media_publisher.pipeline.resolve_publish_thumbnail",
+            side_effect=lambda *args, **kwargs: PublishThumbnailResult(path=None),
         ), patch(
             "media_publisher.pipeline.publish_platform_task",
             return_value="https://example.com/post",
@@ -576,10 +577,9 @@ class PublishPipelineTests(unittest.TestCase):
             )
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].platform, "youtube")
-        self.assertEqual(publish_mock.call_count, 1)
-        self.assertTrue(any("long-form Video uploads are not supported" in message for message in messages))
+        self.assertEqual(len(results), 2)
+        self.assertEqual({result.platform for result in results}, {"youtube", "instagram"})
+        self.assertEqual(publish_mock.call_count, 2)
 
 
 class PublishRunModeTests(unittest.TestCase):

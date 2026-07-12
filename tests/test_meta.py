@@ -569,7 +569,7 @@ class PublisherWrapperTests(unittest.TestCase):
         self.assertEqual(post_id, "fb_reel_1")
         client_cls.return_value.schedule_facebook_reel.assert_called_once()
 
-    def test_publish_to_instagram_skips_long_form_video_with_url(self) -> None:
+    def test_publish_to_instagram_publishes_long_form_video_with_url(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
@@ -577,53 +577,65 @@ class PublisherWrapperTests(unittest.TestCase):
             video_format="post",
         )
         with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
-            with self.assertRaises(InstagramPublishError) as ctx:
-                publish_to_instagram(
-                    job,
-                    instagram_account_id="ig123",
-                    access_token="token",
-                )
+            client_cls.return_value.schedule_instagram_feed_video.return_value = "ig_media_1"
+            media_id = publish_to_instagram(
+                job,
+                instagram_account_id="ig123",
+                access_token="token",
+            )
 
-        self.assertIn("long-form Video", str(ctx.exception))
-        client_cls.assert_not_called()
+        self.assertEqual(media_id, "ig_media_1")
+        client_cls.return_value.schedule_instagram_feed_video.assert_called_once()
 
-    def test_publish_to_instagram_skips_long_form_local_video(self) -> None:
+    def test_publish_to_instagram_publishes_long_form_local_video(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_path="downloads/happyscribe/sample.mp4",
             video_format="post",
         )
-        with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
-            with self.assertRaises(InstagramPublishError) as ctx:
-                publish_to_instagram(
-                    job,
-                    instagram_account_id="ig123",
-                    access_token="token",
-                    app_id="app123",
-                    page_id="page123",
-                )
+        with (
+            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
+            patch(
+                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
+                side_effect=self._passthrough_instagram_video,
+            ),
+        ):
+            client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
+            media_id = publish_to_instagram(
+                job,
+                instagram_account_id="ig123",
+                access_token="token",
+                app_id="app123",
+                page_id="page123",
+            )
 
-        self.assertIn("long-form Video", str(ctx.exception))
-        client_cls.assert_not_called()
+        self.assertEqual(media_id, "ig_media_1")
+        client_cls.return_value.schedule_instagram_reel.assert_called_once()
 
-    def test_publish_to_instagram_skips_long_form_before_meta_client(self) -> None:
+    def test_publish_to_instagram_long_form_local_video_calls_meta_client(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_path="downloads/happyscribe/sample.mp4",
             video_format="post",
         )
-        with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
-            with self.assertRaises(InstagramPublishError):
-                publish_to_instagram(
-                    job,
-                    instagram_account_id="ig123",
-                    access_token="token",
-                    page_id="page123",
-                )
+        with (
+            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
+            patch(
+                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
+                side_effect=self._passthrough_instagram_video,
+            ),
+        ):
+            client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
+            publish_to_instagram(
+                job,
+                instagram_account_id="ig123",
+                access_token="token",
+                page_id="page123",
+            )
 
-        client_cls.assert_not_called()
+        client_cls.assert_called_once_with("token", app_id=None)
 
     def test_publish_to_instagram_uses_local_file_with_app_id(self) -> None:
         job = PublishJob(

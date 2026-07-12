@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Iterator
 
 from media_publisher.sources.tn_docx import english_lines_for_render
@@ -81,10 +82,18 @@ def consolidate_line_styles(line_styles: list[TnLineStyle]) -> list[TnLineStyle]
     return result
 
 
+def _has_professor_prefix(text: str) -> bool:
+    return bool(
+        re.match(r"^(?:Prof\.|Professor|Проф\.|проф\.)\s*", text.strip(), re.IGNORECASE)
+    )
+
+
 def _preserve_placeholder_prefix(rendered: str, placeholder: str) -> str:
     rendered = rendered.strip()
     placeholder = placeholder.strip()
     if placeholder.startswith("Prof.") and not rendered.startswith("Prof."):
+        if _has_professor_prefix(rendered):
+            return rendered
         return f"Prof. {rendered.removeprefix('Prof.').strip()}"
     return rendered
 
@@ -124,6 +133,12 @@ def map_english_to_placeholder_lines(
 
     if _is_consciousness_six_line_placeholders(placeholder_lines) and len(english_lines) == 5:
         return _map_consciousness_five_to_six(english_lines, placeholder_lines)
+
+    if target_count == 2 and len(english_lines) == 4:
+        return [
+            " ".join(line.strip() for line in english_lines[:2]),
+            " ".join(line.strip() for line in english_lines[2:]),
+        ]
 
     if target_count == 2 and len(english_lines) > target_count:
         merged_blocks = _merge_english_for_two_blocks(english_lines)
@@ -306,7 +321,7 @@ def kailash_template_line_styles(width: int, height: int) -> list[TnLineStyle]:
             alignment="right",
             faux_bold=True,
             block_line_parts=("Rapid-Fire", "with Sadhguru"),
-            stacked_line_gap_factor=0.10,
+            stacked_line_gap_factor=0.20,
             stacked_line_backgrounds=(None, "#FEEEA2"),
             stacked_line_match_widths=True,
             segments=(
@@ -519,10 +534,27 @@ def _consciousness_prof_line(person_line: str, placeholder: str) -> str:
     return person_line
 
 
+def _consciousness_five_line_is_english_split(lines: list[str]) -> bool:
+    if len(lines) < 5:
+        return False
+    return lines[4].strip().startswith("&")
+
+
 def _map_consciousness_five_to_six(
     english_lines: list[str],
     placeholder_lines: tuple[str, ...],
 ) -> list[str]:
+    if not _consciousness_five_line_is_english_split(english_lines):
+        # Translated captions use 2 title lines + 3 credit lines (no "& Sadhguru" split).
+        return [
+            english_lines[0].strip(),
+            english_lines[1].strip(),
+            "",
+            english_lines[2].strip(),
+            english_lines[3].strip(),
+            english_lines[4].strip(),
+        ]
+
     tail = english_lines[4].strip().lstrip("&").strip()
     return [
         english_lines[0].strip(),
@@ -736,16 +768,17 @@ def apply_typography_preferences(
             continue
 
         if kailash_layout:
-            if index == 0 and "with sadhguru" in rendered.casefold():
+            block_parts = style.block_line_parts
+            if index == 0 and block_parts and len(block_parts) >= 2:
                 segments = (
                     TnTextSegment(
-                        text="Rapid-Fire",
+                        text=block_parts[0],
                         font_size_px=style.font_size_px,
                         color_hex="#FEEEA2",
                         faux_bold=True,
                     ),
                     TnTextSegment(
-                        text="with Sadhguru",
+                        text=block_parts[1],
                         font_size_px=style.font_size_px * 0.72,
                         color_hex="#1A4731",
                         faux_bold=True,
@@ -766,11 +799,7 @@ def apply_typography_preferences(
                             faux_bold=True,
                             segments=segments,
                             max_grow_factor=1.28 if index == 0 else 1.26,
-                            block_line_parts=(
-                                ("Rapid-Fire", "with Sadhguru")
-                                if index == 0
-                                else style.block_line_parts
-                            ),
+                            block_line_parts=block_parts,
                             stacked_line_gap_factor=style.stacked_line_gap_factor,
                             stacked_line_backgrounds=(
                                 (None, "#FEEEA2")
@@ -977,11 +1006,21 @@ def assign_english_to_line_styles(
         return []
 
     placeholders = flatten_placeholder_lines(line_styles)
+    english_lines = english_lines_for_render(english)
     mapped_lines = map_english_to_placeholder_lines(english, placeholders)
+    block_parts_by_index: list[tuple[str, ...]] | None = None
+    if len(line_styles) == 2 and len(english_lines) == 4:
+        block_parts_by_index = [
+            (english_lines[0].strip(), english_lines[1].strip()),
+            (english_lines[2].strip(), english_lines[3].strip()),
+        ]
     assigned: list[TnLineStyle] = []
-    for style, rendered in zip(line_styles, mapped_lines, strict=False):
+    for index, (style, rendered) in enumerate(zip(line_styles, mapped_lines, strict=False)):
         rendered = _preserve_placeholder_prefix(rendered, style.placeholder_text)
         mapped_segments = _map_line_to_segments(rendered, style.segments)
+        block_line_parts = style.block_line_parts
+        if block_parts_by_index is not None and index < len(block_parts_by_index):
+            block_line_parts = block_parts_by_index[index]
         assigned.append(
             TnLineStyle(
                 placeholder_text=style.placeholder_text,
@@ -996,7 +1035,7 @@ def assign_english_to_line_styles(
                 segments=mapped_segments,
                 max_grow_factor=style.max_grow_factor,
                 allow_auto_bold=style.allow_auto_bold,
-                block_line_parts=style.block_line_parts,
+                block_line_parts=block_line_parts,
                 stacked_line_gap_factor=style.stacked_line_gap_factor,
                 fixed_font_size_px=style.fixed_font_size_px,
                 stacked_line_backgrounds=style.stacked_line_backgrounds,

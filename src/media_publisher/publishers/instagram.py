@@ -10,8 +10,6 @@ from media_publisher.video_duration import (
     instagram_duration_skip_message,
     instagram_exceeds_api_limit,
     InstagramVideoPrepError,
-    instagram_long_form_skip_message,
-    instagram_skips_long_form_video,
     resolve_video_duration_seconds,
 )
 
@@ -70,9 +68,6 @@ def publish_to_instagram(
         assert duration_seconds is not None
         raise InstagramPublishError(instagram_duration_skip_message(duration_seconds))
 
-    if instagram_skips_long_form_video(job.video_format):
-        raise InstagramPublishError(instagram_long_form_skip_message())
-
     caption = _build_caption(job)
     cover_path = Path(job.thumbnail_path) if job.thumbnail_path else None
 
@@ -94,6 +89,7 @@ def publish_to_instagram(
                 page_id=page_id,
                 publish_at=None,
                 cover_path=cover_path,
+                prefer_resumable_upload=True,
             )
         if not video_url:
             raise InstagramPublishError(

@@ -36,15 +36,34 @@ class InstagramDurationLimitTests(unittest.TestCase):
     def test_skip_message(self) -> None:
         self.assertIn("24.8 minutes", instagram_duration_skip_message(1487.0))
 
-    def test_long_form_video_is_skipped(self) -> None:
-        from media_publisher.video_duration import (
-            instagram_long_form_skip_message,
-            instagram_skips_long_form_video,
-        )
+    def test_long_form_video_is_not_skipped_by_format(self) -> None:
+        from media_publisher.publishers.instagram import publish_to_instagram
+        from media_publisher.models import PublishJob
+        from unittest.mock import patch
 
-        self.assertTrue(instagram_skips_long_form_video("post"))
-        self.assertFalse(instagram_skips_long_form_video("short_form"))
-        self.assertIn("long-form Video", instagram_long_form_skip_message())
+        job = PublishJob(
+            title="Launch",
+            description="Caption",
+            video_path="downloads/happyscribe/sample.mp4",
+            video_format="post",
+        )
+        with (
+            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
+            patch(
+                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
+                side_effect=lambda path, **_: path,
+            ),
+        ):
+            client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
+            media_id = publish_to_instagram(
+                job,
+                instagram_account_id="ig123",
+                access_token="token",
+                app_id="app123",
+            )
+
+        self.assertEqual(media_id, "ig_media_1")
+        client_cls.return_value.schedule_instagram_reel.assert_called_once()
 
     def test_resolve_from_metadata(self) -> None:
         duration = resolve_video_duration_seconds(

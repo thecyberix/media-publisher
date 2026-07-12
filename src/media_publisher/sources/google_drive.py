@@ -9,6 +9,7 @@ from typing import Any
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 IMAGE_MIME_PREFIX = "image/"
+VIDEO_MIME_PREFIX = "video/"
 
 
 class GoogleDriveError(RuntimeError):
@@ -196,3 +197,32 @@ class GoogleDriveClient:
             _, done = downloader.next_chunk()
         destination.write_bytes(buffer.getvalue())
         return destination
+
+    def delete_file(self, file_id: str) -> None:
+        self._drive.files().delete(
+            fileId=file_id,
+            supportsAllDrives=True,
+        ).execute()
+
+    def find_file_by_title(
+        self,
+        folder_id: str,
+        title: str,
+        *,
+        mime_prefix: str | None = None,
+        extensions: tuple[str, ...] | None = None,
+    ) -> DriveFile | None:
+        target = title.casefold().strip()
+        if not target:
+            return None
+        for item in self.list_children(folder_id):
+            if item.mime_type == FOLDER_MIME_TYPE:
+                continue
+            if Path(item.name).stem.casefold().strip() != target:
+                continue
+            if mime_prefix and not item.mime_type.startswith(mime_prefix):
+                continue
+            if extensions and Path(item.name).suffix.casefold() not in extensions:
+                continue
+            return item
+        return None
