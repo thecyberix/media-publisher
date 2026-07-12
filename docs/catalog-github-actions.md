@@ -13,6 +13,99 @@ GitHub Actions **always runs `cron` in UTC**. You **cannot** put the schedule ti
 
 To change the run time, edit the `cron:` line and push. Use [crontab.guru](https://crontab.guru/#0_21_*_*_*) to validate expressions (remember: UTC, not your local zone).
 
+### External scheduler (recommended for on-time runs)
+
+GitHub's built-in `schedule` event can slip by hours during peak traffic. For reliable midnight (or any fixed local time), use an external cron service to call the GitHub API and trigger `workflow_dispatch`.
+
+[cron-job.org](https://cron-job.org) is free and supports time zones, so you can schedule **00:00 Europe/Sofia** directly instead of converting to UTC.
+
+#### 1. Create a GitHub token
+
+**Settings → Developer settings → Personal access tokens**
+
+| Token type | Permissions |
+|------------|-------------|
+| Fine-grained | Repository access: this repo only. **Actions: Read and write**, **Contents: Read**. |
+| Classic | Scope: **`repo`** (private repo) or **`public_repo`** (public only). |
+
+Copy the token once (`ghp_...` or `github_pat_...`). Store it only in cron-job.org — do not commit it.
+
+#### 2. Verify the API call locally (dry run)
+
+Replace `OWNER`, `REPO`, and `YOUR_TOKEN`. This repo's default branch is **`master`** (not `main`).
+
+```powershell
+$headers = @{
+  Authorization = "Bearer YOUR_TOKEN"
+  Accept        = "application/vnd.github+json"
+  "X-GitHub-Api-Version" = "2022-11-28"
+}
+$body = @{
+  ref = "master"
+  inputs = @{ dry_run = "true" }
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method POST `
+  -Uri "https://api.github.com/repos/OWNER/REPO/actions/workflows/catalog-daily-workflow.yml/dispatches" `
+  -Headers $headers `
+  -Body $body `
+  -ContentType "application/json"
+```
+
+Expected: HTTP **204 No Content** (empty response). Then open **Actions → Daily catalog workflow** — a new run should appear within seconds, triggered by `workflow_dispatch`, with **dry_run** enabled.
+
+#### 3. Create the cron-job.org job
+
+1. Sign up at [cron-job.org](https://console.cron-job.org/signup).
+2. **Cronjobs → Create cronjob**.
+3. **Title:** `catalog daily workflow`
+4. **URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/catalog-daily-workflow.yml/dispatches`
+5. **Schedule:** enable **Custom** → crontab `0 0 * * *` → **Time zone: Europe/Sofia** (midnight local).
+6. **Request method:** `POST`
+7. **Request body** (JSON):
+
+```json
+{
+  "ref": "master",
+  "inputs": {
+    "dry_run": "true"
+  }
+}
+```
+
+8. **Headers** (add each separately):
+
+| Name | Value |
+|------|-------|
+| `Authorization` | `Bearer YOUR_TOKEN` |
+| `Accept` | `application/vnd.github+json` |
+| `X-GitHub-Api-Version` | `2022-11-28` |
+| `Content-Type` | `application/json` |
+
+9. Save, then click **Run now** to test immediately.
+
+#### 4. Confirm, then go live
+
+1. In GitHub Actions, confirm the run starts within ~10 seconds of **Run now** (not hours later).
+2. Check logs: dry run should print planned actions without writing to Airtable/Drive.
+3. In cron-job.org, change `"dry_run": "true"` → `"false"`.
+4. **Disable the GitHub `schedule` block** in `.github/workflows/catalog-daily-workflow.yml` so you do not get two runs per night (external cron + GitHub cron). Keep `workflow_dispatch` for manual runs.
+
+#### 5. Optional: remove GitHub schedule in git
+
+Comment out or delete the `schedule:` block:
+
+```yaml
+on:
+  # schedule:
+  #   - cron: "0 21 * * *"   # replaced by cron-job.org → workflow_dispatch
+  workflow_dispatch:
+    ...
+```
+
+Push to the branch cron-job uses in `"ref"` (`master` for this repo).
+
 ## Turning automatic runs on or off
 
 | Method | Effect |

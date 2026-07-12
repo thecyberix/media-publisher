@@ -1190,6 +1190,11 @@ def _missing_design_meta_scope(exc: CanvaError) -> bool:
     return "missing_scope" in message and "design:meta:read" in message
 
 
+def _folder_lookup_denied(exc: CanvaError) -> bool:
+    message = str(exc).casefold()
+    return "403" in message or "permission_denied" in message or "not allowed to access this folder" in message
+
+
 def resolve_quotes_design(
     client: CanvaClient,
     *,
@@ -1201,7 +1206,11 @@ def resolve_quotes_design(
     has_folder = access_token_has_scope(access_token, "folder:read")
 
     if quotes_folder_id and has_folder:
-        return client.find_design_in_folder(quotes_folder_id, design_title)
+        try:
+            return client.find_design_in_folder(quotes_folder_id, design_title)
+        except CanvaError as exc:
+            if not _folder_lookup_denied(exc) or not has_meta:
+                raise
     if has_meta:
         return client.find_design_by_title(design_title)
 

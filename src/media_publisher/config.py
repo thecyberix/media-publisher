@@ -37,7 +37,7 @@ class Settings:
     canva_long_video_thumbnails_url: str = "https://www.canva.com/folder/FAHOgLx_jAw"
     canva_short_video_thumbnails_url: str = "https://www.canva.com/folder/FAHOgF-NT8Q"
     canva_quotes_design_id: str | None = None
-    canva_quotes_folder_id: str = "https://www.canva.com/folder/FAF9ECD0M-k"
+    canva_quotes_folder_id: str = ""
     quotes_publish_timezone: str = "Europe/Sofia"
     quotes_publish_hour: int = 8
     publish_timezone: str = "Europe/Sofia"
@@ -173,11 +173,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "https://www.canva.com/folder/FAHOgF-NT8Q",
         canva_quotes_design_id=optional("CANVA_QUOTES_DESIGN_ID"),
-        canva_quotes_folder_id=os.getenv(
-            "CANVA_QUOTES_FOLDER_ID",
-            "https://www.canva.com/folder/FAF9ECD0M-k",
-        ).strip()
-        or "https://www.canva.com/folder/FAF9ECD0M-k",
+        canva_quotes_folder_id=(os.getenv("CANVA_QUOTES_FOLDER_ID") or "").strip(),
         quotes_publish_timezone=os.getenv("QUOTES_PUBLISH_TIMEZONE", "Europe/Sofia").strip()
         or "Europe/Sofia",
         quotes_publish_hour=int(os.getenv("QUOTES_PUBLISH_HOUR", "8").strip() or "8"),

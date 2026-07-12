@@ -7,8 +7,8 @@ import re
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from catalog_parser.smartcat import DEFAULT_UI_BASE
 from catalog_parser.smartcat_web import _looks_like_login_url
@@ -135,7 +135,7 @@ def main() -> int:
 
     storage_state_path = args.storage_state
     if not storage_state_path.is_absolute():
-        storage_state_path = PROJECT_ROOT / storage_state_path
+        storage_state_path = REPO_ROOT / storage_state_path
 
     if not storage_state_path.exists():
         if args.skip_if_missing:

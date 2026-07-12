@@ -1,7 +1,7 @@
 name: Daily catalog workflow
 
-# Scheduled runs use UTC only — GitHub does not allow env vars in cron expressions.
-# Default: 21:00 UTC = midnight in UTC+3. Edit the cron line below to change the time.
+# Primary schedule: external cron (cron-job.org) → workflow_dispatch at 00:00 Europe/Sofia.
+# GitHub schedule below is a fallback; remove it once external cron is verified (see docs/catalog-github-actions.md).
 on:
   workflow_dispatch:
     inputs:
