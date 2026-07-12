@@ -176,8 +176,8 @@ class CanvaClient:
         self.client_id = client_id.strip()
         self.client_secret = client_secret.strip()
         self.token_path = token_path
-        self.pending_auth_path = pending_auth_path or token_path.with_name(
-            DEFAULT_PENDING_AUTH_FILENAME
+        self.pending_auth_path = pending_auth_path or (
+            token_path.parent / "canva-auth-pending.json"
         )
         self.redirect_uri = redirect_uri.strip()
         self.api_base = api_base.rstrip("/")
