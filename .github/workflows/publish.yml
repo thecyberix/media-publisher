@@ -14,11 +14,11 @@ on:
           - quotes
         default: all
       private:
-        description: Test mode (public YT/FB at next publish slot, skip Instagram)
+        description: Revise mode (YT/FB at next publish slot)
         type: boolean
         default: false
       staggered:
-        description: Production cron mode (IG today, YT/FB tomorrow). Leave off for manual today publish.
+        description: Production mode (IG now, YT/FB tomorrow).
         type: boolean
         default: false
 
