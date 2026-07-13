@@ -1,0 +1,86 @@
+{
+  "repository": "thecyberix/media-publisher",
+  "ref": "master",
+  "token_env": "GITHUB_DISPATCH_TOKEN",
+  "api_version": "2022-11-28",
+  "defaults": {
+    "wait": true,
+    "wait_timeout_seconds": 2700,
+    "poll_interval_seconds": 15,
+    "log_failed_jobs": true,
+    "log_tail_lines": 80
+  },
+  "presets": {
+    "publish-private-videos": {
+      "description": "Test catalog video publish (YouTube private, Facebook +20d, Instagram skipped)",
+      "workflow": "publish.yml",
+      "inputs": {
+        "mode": "videos",
+        "private": "true"
+      }
+    },
+    "publish-private-all": {
+      "description": "Test videos + quotes publish in private/test mode",
+      "workflow": "publish.yml",
+      "inputs": {
+        "mode": "all",
+        "private": "true"
+      }
+    },
+    "publish-production-videos": {
+      "description": "Production catalog video publish (staggered Instagram/YouTube/Facebook)",
+      "workflow": "publish.yml",
+      "inputs": {
+        "mode": "videos",
+        "private": "false"
+      }
+    },
+    "publish-production-quotes": {
+      "description": "Production daily quotes publish",
+      "workflow": "publish.yml",
+      "inputs": {
+        "mode": "quotes",
+        "private": "false"
+      }
+    },
+    "catalog-daily-dry-run": {
+      "description": "Catalog orchestrator dry run (no Airtable/Drive writes)",
+      "workflow": "catalog-daily-workflow.yml",
+      "inputs": {
+        "dry_run": "true"
+      }
+    },
+    "catalog-daily-production": {
+      "description": "Catalog orchestrator production run",
+      "workflow": "catalog-daily-workflow.yml",
+      "inputs": {
+        "dry_run": "false"
+      }
+    },
+    "catalog-weekly-report": {
+      "description": "Weekly participants work report",
+      "workflow": "catalog-weekly-work-report.yml",
+      "inputs": {}
+    }
+  },
+  "cron_jobs": {
+    "catalog-daily-midnight-sofia": {
+      "description": "cron-job.org mirror — catalog ingest at 00:00 Europe/Sofia",
+      "schedule": "0 0 * * *",
+      "timezone": "Europe/Sofia",
+      "preset": "catalog-daily-production"
+    },
+    "publish-videos-18h-sofia": {
+      "description": "cron-job.org mirror — catalog videos at 18:00 Europe/Sofia",
+      "schedule": "0 18 * * *",
+      "timezone": "Europe/Sofia",
+      "preset": "publish-production-videos"
+    },
+    "publish-quotes-08h-sofia": {
+      "description": "cron-job.org mirror — daily quotes at 08:00 Europe/Sofia",
+      "schedule": "0 8 * * *",
+      "timezone": "Europe/Sofia",
+      "preset": "publish-production-quotes"
+    }
+  }
+}

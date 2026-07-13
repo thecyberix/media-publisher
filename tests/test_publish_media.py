@@ -198,6 +198,36 @@ class PublishMediaResolutionTests(unittest.TestCase):
         self.assertIsNone(result.path)
         canva.find_design_in_folder.assert_not_called()
 
+    def test_resolve_publish_thumbnail_reports_all_failed_steps(self) -> None:
+        from media_publisher.sources.tn_publish import TnPublishError
+
+        job = PublishJob(title="Translated", video_format="post")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(TnPublishError) as ctx:
+                resolve_publish_thumbnail(
+                    job,
+                    {"Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}]},
+                    title="Launch video",
+                    canva_client=None,
+                    drive=None,
+                    canva_download_dir=Path(tmpdir),
+                    long_catalog_url="https://www.canva.com/folder/FAHOgLx_jAw",
+                    short_catalog_url="https://www.canva.com/folder/FAHOgF-NT8Q",
+                    override_root_folder_id="root123",
+                    thumbnails_subfolder="Thumbnails",
+                    published_subfolder_name="Published",
+                    tn_settings=TnPublishSettings(
+                        original_dir=Path(tmpdir) / "original",
+                        cache_dir=Path(tmpdir) / "cache",
+                        output_dir=Path(tmpdir) / "rendered",
+                        english_override_file=Path(tmpdir) / "overrides.json",
+                    ),
+                )
+        message = str(ctx.exception)
+        self.assertIn("drive override: Google Drive client unavailable", message)
+        self.assertIn("canva catalog: Canva client unavailable", message)
+        self.assertIn("tn generation: Google Drive client unavailable", message)
+
 
 if __name__ == "__main__":
     unittest.main()

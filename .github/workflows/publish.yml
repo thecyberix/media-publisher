@@ -37,6 +37,7 @@ env:
   YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
   CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
   CANVA_TOKEN_SYNC_PAT: ${{ secrets.CANVA_TOKEN_SYNC_PAT }}
+  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
   PUBLISH_TIMEZONE: ${{ vars.PUBLISH_TIMEZONE }}
   PUBLISH_HOUR: ${{ vars.PUBLISH_HOUR }}
   QUOTES_PUBLISH_TIMEZONE: ${{ vars.QUOTES_PUBLISH_TIMEZONE }}
@@ -60,7 +61,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install package
-        run: pip install -e .
+        run: pip install -e ".[thumbnails]"
 
       - name: Verify configuration
         run: python -m media_publisher --check-config
@@ -90,7 +91,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install package
-        run: pip install -e .
+        run: pip install -e ".[thumbnails]"
 
       - name: Verify configuration
         run: python -m media_publisher --check-config

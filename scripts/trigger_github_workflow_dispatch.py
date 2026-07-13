@@ -1,5 +1,7 @@
 """Trigger a GitHub Actions workflow_dispatch (same API as cron-job.org).
 
+Prefer scripts/run_github_workflow.py for named presets, waiting, and log output.
+
 Environment:
   GITHUB_DISPATCH_TOKEN — fine-grained or classic PAT with Actions: Read and write
 

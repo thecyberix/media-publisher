@@ -1403,6 +1403,11 @@ def main() -> int:
         print("Optional integrations:")
         print(f"  HappyScribe: {'yes' if settings.happyscribe_api_key else 'no'}")
         print(f"  Canva: {'yes' if canva_settings_complete(settings) else 'no'}")
+        drive_account = PROJECT_ROOT / settings.google_sheets_service_account
+        print(
+            "  Google Drive (publish overrides / TN): "
+            f"{'yes' if drive_account.is_file() else 'no'}"
+        )
         print(f"  YouTube: {'yes' if youtube_settings_complete(settings) else 'no'}")
         if settings.youtube_channel_handle:
             print(f"    Channel: @{settings.youtube_channel_handle}")

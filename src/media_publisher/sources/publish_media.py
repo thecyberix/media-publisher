@@ -185,10 +185,7 @@ def resolve_canva_catalog_thumbnail(
     if resource_type != "folder":
         return None
 
-    try:
-        design = client.find_design_in_folder(resource_id, title)
-    except CanvaError:
-        return None
+    design = client.find_design_in_folder(resource_id, title)
 
     destination = thumbnail_destination_path(download_dir, title)
     target = CanvaThumbnailTarget(design_id=design.id)
@@ -250,8 +247,11 @@ def resolve_publish_thumbnail(
         return PublishThumbnailResult(path=None)
 
     lookup_title = title.strip() or catalog_video_name_from_job(job)
+    attempts: list[str] = []
 
-    if drive is not None and override_root_folder_id:
+    if drive is None or not override_root_folder_id:
+        attempts.append("drive override: Google Drive client unavailable")
+    else:
         drive_result = resolve_drive_override_thumbnail(
             drive,
             root_folder_id=override_root_folder_id,
@@ -261,32 +261,48 @@ def resolve_publish_thumbnail(
         )
         if drive_result is not None and drive_result.path is not None:
             return drive_result
+        attempts.append("drive override: no matching file in Thumbnails folder")
 
-    if canva_client is not None:
-        canva_result = resolve_canva_catalog_thumbnail(
-            job,
-            client=canva_client,
-            title=lookup_title,
-            download_dir=canva_download_dir,
-            long_catalog_url=long_catalog_url,
-            short_catalog_url=short_catalog_url,
-            published_subfolder_name=published_subfolder_name,
-        )
-        if canva_result is not None and canva_result.path is not None:
-            return canva_result
+    if canva_client is None:
+        attempts.append("canva catalog: Canva client unavailable")
+    else:
+        try:
+            canva_result = resolve_canva_catalog_thumbnail(
+                job,
+                client=canva_client,
+                title=lookup_title,
+                download_dir=canva_download_dir,
+                long_catalog_url=long_catalog_url,
+                short_catalog_url=short_catalog_url,
+                published_subfolder_name=published_subfolder_name,
+            )
+        except CanvaError as exc:
+            attempts.append(f"canva catalog: {exc}")
+        else:
+            if canva_result is not None and canva_result.path is not None:
+                return canva_result
+            attempts.append("canva catalog: no thumbnail downloaded")
 
-    if drive is not None:
-        generated = resolve_generated_tn_thumbnail(
-            title=lookup_title,
-            record_fields=record_fields,
-            drive=drive,
-            tn_settings=tn_settings,
-        )
-        if generated.path is not None:
-            return generated
+    if drive is None:
+        attempts.append("tn generation: Google Drive client unavailable")
+    else:
+        try:
+            generated = resolve_generated_tn_thumbnail(
+                title=lookup_title,
+                record_fields=record_fields,
+                drive=drive,
+                tn_settings=tn_settings,
+            )
+        except TnPublishError as exc:
+            attempts.append(f"tn generation: {exc}")
+        else:
+            if generated.path is not None:
+                return generated
+            attempts.append("tn generation: render returned no file")
 
+    detail = "; ".join(attempts) if attempts else "no resolution steps attempted"
     raise TnPublishError(
-        f"Could not resolve translated thumbnail for {lookup_title!r}"
+        f"Could not resolve translated thumbnail for {lookup_title!r} ({detail})"
     )
 
 

@@ -50,6 +50,18 @@ $env:GITHUB_DISPATCH_TOKEN = "YOUR_TOKEN"
 python scripts/trigger_github_workflow_dispatch.py publish.yml --private --mode all
 ```
 
+### Preset runner (dispatch + wait + failed logs)
+
+Copy `config/github_workflows.example.json` to `config/github_workflows.json` if you want local overrides (repo, ref, presets). The token stays in `GITHUB_DISPATCH_TOKEN`, not in the JSON file.
+
+```powershell
+$env:GITHUB_DISPATCH_TOKEN = "YOUR_TOKEN"
+python scripts/run_github_workflow.py --list
+python scripts/run_github_workflow.py publish-private-videos
+```
+
+On failure, the script prints the GitHub run URL and the tail of failed job logs.
+
 ## cron-job.org jobs (production schedule)
 
 Create separate cron jobs per content type. Reuse the same GitHub token and headers as [catalog-github-actions.md](catalog-github-actions.md).
@@ -103,6 +115,20 @@ Use **Run now** on a throwaway cron job (or a dedicated â€œpublish private testâ
 ```
 
 Boolean workflow inputs must be the strings `"true"` or `"false"` in JSON.
+
+## Required GitHub secrets
+
+Same as the catalog workflow where noted:
+
+| Secret | Used for |
+|--------|----------|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Drive override thumbnails/videos, TN template download |
+| `CANVA_TOKEN_JSON` | Canva catalog thumbnails (reels/videos without TN caption) |
+| `CANVA_CLIENT_ID` / `CANVA_CLIENT_SECRET` | Canva token refresh in CI |
+| `CANVA_TOKEN_SYNC_PAT` | Persist refreshed Canva token back to repo secrets |
+| `AIRTABLE_*`, `HAPPYSCRIBE_*`, `YOUTUBE_*`, `META_*` | Catalog fetch and platform publish |
+
+The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render can run when Drive override and Canva are unavailable.
 
 ## Headers (all cron-job.org publish jobs)
 
