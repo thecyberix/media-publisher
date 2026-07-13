@@ -2,7 +2,12 @@
 
 The [publish workflow](../.github/workflows/publish.yml) runs catalog video and daily quote publishing. Like the catalog daily workflow, it is triggered via **`workflow_dispatch`** (manual UI, local script, or [cron-job.org](https://cron-job.org)).
 
-Default mode is **staggered**: Instagram publishes immediately today; YouTube and Facebook schedule tomorrow for review.
+Default mode depends on how the workflow is triggered:
+
+| Trigger | `staggered` input | Behavior |
+|---------|-------------------|----------|
+| **GitHub UI** (manual) | off (default) | Publish **today’s** video/quote on all platforms immediately |
+| **cron-job.org** (automatic) | **on** (`"staggered": "true"`) | Unchanged: Instagram today; YouTube/Facebook tomorrow |
 
 ## Manual run (GitHub UI)
 
@@ -11,7 +16,8 @@ Default mode is **staggered**: Instagram publishes immediately today; YouTube an
 | Input | Use |
 |-------|-----|
 | **mode** | `all`, `videos`, or `quotes` |
-| **private** | Enable for a safe test (YouTube private, Facebook +20 days, Instagram skipped) |
+| **private** | Test mode: schedule public YouTube/Facebook for the next publish slot; skip Instagram |
+| **staggered** | Leave **off** for manual today publish. Enable only when simulating production cron |
 
 ## Trigger via API (same as cron-job.org)
 
@@ -79,7 +85,8 @@ Suggested schedule: `0 18 * * *`, time zone **Europe/Sofia**.
   "ref": "master",
   "inputs": {
     "mode": "videos",
-    "private": "false"
+    "private": "false",
+    "staggered": "true"
   }
 }
 ```
@@ -95,7 +102,8 @@ Suggested schedule: `0 8 * * *`, time zone **Europe/Sofia**.
   "ref": "master",
   "inputs": {
     "mode": "quotes",
-    "private": "false"
+    "private": "false",
+    "staggered": "true"
   }
 }
 ```

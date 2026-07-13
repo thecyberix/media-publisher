@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import replace
 from datetime import date, timedelta
@@ -10,9 +11,10 @@ from media_publisher.config import load_settings, update_env_values
 from media_publisher.runtime_env import maybe_persist_canva_token
 from media_publisher.models import PlatformName
 from media_publisher.scheduling import (
-    PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
     instagram_is_due,
     instagram_wait_message,
+    next_catalog_publish_at,
+    publish_local_date,
 )
 from media_publisher.video_duration import (
     instagram_duration_skip_message,
@@ -304,9 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--private",
         action="store_true",
         help=(
-            "During testing, publish to YouTube (private) and schedule Facebook "
-            f"({PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead). "
-            "Skips Instagram."
+            "Test mode: schedule public YouTube and Facebook posts for the next "
+            "publish slot (today or tomorrow depending on time). Skips Instagram."
         ),
     )
     parser.add_argument(
@@ -1083,23 +1084,45 @@ def build_quotes_pipeline_settings(
     )
 
 
+def _env_flag(name: str) -> bool | None:
+    value = os.getenv(name, "").strip().lower()
+    if value in {"true", "1", "yes"}:
+        return True
+    if value in {"false", "0", "no"}:
+        return False
+    return None
+
+
 def resolve_publish_run_mode(
     args,
     *,
     publish_timezone: str,
+    publish_hour: int,
 ) -> tuple[str, "date", bool]:
-    """Return publish_mode, today's reference date, and private_test for a CLI run."""
+    """Return publish_mode, reference date, and private_test for a CLI run."""
     from datetime import datetime
 
     from media_publisher.timezones import get_timezone
 
     private_test = bool(getattr(args, "private", False))
-    reference_date = datetime.now(get_timezone(publish_timezone)).date()
+    now = datetime.now(get_timezone(publish_timezone))
+    reference_date = now.date()
     if getattr(args, "schedule", False):
         return "scheduled", reference_date, private_test
     if private_test:
-        return "immediate", reference_date, private_test
-    return "staggered", reference_date, private_test
+        next_publish_at = next_catalog_publish_at(
+            publish_timezone=publish_timezone,
+            publish_hour=publish_hour,
+            now=now,
+        )
+        reference_date = publish_local_date(next_publish_at, publish_timezone)
+        return "scheduled", reference_date, True
+    staggered = _env_flag("PUBLISH_STAGGERED")
+    if staggered is True:
+        return "staggered", reference_date, False
+    if staggered is False:
+        return "immediate", reference_date, False
+    return "staggered", reference_date, False
 
 
 def print_publish_run_mode(
@@ -1108,6 +1131,8 @@ def print_publish_run_mode(
     reference_date,
     private_test: bool,
     content_label: str = "videos",
+    publish_timezone: str = "Europe/Sofia",
+    publish_hour: int = 18,
 ) -> None:
     today = reference_date.isoformat()
     tomorrow = (reference_date + timedelta(days=1)).isoformat()
@@ -1117,28 +1142,25 @@ def print_publish_run_mode(
             f"immediately; YouTube/Facebook tomorrow ({tomorrow}) scheduled for review."
         )
         return
-    if publish_mode == "scheduled":
+    if publish_mode == "scheduled" and not private_test:
         print_console(
             f"Using native platform scheduling for pending {content_label} due on {today}."
         )
         return
     if private_test:
-        if content_label == "quote posts":
-            print_console(
-                f"Test publish for {today}: quotes to YouTube (private) and "
-                f"Facebook (scheduled {PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead); "
-                "Instagram skipped."
-            )
-        else:
-            print_console(
-                f"Test publish for {today}: YouTube private and Facebook scheduled "
-                f"{PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead only "
-                "(Instagram skipped)."
-            )
-    else:
-        print_console(
-            f"Publishing pending {content_label} for {today} immediately."
+        next_publish_at = next_catalog_publish_at(
+            publish_timezone=publish_timezone,
+            publish_hour=publish_hour,
         )
+        print_console(
+            f"Private test for {content_label}: schedule public YouTube and Facebook "
+            f"posts due on {today} for {next_publish_at.isoformat()}. "
+            "Instagram skipped."
+        )
+        return
+    print_console(
+        f"Publishing pending {content_label} for {today} immediately."
+    )
 
 
 def validate_quotes_pipeline_settings(settings) -> list[str]:
@@ -1165,12 +1187,15 @@ def run_quotes_publish(settings, args) -> int:
     publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
         publish_timezone=settings.quotes_publish_timezone,
+        publish_hour=settings.quotes_publish_hour,
     )
     print_publish_run_mode(
         publish_mode=publish_mode,
         reference_date=reference_date,
         private_test=private_test,
         content_label="quote posts",
+        publish_timezone=settings.quotes_publish_timezone,
+        publish_hour=settings.quotes_publish_hour,
     )
     if platforms is not None:
         print_console(f"Limiting quote publish to: {', '.join(platforms)}")
@@ -1288,6 +1313,7 @@ def run_default_publish(settings, args) -> int:
     publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
         publish_timezone=settings.publish_timezone,
+        publish_hour=settings.publish_hour,
     )
     regenerate_videos = bool(getattr(args, "regenerate_videos", False))
     use_web_export = bool(getattr(args, "happyscribe_web_export", False))
@@ -1297,6 +1323,8 @@ def run_default_publish(settings, args) -> int:
         publish_mode=publish_mode,
         reference_date=reference_date,
         private_test=private_test,
+        publish_timezone=settings.publish_timezone,
+        publish_hour=settings.publish_hour,
     )
     if platforms is not None:
         print_console(f"Limiting video publish to: {', '.join(platforms)}")

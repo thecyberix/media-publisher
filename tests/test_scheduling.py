@@ -5,13 +5,12 @@ from datetime import datetime, timedelta, timezone
 
 from media_publisher.models import PlatformScheduleTask, PublishJob
 from media_publisher.scheduling import (
-    PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
     facebook_can_schedule,
     filter_ready_tasks,
     filter_staggered_tasks,
     instagram_is_due,
     is_platform_ready,
-    private_test_facebook_publish_at,
+    next_catalog_publish_at,
     task_uses_immediate_publish,
 )
 
@@ -63,11 +62,23 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual([task.platform for task in ready], ["facebook"])
 
 
-    def test_private_test_facebook_publish_at_is_twenty_days_ahead(self) -> None:
+    def test_next_catalog_publish_at_uses_today_before_hour(self) -> None:
         now = datetime(2026, 7, 4, 12, 0, tzinfo=timezone.utc)
-        publish_at = private_test_facebook_publish_at(now=now)
-        self.assertEqual((publish_at - now).days, PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS)
-        self.assertTrue(facebook_can_schedule(publish_at, now=now))
+        publish_at = next_catalog_publish_at(
+            publish_timezone="UTC",
+            publish_hour=18,
+            now=now,
+        )
+        self.assertEqual(publish_at, datetime(2026, 7, 4, 18, 0, tzinfo=timezone.utc))
+
+    def test_next_catalog_publish_at_uses_tomorrow_after_hour(self) -> None:
+        now = datetime(2026, 7, 4, 19, 0, tzinfo=timezone.utc)
+        publish_at = next_catalog_publish_at(
+            publish_timezone="UTC",
+            publish_hour=18,
+            now=now,
+        )
+        self.assertEqual(publish_at, datetime(2026, 7, 5, 18, 0, tzinfo=timezone.utc))
 
     def test_filter_staggered_tasks_splits_platforms_by_day(self) -> None:
         from datetime import date

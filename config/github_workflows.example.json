@@ -12,7 +12,7 @@
   },
   "presets": {
     "publish-private-videos": {
-      "description": "Test catalog video publish (YouTube private, Facebook +20d, Instagram skipped)",
+      "description": "Test catalog video publish (public YT/FB at next publish slot, Instagram skipped)",
       "workflow": "publish.yml",
       "inputs": {
         "mode": "videos",
@@ -32,7 +32,8 @@
       "workflow": "publish.yml",
       "inputs": {
         "mode": "videos",
-        "private": "false"
+        "private": "false",
+        "staggered": "true"
       }
     },
     "publish-production-quotes": {
@@ -40,7 +41,8 @@
       "workflow": "publish.yml",
       "inputs": {
         "mode": "quotes",
-        "private": "false"
+        "private": "false",
+        "staggered": "true"
       }
     },
     "catalog-daily-dry-run": {

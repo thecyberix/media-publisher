@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from dataclasses import replace
@@ -397,7 +398,7 @@ class PublishPipelineTests(unittest.TestCase):
             _task("recABC", "instagram"),
         ]
         settings = self._pipeline_settings(
-            publish_mode="immediate",
+            publish_mode="scheduled",
             reference_date=date(2026, 7, 4),
             private_test=True,
         )
@@ -590,6 +591,58 @@ class PublishPipelineTests(unittest.TestCase):
 
 
 class PublishRunModeTests(unittest.TestCase):
+    def test_resolve_publish_run_mode_manual_dispatch_publishes_today(self) -> None:
+        from argparse import Namespace
+        from datetime import date, datetime, timezone
+
+        from media_publisher.__main__ import resolve_publish_run_mode
+
+        args = Namespace(schedule=False, private=False)
+        with (
+            patch(
+                "media_publisher.timezones.get_timezone",
+                return_value=timezone.utc,
+            ),
+            patch("datetime.datetime", wraps=datetime) as datetime_cls,
+            patch.dict(os.environ, {"PUBLISH_STAGGERED": "false"}, clear=False),
+        ):
+            datetime_cls.now.return_value = datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc)
+            publish_mode, reference_date, private_test = resolve_publish_run_mode(
+                args,
+                publish_timezone="UTC",
+                publish_hour=18,
+            )
+
+        self.assertEqual(publish_mode, "immediate")
+        self.assertEqual(reference_date, date(2026, 7, 5))
+        self.assertFalse(private_test)
+
+    def test_resolve_publish_run_mode_cron_staggered_flag(self) -> None:
+        from argparse import Namespace
+        from datetime import date, datetime, timezone
+
+        from media_publisher.__main__ import resolve_publish_run_mode
+
+        args = Namespace(schedule=False, private=False)
+        with (
+            patch(
+                "media_publisher.timezones.get_timezone",
+                return_value=timezone.utc,
+            ),
+            patch("datetime.datetime", wraps=datetime) as datetime_cls,
+            patch.dict(os.environ, {"PUBLISH_STAGGERED": "true"}, clear=False),
+        ):
+            datetime_cls.now.return_value = datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc)
+            publish_mode, reference_date, private_test = resolve_publish_run_mode(
+                args,
+                publish_timezone="UTC",
+                publish_hour=18,
+            )
+
+        self.assertEqual(publish_mode, "staggered")
+        self.assertEqual(reference_date, date(2026, 7, 5))
+        self.assertFalse(private_test)
+
     def test_resolve_publish_run_mode_defaults_to_staggered_today(self) -> None:
         from argparse import Namespace
         from datetime import date, datetime, timezone
@@ -608,11 +661,62 @@ class PublishRunModeTests(unittest.TestCase):
             publish_mode, reference_date, private_test = resolve_publish_run_mode(
                 args,
                 publish_timezone="UTC",
+                publish_hour=18,
             )
 
         self.assertEqual(publish_mode, "staggered")
         self.assertEqual(reference_date, date(2026, 7, 5))
         self.assertFalse(private_test)
+
+    def test_resolve_publish_run_mode_private_uses_next_publish_slot(self) -> None:
+        from argparse import Namespace
+        from datetime import date, datetime, timezone
+
+        from media_publisher.__main__ import resolve_publish_run_mode
+
+        args = Namespace(schedule=False, private=True)
+        with (
+            patch(
+                "media_publisher.timezones.get_timezone",
+                return_value=timezone.utc,
+            ),
+            patch("datetime.datetime", wraps=datetime) as datetime_cls,
+        ):
+            datetime_cls.now.return_value = datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc)
+            publish_mode, reference_date, private_test = resolve_publish_run_mode(
+                args,
+                publish_timezone="UTC",
+                publish_hour=18,
+            )
+
+        self.assertEqual(publish_mode, "scheduled")
+        self.assertEqual(reference_date, date(2026, 7, 5))
+        self.assertTrue(private_test)
+
+    def test_resolve_publish_run_mode_private_after_publish_hour_uses_tomorrow(self) -> None:
+        from argparse import Namespace
+        from datetime import date, datetime, timezone
+
+        from media_publisher.__main__ import resolve_publish_run_mode
+
+        args = Namespace(schedule=False, private=True)
+        with (
+            patch(
+                "media_publisher.timezones.get_timezone",
+                return_value=timezone.utc,
+            ),
+            patch("datetime.datetime", wraps=datetime) as datetime_cls,
+        ):
+            datetime_cls.now.return_value = datetime(2026, 7, 5, 19, 0, tzinfo=timezone.utc)
+            publish_mode, reference_date, private_test = resolve_publish_run_mode(
+                args,
+                publish_timezone="UTC",
+                publish_hour=18,
+            )
+
+        self.assertEqual(publish_mode, "scheduled")
+        self.assertEqual(reference_date, date(2026, 7, 6))
+        self.assertTrue(private_test)
 
     def test_resolve_publish_run_mode_schedule_still_limits_to_today(self) -> None:
         from argparse import Namespace
@@ -632,6 +736,7 @@ class PublishRunModeTests(unittest.TestCase):
             publish_mode, reference_date, private_test = resolve_publish_run_mode(
                 args,
                 publish_timezone="UTC",
+                publish_hour=18,
             )
 
         self.assertEqual(publish_mode, "scheduled")

@@ -96,7 +96,12 @@ def main() -> int:
     parser.add_argument(
         "--private",
         action="store_true",
-        help="Set private=true for publish.yml (YouTube private, skip Instagram)",
+        help="Set private=true for publish.yml (next-slot test, skip Instagram)",
+    )
+    parser.add_argument(
+        "--staggered",
+        action="store_true",
+        help="Set staggered=true for publish.yml (production cron behavior)",
     )
     parser.add_argument(
         "--input",
@@ -120,6 +125,8 @@ def main() -> int:
         inputs["mode"] = args.mode
     if args.private:
         inputs["private"] = "true"
+    if args.staggered:
+        inputs["staggered"] = "true"
 
     dispatch_workflow(
         args.workflow,

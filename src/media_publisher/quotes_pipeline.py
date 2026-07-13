@@ -29,13 +29,11 @@ from media_publisher.sources.quotes import (
 
 from media_publisher.scheduling import (
     MIN_SCHEDULE_LEAD_SECONDS,
-    PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
     PublishMode,
     facebook_can_schedule,
     facebook_wait_message,
     instagram_is_due,
     instagram_wait_message,
-    private_test_facebook_publish_at,
     publish_local_date,
 )
 
@@ -165,9 +163,9 @@ def quote_work_items(
 def quotes_need_instagram_design(
     settings: QuotesPipelineSettings,
 ) -> bool:
-    if settings.platforms is not None and "instagram" not in settings.platforms:
+    if settings.private_test:
         return False
-    if settings.private_test and settings.publish_mode == "immediate":
+    if settings.platforms is not None and "instagram" not in settings.platforms:
         return False
     return True
 
@@ -274,9 +272,8 @@ def run_quotes_pipeline(
 
     if settings.private_test:
         print_line(
-            "Private test: quotes go to YouTube (private) and Facebook "
-            f"(scheduled {PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead). "
-            "Instagram skipped."
+            "Private test: schedule public YouTube and Facebook quote posts for the "
+            "next publish slot. Instagram skipped."
         )
     elif settings.publish_mode == "staggered":
         print_line(
@@ -378,18 +375,12 @@ def run_quotes_pipeline(
 
             try:
                 quote_publish_at = publish_at
-                if (
-                    settings.private_test
-                    and publish_immediately
-                    and platform == "facebook"
-                ):
-                    quote_publish_at = private_test_facebook_publish_at()
 
                 permalink = publish_local_quote(
                     image_path=image_path,
                     caption=post.caption,
                     publish_at=quote_publish_at,
-                    private=settings.private_test and publish_immediately,
+                    private=False,
                     platform=platform,
                     page_id=settings.meta_page_id,
                     instagram_account_id=settings.meta_instagram_account_id,
@@ -416,13 +407,7 @@ def run_quotes_pipeline(
                 save_quote_state(settings.work_dir, state)
                 when = "now" if publish_immediately else post.publish_at.isoformat()
                 if publish_immediately:
-                    if settings.private_test and platform == "youtube":
-                        mode = "published privately"
-                    elif settings.private_test and platform == "facebook":
-                        mode = "scheduled for test"
-                        when = quote_publish_at.isoformat() if quote_publish_at else when
-                    else:
-                        mode = "published"
+                    mode = "published"
                 else:
                     mode = "scheduled"
                 print_line(f"  {platform}: {mode} for {when} ({permalink})")

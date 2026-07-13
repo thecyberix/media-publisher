@@ -237,7 +237,7 @@ class QuotesPipelineTests(unittest.TestCase):
             shutil.copy2(MONTHLY_PDF, cached_pdf)
             settings = self._settings(
                 work_dir,
-                publish_mode="immediate",
+                publish_mode="scheduled",
                 private_test=True,
                 reference_date=date(2026, 7, 5),
             )
@@ -271,7 +271,7 @@ class QuotesPipelineTests(unittest.TestCase):
             )
             self.assertIsNotNone(facebook_call.kwargs["publish_at"])
             for call in publish_mock.call_args_list:
-                self.assertTrue(call.kwargs["private"])
+                self.assertFalse(call.kwargs["private"])
                 self.assertIn(call.kwargs["platform"], ("youtube", "facebook"))
 
     def test_run_quotes_pipeline_limits_platform(self) -> None:

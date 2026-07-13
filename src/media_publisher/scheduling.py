@@ -9,7 +9,6 @@ from media_publisher.timezones import get_timezone
 PublishMode = Literal["staggered", "immediate", "scheduled"]
 
 MIN_SCHEDULE_LEAD_SECONDS = 600
-PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS = 20
 INSTAGRAM_PUBLISH_EARLY_SECONDS = 300
 INSTAGRAM_PUBLISH_GRACE_SECONDS = 3600
 FACEBOOK_MAX_SCHEDULE_LEAD_SECONDS = 60 * 60 * 24 * 30
@@ -82,10 +81,24 @@ def instagram_wait_message(publish_at: datetime) -> str:
     )
 
 
-def private_test_facebook_publish_at(*, now: datetime | None = None) -> datetime:
-    """Schedule Facebook test uploads far enough ahead to appear in Business Suite."""
+def next_catalog_publish_at(
+    *,
+    publish_timezone: str,
+    publish_hour: int,
+    now: datetime | None = None,
+) -> datetime:
+    """Return the next publish slot at publish_hour in publish_timezone."""
     current = as_utc(now or datetime.now(timezone.utc))
-    return current + timedelta(days=PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS)
+    local = current.astimezone(get_timezone(publish_timezone))
+    candidate = local.replace(
+        hour=publish_hour,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if candidate <= local:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def publish_local_date(publish_at: datetime, publish_timezone: str) -> date:

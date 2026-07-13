@@ -40,7 +40,6 @@ from media_publisher.sources.tn_publish import TnPublishError, TnPublishSettings
 from media_publisher.scheduling import (
     PublishMode,
     prepare_job_for_immediate_publish,
-    private_test_facebook_publish_at,
     select_tasks_for_run,
     task_uses_immediate_publish,
 )
@@ -413,14 +412,10 @@ def run_publish_pipeline(
                 settings.publish_mode,
             )
             if uses_immediate:
-                if settings.private_test and task.platform == "facebook":
-                    task.job.publish_at = private_test_facebook_publish_at()
-                else:
-                    prepare_job_for_immediate_publish(
-                        task.job,
-                        private=settings.private_test
-                        and settings.publish_mode == "immediate",
-                    )
+                prepare_job_for_immediate_publish(
+                    task.job,
+                    private=False,
+                )
             try:
                 permalink = publish_platform_task(
                     task,
@@ -438,22 +433,9 @@ def run_publish_pipeline(
                 when = (
                     "now"
                     if uses_immediate
-                    and not (
-                        settings.private_test and task.platform == "facebook"
-                    )
-                    else task.job.publish_at.isoformat()
-                    if settings.private_test and task.platform == "facebook"
                     else catalog_publish_at.isoformat()
                 )
-                mode = (
-                    "published privately"
-                    if settings.private_test and task.platform == "youtube"
-                    else "scheduled for test"
-                    if settings.private_test and task.platform == "facebook"
-                    else "published"
-                    if uses_immediate
-                    else "scheduled"
-                )
+                mode = "published" if uses_immediate else "scheduled"
                 print_line(f"  {task.platform}: {mode} for {when} ({permalink})")
                 results.append(
                     PlatformPublishResult(

@@ -14,7 +14,11 @@ on:
           - quotes
         default: all
       private:
-        description: Test mode (YouTube private, Facebook scheduled +20d, skip Instagram)
+        description: Test mode (public YT/FB at next publish slot, skip Instagram)
+        type: boolean
+        default: false
+      staggered:
+        description: Production cron mode (IG today, YT/FB tomorrow). Leave off for manual today publish.
         type: boolean
         default: false
 
@@ -67,6 +71,8 @@ jobs:
         run: python -m media_publisher --check-config
 
       - name: Publish catalog videos
+        env:
+          PUBLISH_STAGGERED: ${{ inputs.staggered }}
         run: |
           EXTRA_ARGS=""
           if [ "${{ inputs.private }}" = "true" ]; then
@@ -97,6 +103,8 @@ jobs:
         run: python -m media_publisher --check-config
 
       - name: Publish daily quotes
+        env:
+          PUBLISH_STAGGERED: ${{ inputs.staggered }}
         run: |
           EXTRA_ARGS=""
           if [ "${{ inputs.private }}" = "true" ]; then
