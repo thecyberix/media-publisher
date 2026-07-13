@@ -178,29 +178,44 @@ def download_job_log_text(
     token: str,
     api_version: str,
 ) -> str:
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
     url = f"https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs"
     request = urllib.request.Request(url, method="GET")
     request.add_header("Authorization", f"Bearer {token}")
     request.add_header("Accept", "application/vnd.github+json")
     request.add_header("X-GitHub-Api-Version", api_version)
+    opener = urllib.request.build_opener(_NoRedirect)
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with opener.open(request, timeout=120) as response:
             payload = response.read()
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        return f"<failed to download logs: HTTP {exc.code} {detail}>"
+        if exc.code != 302:
+            detail = exc.read().decode("utf-8", errors="replace")
+            return f"<failed to download logs: HTTP {exc.code} {detail}>"
+        location = exc.headers.get("Location")
+        if not location:
+            return "<failed to download logs: missing redirect location>"
+        with urllib.request.urlopen(location, timeout=120) as response:
+            payload = response.read()
+    except urllib.error.URLError as exc:
+        return f"<failed to download logs: {exc}>"
 
-    try:
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            parts: list[str] = []
-            for name in sorted(archive.namelist()):
-                if not name.endswith(".txt"):
-                    continue
-                text = archive.read(name).decode("utf-8", errors="replace")
-                parts.append(f"--- {name} ---\n{text}")
-            return "\n".join(parts)
-    except zipfile.BadZipFile:
-        return payload.decode("utf-8", errors="replace")
+    if payload[:2] == b"PK":
+        try:
+            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                parts: list[str] = []
+                for name in sorted(archive.namelist()):
+                    if not name.endswith(".txt"):
+                        continue
+                    text = archive.read(name).decode("utf-8", errors="replace")
+                    parts.append(f"--- {name} ---\n{text}")
+                return "\n".join(parts)
+        except zipfile.BadZipFile:
+            pass
+    return payload.decode("utf-8", errors="replace")
 
 
 def tail_lines(text: str, max_lines: int) -> str:

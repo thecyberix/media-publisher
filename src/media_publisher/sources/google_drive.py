@@ -203,10 +203,15 @@ class GoogleDriveClient:
         return destination
 
     def delete_file(self, file_id: str) -> None:
-        self._drive.files().delete(
-            fileId=file_id,
-            supportsAllDrives=True,
-        ).execute()
+        try:
+            self._drive.files().delete(
+                fileId=file_id,
+                supportsAllDrives=True,
+            ).execute()
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to delete Drive file {file_id}: {exc}"
+            ) from exc
 
     def find_file_by_title(
         self,
