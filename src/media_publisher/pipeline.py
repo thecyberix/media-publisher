@@ -21,6 +21,7 @@ from media_publisher.sources.airtable import (
     fetch_pending_schedule_tasks,
     mark_platform_scheduled,
     mark_record_done_and_published_if_complete,
+    record_publish_platforms_complete,
     STATUS_DONE_PUBLISHED,
 )
 from media_publisher.sources.happyscribe import (
@@ -261,14 +262,12 @@ def run_publish_pipeline(
                 task for task in ready_tasks if task.platform == "instagram"
             ]
             if skipped_instagram:
-                print_line("  instagram: skipped during private test (--private)")
+                print_line("  instagram: upload skipped in private mode (--private)")
                 skipped_count += len(skipped_instagram)
             ready_tasks = [
                 task for task in ready_tasks if task.platform != "instagram"
             ]
-        excluded_platforms: frozenset[PlatformName] = frozenset(
-            {"instagram"} if settings.private_test else set()
-        )
+        excluded_platforms: frozenset[PlatformName] = frozenset()
         if not ready_tasks:
             continue
 
@@ -480,7 +479,13 @@ def run_publish_pipeline(
                     )
                 )
 
-        if record_success_count == len(ready_tasks):
+        if (
+            record_success_count == len(ready_tasks)
+            and record_publish_platforms_complete(
+                record_fields,
+                excluded_platforms=excluded_platforms,
+            )
+        ):
             publish_cleanup = merge_publish_media_cleanup(
                 publish_cleanup,
                 combined_media_cleanup_from_fields(record_fields),

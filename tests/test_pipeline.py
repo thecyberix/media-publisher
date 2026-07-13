@@ -401,7 +401,9 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertIn("No thumbnail page matching title", results[0].error or "")
         publish_mock.assert_not_called()
 
-    def test_run_publish_pipeline_skips_instagram_when_private_test(self) -> None:
+    def test_run_publish_pipeline_private_mode_skips_instagram_upload_only(
+        self,
+    ) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")
         location = HappyScribeLibraryLocation("1", "2")
@@ -441,7 +443,7 @@ class PublishPipelineTests(unittest.TestCase):
             client,
             "update_record",
             return_value=AirtableRecord(id="recABC", fields={}),
-        ):
+        ) as update_mock:
             exit_code, results = run_publish_pipeline(
                 client,
                 happyscribe,
@@ -459,6 +461,8 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertTrue(
             all(call.args[0].platform != "instagram" for call in publish_mock.call_args_list)
         )
+        for call in update_mock.call_args_list:
+            self.assertNotIn("Status", call.args[1])
 
     def test_run_publish_pipeline_skips_instagram_when_video_too_long(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
