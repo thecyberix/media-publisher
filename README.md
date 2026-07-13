@@ -35,7 +35,7 @@ python -m catalog_parser --smartcat-login  # renew Smartcat browser session
 python -m catalog_parser --canva-auth      # Canva OAuth for ingest thumbnails
 ```
 
-See `docs/catalog-github-actions.md` for catalog workflow secrets and schedule.
+See `docs/catalog-github-actions.md` for catalog workflow secrets and schedule. See `docs/publish-github-actions.md` for publish triggers (cron-job.org, private test).
 
 ## GitHub Actions (scheduled publishing)
 
@@ -44,7 +44,7 @@ Two workflows live under `.github/workflows/`:
 | Workflow | Purpose |
 |----------|---------|
 | `ci.yml` | Runs unit tests on push/PR |
-| `publish.yml` | Scheduled + manual publishing |
+| `publish.yml` | Manual + external cron publishing (`workflow_dispatch`) |
 | `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync |
 | `catalog-weekly-work-report.yml` | Weekly translation/editing report email |
 
@@ -117,6 +117,8 @@ Requires `GOOGLE_SERVICE_ACCOUNT_JSON`, YouTube OAuth token with `yt-analytics.r
 ### Manual publish run
 
 In GitHub: **Actions → Publish → Run workflow**. Choose `videos`, `quotes`, or `all`, and enable **private** for a safe test run.
+
+To trigger the same way as cron-job.org (API / script), see `docs/publish-github-actions.md`.
 
 ## Project layout
 

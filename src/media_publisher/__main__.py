@@ -28,7 +28,7 @@ from media_publisher.sources.publish_media import (
     resolve_publish_video,
 )
 from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
-from media_publisher.sources.tn_publish import TnPublishSettings
+from media_publisher.sources.tn_publish import TnPublishError, TnPublishSettings
 from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_pipeline
 from media_publisher.sources.quote_pdf import QuotePdfError
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
@@ -692,8 +692,8 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
                     task,
                     job=replace(task.job, thumbnail_path=str(thumbnail_result.path)),
                 )
-        except CanvaError as exc:
-            print(f"Thumbnail lookup failed: {exc}")
+        except (CanvaError, TnPublishError) as exc:
+            raise AirtableError(f"Thumbnail lookup failed: {exc}") from exc
 
     if drive_client is not None and settings.publish_override_drive_folder_id:
         video_override = resolve_publish_video(

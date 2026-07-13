@@ -9,6 +9,7 @@ from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
     merge_publish_media_cleanup,
+    resolve_drive_override_thumbnail,
     resolve_publish_thumbnail,
     resolve_publish_video,
 )
@@ -38,11 +39,14 @@ class PublishMediaResolutionTests(unittest.TestCase):
             name="Videos",
             mime_type="application/vnd.google-apps.folder",
         )
-        drive.find_file_by_title.return_value = DriveFile(
-            id="video123",
-            name="Launch video.mp4",
-            mime_type="video/mp4",
-        )
+        drive.list_children.return_value = [
+            DriveFile(
+                id="video123",
+                name="Launch video.mp4",
+                mime_type="video/mp4",
+            )
+        ]
+
         def _write_download(_file_id, dest):
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(b"video")
@@ -64,6 +68,41 @@ class PublishMediaResolutionTests(unittest.TestCase):
         self.assertEqual(result.cleanup.drive_file_ids_to_delete, ["video123"])
         drive.download_file.assert_called_once()
 
+    def test_drive_override_thumbnail_matches_sanitized_title(self) -> None:
+        drive = MagicMock()
+        drive.find_child_folder.return_value = DriveFile(
+            id="thumb-folder",
+            name="Thumbnails",
+            mime_type="application/vnd.google-apps.folder",
+        )
+        drive.list_children.return_value = [
+            DriveFile(
+                id="thumb123",
+                name="Launch video _ Part 2.tn-render.jpg",
+                mime_type="image/jpeg",
+            )
+        ]
+
+        def _write_download(_file_id, dest):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(b"jpg")
+            return dest
+
+        drive.download_file.side_effect = _write_download
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = resolve_drive_override_thumbnail(
+                drive,
+                root_folder_id="root123",
+                thumbnails_subfolder="Thumbnails",
+                title="Launch video | Part 2",
+                download_dir=Path(tmpdir),
+            )
+
+        self.assertEqual(result.source, "drive-override-thumbnail")
+        assert result.path is not None
+        drive.download_file.assert_called_once_with("thumb123", result.path)
+
     def test_resolve_publish_thumbnail_prefers_drive_override(self) -> None:
         drive = MagicMock()
         drive.find_child_folder.return_value = DriveFile(
@@ -71,11 +110,13 @@ class PublishMediaResolutionTests(unittest.TestCase):
             name="Thumbnails",
             mime_type="application/vnd.google-apps.folder",
         )
-        drive.find_file_by_title.return_value = DriveFile(
-            id="thumb123",
-            name="Launch video.png",
-            mime_type="image/png",
-        )
+        drive.list_children.return_value = [
+            DriveFile(
+                id="thumb123",
+                name="Launch video.png",
+                mime_type="image/png",
+            )
+        ]
         def _write_download(_file_id, dest):
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(b"png")

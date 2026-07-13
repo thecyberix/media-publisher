@@ -1,27 +1,25 @@
 """Generate TN thumbnails at publish time for catalog videos."""
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from media_publisher.sources.airtable import (
+    FIELD_ORIGINAL_VIDEO,
+    FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_VIDEO_CAPTION_TRANSLATED,
     FIELD_VIDEO_FOLDER,
     catalog_title,
 )
 from media_publisher.sources.google_drive import GoogleDriveClient
-from media_publisher.sources.source_thumbnail import original_thumbnail_destination
-from media_publisher.sources.tn_docx import (
-    TN_LABEL,
-    caption_lines_for_render,
-    document_sort_key,
-    extract_labeled_table,
-    extract_tn_text,
-    read_word_document,
+from media_publisher.sources.source_thumbnail import (
+    SourceThumbnailError,
+    original_thumbnail_destination,
+    video_size_from_source_url,
 )
+from media_publisher.sources.tn_docx import caption_lines_for_render
 from media_publisher.sources.tn_psd import (
     ImageSize,
     TnPsdError,
@@ -37,8 +35,6 @@ FOLDER_ID_RE = re.compile(r"(?:folders/|folder/)([a-zA-Z0-9_-]+)")
 IMAGE_EXTENSIONS = {
     ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".psd",
 }
-WORD_DOC_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-GOOGLE_DOC_MIME = "application/vnd.google-apps.document"
 
 
 class TnPublishError(RuntimeError):
@@ -65,25 +61,6 @@ def parse_folder_id(value: object) -> str | None:
     return None
 
 
-def load_english_overrides(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise TnPublishError(f"{path} must contain a JSON object")
-    return {str(key): str(value) for key, value in data.items()}
-
-
-def english_override_for_title(overrides: dict[str, str], title: str) -> str | None:
-    if title in overrides:
-        return overrides[title]
-    lowered = title.casefold()
-    for key, value in overrides.items():
-        if key.casefold() in lowered or lowered in key.casefold():
-            return value
-    return None
-
-
 def render_destination(output_dir: Path, title: str) -> Path:
     cleaned = re.sub(r'[<>:"/\\|?*]+', "_", title).strip(" .")
     return output_dir / f"{cleaned or 'thumbnail'}.tn-render.jpg"
@@ -97,19 +74,68 @@ def _is_image_file(name: str, mime_type: str) -> bool:
     return Path(name).suffix.casefold() in IMAGE_EXTENSIONS
 
 
-def _find_english_text(drive: GoogleDriveClient, docs) -> str | None:
-    for doc in docs:
-        document = read_word_document(drive, doc)
-        if document is None:
-            continue
-        grid = extract_labeled_table(document, TN_LABEL)
-        if grid is None:
-            continue
-        values = extract_tn_text(grid)
-        english = values.get("english")
-        if english:
-            return english
-    return None
+def _translated_caption_lines(record_fields: dict[str, Any]) -> list[str] | None:
+    caption_translated = record_fields.get(FIELD_VIDEO_CAPTION_TRANSLATED)
+    if not isinstance(caption_translated, str) or not caption_translated.strip():
+        return None
+    lines = caption_lines_for_render(caption_translated.strip())
+    return lines or None
+
+
+def reference_thumbnail_size(
+    record_fields: dict[str, Any],
+    *,
+    title: str,
+    original_dir: Path,
+    drive: GoogleDriveClient | None = None,
+    folder_id: str | None = None,
+) -> ImageSize | None:
+    """Return the aspect-ratio reference used when selecting TN templates."""
+    resolved_folder_id = folder_id or parse_folder_id(record_fields.get(FIELD_VIDEO_FOLDER))
+    if drive is not None and resolved_folder_id:
+        from catalog_parser.drive_video_size import video_size_from_pkg_folder
+
+        video_size = video_size_from_pkg_folder(drive.drive_service, resolved_folder_id)
+        if video_size is not None:
+            return ImageSize(
+                width=video_size[0],
+                height=video_size[1],
+                source="drive-video",
+            )
+
+    source_url = record_fields.get(FIELD_ORIGINAL_VIDEO)
+    if isinstance(source_url, str) and source_url.strip():
+        try:
+            video_size = video_size_from_source_url(source_url.strip())
+        except SourceThumbnailError:
+            video_size = None
+        if video_size is not None:
+            return ImageSize(
+                width=video_size[0],
+                height=video_size[1],
+                source="original-video",
+            )
+
+    attachment = record_fields.get(FIELD_ORIGINAL_VIDEO_THUMBNAIL)
+    if isinstance(attachment, list) and attachment:
+        first = attachment[0]
+        if isinstance(first, dict):
+            width = first.get("width")
+            height = first.get("height")
+            if (
+                isinstance(width, (int, float))
+                and isinstance(height, (int, float))
+                and width > 0
+                and height > 0
+            ):
+                return ImageSize(
+                    width=int(width),
+                    height=int(height),
+                    source="airtable-thumbnail",
+                )
+
+    original_path = original_thumbnail_destination(original_dir, title)
+    return read_pillow_size(original_path)
 
 
 def generate_catalog_tn_thumbnail(
@@ -119,67 +145,47 @@ def generate_catalog_tn_thumbnail(
     drive: GoogleDriveClient,
     settings: TnPublishSettings,
 ) -> Path:
-    """Render a TN thumbnail JPG for a catalog video title."""
+    """Render a TN thumbnail from Drive template + Airtable translated caption only."""
     destination = render_destination(settings.output_dir, title)
     if destination.is_file():
         return destination
 
-    original_path = original_thumbnail_destination(settings.original_dir, title)
-    if not original_path.is_file():
-        raise TnPublishError(
-            f"Missing original thumbnail for {title!r} at {original_path}"
-        )
-
-    original_size = read_pillow_size(original_path)
-    if original_size is None:
-        raise TnPublishError(f"Unreadable original thumbnail for {title!r}")
-
-    caption_translated = record_fields.get(FIELD_VIDEO_CAPTION_TRANSLATED)
-    if isinstance(caption_translated, str) and caption_translated.strip():
-        english = "\n".join(caption_lines_for_render(caption_translated.strip()))
-    else:
-        folder_id = parse_folder_id(record_fields.get(FIELD_VIDEO_FOLDER))
-        english = None
-        if folder_id is not None:
-            children = drive.list_children(folder_id)
-            docs = sorted(
-                [
-                    item
-                    for item in children
-                    if item.mime_type in (WORD_DOC_MIME, GOOGLE_DOC_MIME)
-                ],
-                key=document_sort_key,
-            )
-            english = _find_english_text(drive, docs)
-        if not english:
-            overrides = load_english_overrides(settings.english_override_file)
-            english = english_override_for_title(overrides, title)
-    if not english:
-        raise TnPublishError(f"Missing TN caption text for {title!r}")
+    caption_lines = _translated_caption_lines(record_fields)
+    if caption_lines is None:
+        raise TnPublishError(f"Missing translated TN caption in Airtable for {title!r}")
 
     folder_id = parse_folder_id(record_fields.get(FIELD_VIDEO_FOLDER))
     if folder_id is None:
         raise TnPublishError(f"Missing Video Folder for {title!r}")
+
+    reference_size = reference_thumbnail_size(
+        record_fields,
+        title=title,
+        original_dir=settings.original_dir,
+        drive=drive,
+        folder_id=folder_id,
+    )
+    if reference_size is None:
+        raise TnPublishError(f"Missing reference aspect ratio for {title!r}")
 
     children = drive.list_children(folder_id)
     images = [item for item in children if _is_image_file(item.name, item.mime_type)]
     if not images:
         raise TnPublishError(f"No TN template images in Drive folder for {title!r}")
 
-    matched_layer: ImageSize | None = None
-    cached_path: Path | None = None
-
     def template_sort_key(row) -> tuple[int, str]:
         name = row.name.casefold()
         return (0 if name.endswith(".psd") else 1, name)
+
+    matched_layer: ImageSize | None = None
+    cached_path: Path | None = None
 
     for child in sorted(images, key=template_sort_key):
         cache_path = settings.cache_dir / safe_cache_name(child.name)
         if not cache_path.exists():
             settings.cache_dir.mkdir(parents=True, exist_ok=True)
             drive.download_file(child.id, cache_path)
-        candidates = collect_image_sizes(cache_path)
-        matches = best_aspect_matches(original_size, candidates)
+        matches = best_aspect_matches(reference_size, collect_image_sizes(cache_path))
         if matches:
             matched_layer = matches[0]
             cached_path = cache_path
@@ -190,11 +196,12 @@ def generate_catalog_tn_thumbnail(
             f"No Drive TN template with matching aspect ratio for {title!r}"
         )
 
+    caption_text = "\n".join(caption_lines)
     try:
         template, line_styles = load_template_image(cached_path, matched_layer)
         render_tn_thumbnail(
             template=template,
-            english_text=english,
+            english_text=caption_text,
             line_styles=line_styles,
             destination=destination,
             catalog_title=title,

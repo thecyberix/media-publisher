@@ -110,6 +110,13 @@ def resolve_drive_override_subfolder(
     return folder.id if folder else None
 
 
+def _override_match_stem(name: str) -> str:
+    stem = Path(name).stem
+    if stem.casefold().endswith(".tn-render"):
+        stem = stem[: -len(".tn-render")]
+    return _sanitize_filename(stem).casefold().strip()
+
+
 def resolve_drive_override_thumbnail(
     drive: GoogleDriveClient,
     *,
@@ -126,14 +133,21 @@ def resolve_drive_override_thumbnail(
     if folder_id is None:
         return None
 
-    match = drive.find_file_by_title(
-        folder_id,
-        title,
-        mime_prefix=IMAGE_MIME_PREFIX,
-        extensions=IMAGE_EXTENSIONS,
-    )
-    if match is None:
-        match = drive.find_file_by_title(folder_id, title, extensions=IMAGE_EXTENSIONS)
+    target = _override_match_stem(title)
+    if not target:
+        return None
+
+    match = None
+    for item in drive.list_children(folder_id):
+        if item.mime_type == "application/vnd.google-apps.folder":
+            continue
+        if _override_match_stem(item.name) != target:
+            continue
+        if not item.mime_type.startswith(IMAGE_MIME_PREFIX):
+            if Path(item.name).suffix.casefold() not in IMAGE_EXTENSIONS:
+                continue
+        match = item
+        break
     if match is None:
         return None
 
@@ -202,16 +216,13 @@ def resolve_generated_tn_thumbnail(
     record_fields: dict[str, Any],
     drive: GoogleDriveClient,
     tn_settings: TnPublishSettings,
-) -> PublishThumbnailResult | None:
-    try:
-        path = generate_catalog_tn_thumbnail(
-            title=title,
-            record_fields=record_fields,
-            drive=drive,
-            settings=tn_settings,
-        )
-    except TnPublishError:
-        return None
+) -> PublishThumbnailResult:
+    path = generate_catalog_tn_thumbnail(
+        title=title,
+        record_fields=record_fields,
+        drive=drive,
+        settings=tn_settings,
+    )
     return PublishThumbnailResult(path=path, source="tn-generated")
 
 
@@ -271,10 +282,12 @@ def resolve_publish_thumbnail(
             drive=drive,
             tn_settings=tn_settings,
         )
-        if generated is not None and generated.path is not None:
+        if generated.path is not None:
             return generated
 
-    return PublishThumbnailResult(path=None)
+    raise TnPublishError(
+        f"Could not resolve translated thumbnail for {lookup_title!r}"
+    )
 
 
 def resolve_drive_override_video(
@@ -293,14 +306,21 @@ def resolve_drive_override_video(
     if folder_id is None:
         return None
 
-    match = drive.find_file_by_title(
-        folder_id,
-        title,
-        mime_prefix=VIDEO_MIME_PREFIX,
-        extensions=VIDEO_EXTENSIONS,
-    )
-    if match is None:
-        match = drive.find_file_by_title(folder_id, title, extensions=VIDEO_EXTENSIONS)
+    target = _override_match_stem(title)
+    if not target:
+        return None
+
+    match = None
+    for item in drive.list_children(folder_id):
+        if item.mime_type == "application/vnd.google-apps.folder":
+            continue
+        if _override_match_stem(item.name) != target:
+            continue
+        if not item.mime_type.startswith(VIDEO_MIME_PREFIX):
+            if Path(item.name).suffix.casefold() not in VIDEO_EXTENSIONS:
+                continue
+        match = item
+        break
     if match is None:
         return None
 

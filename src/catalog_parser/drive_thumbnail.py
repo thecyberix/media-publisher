@@ -7,16 +7,25 @@ from typing import Any
 from googleapiclient.discovery import Resource
 
 from catalog_parser.canva import CanvaClient, CanvaError, extract_canva_design_url
+from catalog_parser.canva_selection import (
+    collect_canva_urls_from_values,
+    dedupe_canva_urls,
+    extract_canva_links_from_docx,
+    extract_canva_links_from_google_document,
+    select_canva_url,
+)
 from catalog_parser.drive_docs import (
     DEFAULT_YT_THUMBNAIL_FIELD,
+    GOOGLE_DOC_MIME_TYPE,
+    WORD_DOC_MIME_TYPE,
     drive_file_download_url,
     extract_drive_file_id,
     extract_drive_folder_id,
     list_text_documents_in_folder,
-    read_drive_fields_from_file,
     read_drive_fields_from_folder,
 )
 from catalog_parser.drive_media import list_folder_children, resolve_drive_item
+from catalog_parser.drive_video_size import video_size_from_pkg_folder
 
 IMAGE_MIME_TYPES = (
     "image/jpeg",
@@ -176,20 +185,55 @@ def _resolve_canva_attachment(
     )
 
 
-def _canva_url_from_drive_fields(fields: dict[str, str | None]) -> str | None:
-    thumbnail_value = fields.get(DEFAULT_YT_THUMBNAIL_FIELD)
-    if isinstance(thumbnail_value, str):
-        canva_url = extract_canva_design_url(thumbnail_value)
-        if canva_url:
-            return canva_url
+def _canva_url_from_drive_fields(
+    fields: dict[str, str | None],
+    *,
+    target_size: tuple[int, int] | None = None,
+    original_video_url: str | None = None,
+) -> str | None:
+    field_urls = collect_canva_urls_from_values(list(fields.values()))
+    return select_canva_url(
+        field_urls,
+        target_size=target_size,
+        original_video_url=original_video_url,
+    )
 
-    for value in fields.values():
-        if not isinstance(value, str):
+
+def _collect_canva_urls_from_folder_documents(
+    drive_service: Resource,
+    docs_service: Resource | None,
+    folder_id: str,
+) -> list[str]:
+    import io
+
+    from docx import Document
+
+    all_urls: list[str] = []
+    for document in list_text_documents_in_folder(drive_service, folder_id):
+        document_id = document.get("id")
+        mime_type = document.get("mimeType")
+        if not isinstance(document_id, str) or not document_id:
             continue
-        canva_url = extract_canva_design_url(value)
-        if canva_url:
-            return canva_url
-    return None
+        try:
+            if mime_type == WORD_DOC_MIME_TYPE:
+                content = drive_service.files().get_media(fileId=document_id).execute()
+                docx_document = Document(io.BytesIO(content))
+                canva_any, _canva_below_tn = extract_canva_links_from_docx(docx_document)
+            elif mime_type == GOOGLE_DOC_MIME_TYPE and docs_service is not None:
+                google_document = (
+                    docs_service.documents().get(documentId=document_id).execute()
+                )
+                if not isinstance(google_document, dict):
+                    continue
+                canva_any, _canva_below_tn = extract_canva_links_from_google_document(
+                    google_document
+                )
+            else:
+                continue
+        except Exception:
+            continue
+        all_urls.extend(canva_any)
+    return dedupe_canva_urls(all_urls)
 
 
 def _canva_url_from_drive_file_id(
@@ -226,31 +270,31 @@ def _discover_canva_url(
     docs_service: Resource | None,
     folder_id: str,
     fields: dict[str, str | None],
+    *,
+    original_video_url: str | None = None,
 ) -> str | None:
-    canva_url = _canva_url_from_drive_fields(fields)
+    all_urls = collect_canva_urls_from_values(list(fields.values()))
+    all_urls.extend(
+        _collect_canva_urls_from_folder_documents(
+            drive_service,
+            docs_service,
+            folder_id,
+        )
+    )
+
+    canva_url = select_canva_url(
+        all_urls,
+        target_size=video_size_from_pkg_folder(drive_service, folder_id),
+        original_video_url=original_video_url,
+    )
     if canva_url:
         return canva_url
-
-    for document in list_text_documents_in_folder(drive_service, folder_id):
-        try:
-            doc_fields = read_drive_fields_from_file(
-                drive_service,
-                docs_service,
-                document,
-            )
-        except Exception:
-            continue
-        canva_url = _canva_url_from_drive_fields(doc_fields)
-        if canva_url:
-            return canva_url
 
     thumbnail_value = fields.get(DEFAULT_YT_THUMBNAIL_FIELD)
     if isinstance(thumbnail_value, str):
         file_id = extract_drive_file_id(thumbnail_value)
         if file_id:
-            canva_url = _canva_url_from_drive_file_id(drive_service, file_id)
-            if canva_url:
-                return canva_url
+            return _canva_url_from_drive_file_id(drive_service, file_id)
     return None
 
 
@@ -285,7 +329,13 @@ def resolve_original_video_thumbnail(
     except Exception:
         fields = {}
 
-    canva_url = _discover_canva_url(drive_service, docs_service, folder_id, fields)
+    canva_url = _discover_canva_url(
+        drive_service,
+        docs_service,
+        folder_id,
+        fields,
+        original_video_url=original_video_url,
+    )
     if canva_url is None:
         return None, None
 

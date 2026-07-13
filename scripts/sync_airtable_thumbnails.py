@@ -17,6 +17,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from catalog_parser.canva_selection import select_canva_url
+from catalog_parser.drive_video_size import video_size_from_pkg_folder
 from scripts.cache_pkgtn_thumbnails import (
     build_filter_formula,
     document_sort_key,
@@ -89,8 +91,12 @@ def resolve_record_thumbnail(
         if doc.id not in doc_cache:
             document = read_word_document(drive, doc)
             doc_cache[doc.id] = extract_canva_links(document) if document else ([], [])
-        canva_any, canva_below_tn = doc_cache[doc.id]
-        canva_url = (canva_below_tn or canva_any or [None])[0]
+        canva_any, _canva_below_tn = doc_cache[doc.id]
+        canva_url = select_canva_url(
+            canva_any,
+            target_size=video_size_from_pkg_folder(drive.drive_service, folder_id),
+            original_video_url=str(fields.get(FIELD_ORIGINAL_VIDEO) or ""),
+        )
 
     return resolve_thumbnail_attachment(
         children=children,

@@ -7,6 +7,10 @@ from typing import Any, Iterator
 from googleapiclient.discovery import Resource
 
 from catalog_parser.canva import extract_canva_design_url
+from catalog_parser.canva_selection import (
+    extract_canva_links_from_docx,
+    select_canva_url,
+)
 
 GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document"
 WORD_DOC_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -225,47 +229,26 @@ def _iter_docx_blocks(document: Any) -> Iterator[tuple[str, Any]]:
             yield "table", docx_table_to_grid(Table(child, document))
 
 
-def extract_drive_fields_from_docx(document: Any) -> dict[str, str | None]:
+def extract_drive_fields_from_docx(
+    document: Any,
+    *,
+    target_size: tuple[int, int] | None = None,
+    original_video_url: str | None = None,
+) -> dict[str, str | None]:
     fields = extract_labeled_fields_from_blocks(_iter_docx_blocks(document))
-    hyperlink = _extract_first_canva_hyperlink_from_docx(document)
-    if hyperlink and not fields.get(DEFAULT_YT_THUMBNAIL_FIELD):
-        fields[DEFAULT_YT_THUMBNAIL_FIELD] = hyperlink
+    canva_any, _canva_below_tn = extract_canva_links_from_docx(document)
+    if not fields.get(DEFAULT_YT_THUMBNAIL_FIELD) and canva_any:
+        fields[DEFAULT_YT_THUMBNAIL_FIELD] = select_canva_url(
+            canva_any,
+            target_size=target_size,
+            original_video_url=original_video_url,
+        )
     return fields
 
 
 def _extract_first_canva_hyperlink_from_docx(document: Any) -> str | None:
-    from docx.oxml.ns import qn
-
-    for paragraph in document.paragraphs:
-        hyperlink = _extract_canva_hyperlink_from_paragraph(paragraph, qn)
-        if hyperlink:
-            return hyperlink
-
-    for table in document.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    hyperlink = _extract_canva_hyperlink_from_paragraph(paragraph, qn)
-                    if hyperlink:
-                        return hyperlink
-    return None
-
-
-def _extract_canva_hyperlink_from_paragraph(paragraph: Any, qn: Any) -> str | None:
-    for hyperlink in paragraph._element.xpath(".//w:hyperlink"):
-        relationship_id = hyperlink.get(qn("r:id"))
-        if not relationship_id:
-            continue
-        relationship = paragraph.part.rels.get(relationship_id)
-        if relationship is None:
-            continue
-        target = getattr(relationship, "target_ref", None)
-        if not isinstance(target, str):
-            continue
-        canva_url = extract_canva_design_url(target)
-        if canva_url:
-            return canva_url
-    return None
+    canva_any, _canva_below_tn = extract_canva_links_from_docx(document)
+    return canva_any[0] if canva_any else None
 
 
 def extract_yt_title_from_docx(document: Any) -> str | None:
@@ -333,18 +316,28 @@ def read_drive_fields_from_google_doc(
 def read_drive_fields_from_word_doc(
     drive_service: Resource,
     document_id: str,
+    *,
+    target_size: tuple[int, int] | None = None,
+    original_video_url: str | None = None,
 ) -> dict[str, str | None]:
     from docx import Document
 
     content = drive_service.files().get_media(fileId=document_id).execute()
     document = Document(io.BytesIO(content))
-    return extract_drive_fields_from_docx(document)
+    return extract_drive_fields_from_docx(
+        document,
+        target_size=target_size,
+        original_video_url=original_video_url,
+    )
 
 
 def read_drive_fields_from_file(
     drive_service: Resource,
     docs_service: Resource | None,
     document: dict[str, str],
+    *,
+    target_size: tuple[int, int] | None = None,
+    original_video_url: str | None = None,
 ) -> dict[str, str | None]:
     mime_type = document.get("mimeType")
     document_id = document.get("id")
@@ -357,7 +350,12 @@ def read_drive_fields_from_file(
         return read_drive_fields_from_google_doc(docs_service, document_id)
 
     if mime_type == WORD_DOC_MIME_TYPE:
-        return read_drive_fields_from_word_doc(drive_service, document_id)
+        return read_drive_fields_from_word_doc(
+            drive_service,
+            document_id,
+            target_size=target_size,
+            original_video_url=original_video_url,
+        )
 
     raise DriveDocsError(f"Unsupported document type: {mime_type!r}")
 
@@ -370,19 +368,30 @@ def read_drive_fields_from_folder(
     drive_service: Resource,
     docs_service: Resource | None,
     folder_id: str,
+    *,
+    original_video_url: str | None = None,
 ) -> dict[str, str | None]:
+    from catalog_parser.drive_video_size import video_size_from_pkg_folder
+
     documents = list_text_documents_in_folder(drive_service, folder_id)
     if not documents:
         raise DriveDocsError(
             f"No Google Docs or Word documents found in Drive folder {folder_id!r}"
         )
 
+    target_size = video_size_from_pkg_folder(drive_service, folder_id)
     last_error: str | None = None
     merged = {field: None for field in LABELED_TABLE_FIELDS.values()}
 
     for document in documents:
         try:
-            fields = read_drive_fields_from_file(drive_service, docs_service, document)
+            fields = read_drive_fields_from_file(
+                drive_service,
+                docs_service,
+                document,
+                target_size=target_size,
+                original_video_url=original_video_url,
+            )
         except Exception as exc:
             last_error = str(exc)
             continue

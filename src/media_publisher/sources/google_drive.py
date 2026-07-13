@@ -67,6 +67,10 @@ class GoogleDriveClient:
     def __init__(self, drive_service: Any) -> None:
         self._drive = drive_service
 
+    @property
+    def drive_service(self) -> Any:
+        return self._drive
+
     @classmethod
     def from_service_account(cls, path: Path) -> GoogleDriveClient:
         try:

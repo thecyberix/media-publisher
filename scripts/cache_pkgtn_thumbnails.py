@@ -14,6 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "src/catalog_parser"))
 
+from catalog_parser.canva_selection import select_canva_url
+from catalog_parser.drive_video_size import video_size_from_pkg_folder
 from catalog_parser.parser import rows_to_records
 from docx import Document
 from docx.oxml.ns import qn
@@ -371,6 +373,7 @@ def main() -> int:
                 ).strip(),
                 "status": bucket,
                 "folder_id": parse_folder_id(fields.get(FIELD_VIDEO_FOLDER)),
+                "original_video_url": str(fields.get(FIELD_ORIGINAL_VIDEO) or "").strip(),
             }
         )
 
@@ -434,8 +437,12 @@ def main() -> int:
                         doc_cache[doc.id] = (
                             extract_canva_links(document) if document else ([], [])
                         )
-                    canva_any, canva_below_tn = doc_cache[doc.id]
-                    canva_url = (canva_below_tn or canva_any or [None])[0]
+                    canva_any, _canva_below_tn = doc_cache[doc.id]
+                    canva_url = select_canva_url(
+                        canva_any,
+                        target_size=video_size_from_pkg_folder(drive.drive_service, folder_id),
+                        original_video_url=item.get("original_video_url"),
+                    )
                     if not canva_url:
                         raise RuntimeError("no Canva link in TEXT_ doc")
                     temp_export = tmp_path / f"{safe_cache_name(title)}.jpg"

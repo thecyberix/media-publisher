@@ -36,7 +36,7 @@ from media_publisher.sources.publish_media import (
     resolve_publish_thumbnail,
     resolve_publish_video,
 )
-from media_publisher.sources.tn_publish import TnPublishSettings
+from media_publisher.sources.tn_publish import TnPublishError, TnPublishSettings
 from media_publisher.scheduling import (
     PublishMode,
     prepare_job_for_immediate_publish,
@@ -238,6 +238,7 @@ def run_publish_pipeline(
 
     results: list[PlatformPublishResult] = []
     grouped = group_tasks_by_record(tasks)
+    skipped_count = 0
     extra_folders = (
         [settings.happyscribe_published_folder_id]
         if settings.happyscribe_published_folder_id
@@ -259,6 +260,7 @@ def run_publish_pipeline(
             ]
             if skipped_instagram:
                 print_line("  instagram: skipped during private test (--private)")
+                skipped_count += len(skipped_instagram)
             ready_tasks = [
                 task for task in ready_tasks if task.platform != "instagram"
             ]
@@ -323,8 +325,19 @@ def run_publish_pipeline(
                     print_line(
                         f"  Thumbnail ({thumbnail_result.source}): {thumbnail_path}"
                     )
-            except CanvaError as exc:
-                print_line(f"  Thumbnail resolution failed: {exc}")
+            except (CanvaError, TnPublishError) as exc:
+                message = str(exc)
+                print_line(f"  Thumbnail resolution failed: {message}")
+                for task in record_tasks:
+                    results.append(
+                        PlatformPublishResult(
+                            record_id=record_id,
+                            platform=task.platform,
+                            title=title,
+                            error=message,
+                        )
+                    )
+                continue
 
         if drive_client is not None and settings.publish_override_drive_folder_id:
             video_override = resolve_publish_video(
@@ -384,6 +397,7 @@ def run_publish_pipeline(
             if skipped_instagram:
                 assert duration_seconds is not None
                 print_line(f"  {instagram_duration_skip_message(duration_seconds)}")
+                skipped_count += len(skipped_instagram)
             ready_tasks = [
                 task for task in ready_tasks if task.platform != "instagram"
             ]
@@ -478,8 +492,11 @@ def run_publish_pipeline(
 
     failures = [result for result in results if not result.success]
     successes = [result for result in results if result.success]
-    print_line(
+    summary = (
         f"Done: {len(successes)} published, {len(failures)} failed "
         f"({len(grouped)} record(s))."
     )
+    if skipped_count:
+        summary = f"{summary[:-1]}, {skipped_count} skipped."
+    print_line(summary)
     return (1 if failures else 0), results

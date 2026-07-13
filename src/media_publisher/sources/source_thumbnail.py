@@ -274,6 +274,11 @@ def fetch_youtube_thumbnail_direct(video_id: str) -> tuple[bytes, str, str]:
     )
 
 
+def video_size_from_source_url(source_url: str) -> tuple[int, int] | None:
+    info = _extract_ytdlp_info(source_url)
+    return video_size_from_ytdlp_info(info)
+
+
 def _extract_ytdlp_info(source_url: str) -> dict[str, Any]:
     try:
         import yt_dlp

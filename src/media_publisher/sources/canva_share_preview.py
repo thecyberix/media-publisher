@@ -81,6 +81,67 @@ def _fetch_dom(canva_url: str) -> str:
     return html
 
 
+def _extract_bootstrap_dimensions(html: str) -> tuple[int, int] | None:
+    best: tuple[int, int, int, int, int] | None = None
+    for match in BOOTSTRAP_FILE_RE.finditer(html):
+        _url, width, height, quality = match.groups()
+        rank = QUALITY_RANK.get(quality, 0)
+        width_value = int(width)
+        height_value = int(height)
+        score = (rank, width_value * height_value, width_value, height_value)
+        if best is None or score[:2] > best[:2]:
+            best = score
+
+    if best is not None:
+        return best[2], best[3]
+
+    marker = "window['bootstrap'] = JSON.parse('"
+    start = html.find(marker)
+    if start < 0:
+        return None
+    start += len(marker)
+    end = start
+    escaped = False
+    while end < len(html):
+        char = html[end]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == "'":
+            break
+        end += 1
+    try:
+        payload = json.loads(html[start:end])
+    except json.JSONDecodeError:
+        return None
+
+    best = None
+    for asset in payload.get("base", {}).get("assets", []):
+        for file_info in asset.get("files", []):
+            url = file_info.get("url")
+            if not isinstance(url, str) or "media.canva.com" not in url:
+                continue
+            quality = str(file_info.get("quality", ""))
+            rank = QUALITY_RANK.get(quality, 0)
+            width = int(file_info.get("width") or 0)
+            height = int(file_info.get("height") or 0)
+            score = (rank, width * height, width, height)
+            if best is None or score[:2] > best[:2]:
+                best = score
+    if best is None:
+        return None
+    return best[2], best[3]
+
+
+def probe_canva_design_dimensions(canva_url: str) -> tuple[int, int] | None:
+    """Return the preview image dimensions for a public Canva design link."""
+    resolved = resolve_canva_url(canva_url)
+    normalized = normalize_canva_share_url(resolved)
+    html = _fetch_dom(normalized)
+    return _extract_bootstrap_dimensions(html)
+
+
 def _pick_best_bootstrap_url(html: str) -> str | None:
     best: tuple[int, int, str] | None = None
     for match in BOOTSTRAP_FILE_RE.finditer(html):

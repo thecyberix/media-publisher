@@ -338,7 +338,7 @@ class PublishPipelineTests(unittest.TestCase):
         publish_mock.assert_called_once()
         update_mock.assert_called_once()
 
-    def test_run_publish_pipeline_continues_without_thumbnail_on_canva_error(self) -> None:
+    def test_run_publish_pipeline_fails_when_thumbnail_resolution_fails(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")
         location = HappyScribeLibraryLocation("1", "2")
@@ -349,6 +349,7 @@ class PublishPipelineTests(unittest.TestCase):
                 FIELD_TITLE: "Launch video",
                 "Video name translated": "Видео",
                 "SG-YT-Date published": "2026-07-04",
+                "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
             },
         )
         settings = self._pipeline_settings()
@@ -380,11 +381,11 @@ class PublishPipelineTests(unittest.TestCase):
                 print_line=lambda _: None,
             )
 
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(exit_code, 1)
         self.assertEqual(len(results), 1)
-        self.assertTrue(results[0].success)
-        publish_mock.assert_called_once()
-        self.assertIsNone(publish_mock.call_args.args[0].job.thumbnail_path)
+        self.assertFalse(results[0].success)
+        self.assertIn("No thumbnail page matching title", results[0].error or "")
+        publish_mock.assert_not_called()
 
     def test_run_publish_pipeline_skips_instagram_when_private_test(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

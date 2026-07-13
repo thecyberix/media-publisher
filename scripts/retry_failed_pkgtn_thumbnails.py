@@ -9,6 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from catalog_parser.canva_selection import select_canva_url
+from catalog_parser.drive_video_size import video_size_from_pkg_folder
 from scripts.cache_pkgtn_thumbnails import (
     DEFAULT_OUTPUT_DIR,
     FIELD_ORIGINAL_VIDEO_NAME,
@@ -32,6 +34,7 @@ from scripts.cache_pkgtn_thumbnails import (
 from media_publisher.__main__ import canva_client_from_settings, canva_settings_complete
 from media_publisher.config import load_settings
 from media_publisher.sources.airtable import (
+    FIELD_ORIGINAL_VIDEO,
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_VIDEO_FOLDER,
@@ -114,8 +117,12 @@ def main() -> int:
                         key=document_sort_key,
                     )
                     document = read_word_document(drive, docs[0])
-                    canva_any, canva_below_tn = extract_canva_links(document)
-                    canva_url = (canva_below_tn or canva_any or [None])[0]
+                    canva_any, _canva_below_tn = extract_canva_links(document)
+                    canva_url = select_canva_url(
+                        canva_any,
+                        target_size=video_size_from_pkg_folder(drive.drive_service, folder_id),
+                        original_video_url=str(fields.get(FIELD_ORIGINAL_VIDEO) or ""),
+                    )
                     temp_export = tmp_path / "preview.bin"
                     source_type = "canva-share-preview"
                     if canva_client is not None:

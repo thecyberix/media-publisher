@@ -86,6 +86,51 @@ def probe_local_video_duration_seconds(video_path: Path) -> float | None:
     return seconds if seconds > 0 else None
 
 
+def probe_local_video_size(video_path: Path) -> tuple[int, int] | None:
+    path = video_path.resolve()
+    if not path.is_file():
+        return None
+
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        return None
+
+    result = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+
+    text = result.stdout.strip()
+    if "x" not in text:
+        return None
+    width_text, height_text = text.split("x", 1)
+    try:
+        width = int(width_text)
+        height = int(height_text)
+    except ValueError:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
 def resolve_video_duration_seconds(
     *,
     video_path: Path | str | None = None,
