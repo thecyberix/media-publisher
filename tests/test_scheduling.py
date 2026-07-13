@@ -8,9 +8,11 @@ from media_publisher.scheduling import (
     PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
     facebook_can_schedule,
     filter_ready_tasks,
+    filter_staggered_tasks,
     instagram_is_due,
     is_platform_ready,
     private_test_facebook_publish_at,
+    task_uses_immediate_publish,
 )
 
 
@@ -66,6 +68,47 @@ class SchedulingTests(unittest.TestCase):
         publish_at = private_test_facebook_publish_at(now=now)
         self.assertEqual((publish_at - now).days, PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS)
         self.assertTrue(facebook_can_schedule(publish_at, now=now))
+
+    def test_filter_staggered_tasks_splits_platforms_by_day(self) -> None:
+        from datetime import date
+
+        publish_at_today = datetime(2026, 7, 4, 5, 0, tzinfo=timezone.utc)
+        publish_at_tomorrow = datetime(2026, 7, 5, 5, 0, tzinfo=timezone.utc)
+        tasks = [
+            PlatformScheduleTask(
+                platform="instagram",
+                publish_at=publish_at_today,
+                job=PublishJob(title="Today"),
+                record_id="rec1",
+            ),
+            PlatformScheduleTask(
+                platform="youtube",
+                publish_at=publish_at_tomorrow,
+                job=PublishJob(title="Tomorrow"),
+                record_id="rec2",
+            ),
+            PlatformScheduleTask(
+                platform="facebook",
+                publish_at=publish_at_tomorrow,
+                job=PublishJob(title="Tomorrow"),
+                record_id="rec2",
+            ),
+        ]
+        now = datetime(2026, 7, 4, 6, 0, tzinfo=timezone.utc)
+        selected = filter_staggered_tasks(
+            tasks,
+            reference_date=date(2026, 7, 4),
+            publish_timezone="UTC",
+            now=now,
+        )
+        self.assertEqual(
+            {task.platform for task in selected},
+            {"instagram", "youtube", "facebook"},
+        )
+
+    def test_task_uses_immediate_publish_in_staggered_mode(self) -> None:
+        self.assertTrue(task_uses_immediate_publish("instagram", "staggered"))
+        self.assertFalse(task_uses_immediate_publish("youtube", "staggered"))
 
 
 if __name__ == "__main__":

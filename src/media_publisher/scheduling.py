@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 from media_publisher.models import PlatformName, PlatformScheduleTask, PublishJob
 from media_publisher.timezones import get_timezone
+
+PublishMode = Literal["staggered", "immediate", "scheduled"]
 
 MIN_SCHEDULE_LEAD_SECONDS = 600
 PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS = 20
@@ -100,6 +103,65 @@ def filter_tasks_for_local_date(
         for task in tasks
         if publish_local_date(task.publish_at, publish_timezone) == target_date
     ]
+
+
+def filter_staggered_tasks(
+    tasks: list[PlatformScheduleTask],
+    *,
+    reference_date: date,
+    publish_timezone: str,
+    now: datetime | None = None,
+) -> list[PlatformScheduleTask]:
+    """Instagram for today; YouTube/Facebook for tomorrow (native schedule)."""
+    tomorrow = reference_date + timedelta(days=1)
+    selected: list[PlatformScheduleTask] = []
+    for task in tasks:
+        local_date = publish_local_date(task.publish_at, publish_timezone)
+        if task.platform == "instagram" and local_date == reference_date:
+            selected.append(task)
+        elif task.platform in {"youtube", "facebook"} and local_date == tomorrow:
+            if task.platform == "facebook" and not facebook_can_schedule(
+                task.publish_at, now=now
+            ):
+                continue
+            selected.append(task)
+    return selected
+
+
+def select_tasks_for_run(
+    tasks: list[PlatformScheduleTask],
+    *,
+    publish_mode: PublishMode,
+    reference_date: date,
+    publish_timezone: str,
+    now: datetime | None = None,
+) -> list[PlatformScheduleTask]:
+    if publish_mode == "staggered":
+        return filter_staggered_tasks(
+            tasks,
+            reference_date=reference_date,
+            publish_timezone=publish_timezone,
+            now=now,
+        )
+    dated = filter_tasks_for_local_date(
+        tasks,
+        reference_date,
+        publish_timezone=publish_timezone,
+    )
+    if publish_mode == "scheduled":
+        return filter_ready_tasks(dated, now=now)
+    return dated
+
+
+def task_uses_immediate_publish(
+    platform: PlatformName,
+    publish_mode: PublishMode,
+) -> bool:
+    if publish_mode == "immediate":
+        return True
+    if publish_mode in {"scheduled", "staggered"}:
+        return platform == "instagram"
+    raise ValueError(f"Unsupported publish mode {publish_mode!r}")
 
 
 def prepare_job_for_immediate_publish(job: PublishJob, *, private: bool) -> None:

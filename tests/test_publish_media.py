@@ -52,7 +52,6 @@ class PublishMediaResolutionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = resolve_publish_video(
-                {"Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}]},
                 title="Launch video",
                 drive=drive,
                 override_root_folder_id="root123",

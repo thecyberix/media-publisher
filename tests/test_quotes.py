@@ -195,8 +195,8 @@ class QuotesPipelineTests(unittest.TestCase):
             shutil.copy2(MONTHLY_PDF, cached_pdf)
             settings = self._settings(
                 work_dir,
-                publish_immediately=False,
-                publish_on_date=date(2026, 12, 31),
+                publish_mode="scheduled",
+                reference_date=date(2026, 12, 31),
             )
 
             with patch(
@@ -237,9 +237,9 @@ class QuotesPipelineTests(unittest.TestCase):
             shutil.copy2(MONTHLY_PDF, cached_pdf)
             settings = self._settings(
                 work_dir,
-                publish_immediately=True,
+                publish_mode="immediate",
                 private_test=True,
-                publish_on_date=date(2026, 7, 5),
+                reference_date=date(2026, 7, 5),
             )
 
             with patch(
@@ -292,8 +292,8 @@ class QuotesPipelineTests(unittest.TestCase):
             )
             settings = self._settings(
                 work_dir,
-                publish_immediately=True,
-                publish_on_date=date(2026, 7, 5),
+                publish_mode="immediate",
+                reference_date=date(2026, 7, 5),
                 platforms=("instagram",),
             )
 

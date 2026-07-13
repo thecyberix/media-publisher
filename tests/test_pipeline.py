@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -269,7 +269,6 @@ class PublishPipelineTests(unittest.TestCase):
         with (
             patch("media_publisher.pipeline.fetch_pending_schedule_tasks", return_value=tasks),
             patch("media_publisher.pipeline.fetch_missing_translation_reports", return_value=[]),
-            patch("media_publisher.pipeline.filter_ready_tasks", return_value=tasks),
             patch("media_publisher.pipeline.ensure_catalog_video_downloaded", return_value=Path("video.mp4")),
             patch("media_publisher.pipeline.resolve_video_duration_seconds", return_value=10.0),
             patch("media_publisher.pipeline.publish_to_youtube", return_value="yt"),
@@ -397,7 +396,8 @@ class PublishPipelineTests(unittest.TestCase):
             _task("recABC", "instagram"),
         ]
         settings = self._pipeline_settings(
-            publish_immediately=True,
+            publish_mode="immediate",
+            reference_date=date(2026, 7, 4),
             private_test=True,
         )
         video_path = Path("downloads/happyscribe/Launch video-subtitled.mp4")
@@ -469,7 +469,10 @@ class PublishPipelineTests(unittest.TestCase):
                 record_id="recABC",
             ),
         ]
-        settings = self._pipeline_settings(publish_immediately=True)
+        settings = self._pipeline_settings(
+            publish_mode="immediate",
+            reference_date=date(2026, 7, 4),
+        )
         video_path = Path("downloads/happyscribe/Launch video-subtitled.mp4")
         messages: list[str] = []
 
@@ -538,7 +541,10 @@ class PublishPipelineTests(unittest.TestCase):
                 record_id="recABC",
             ),
         ]
-        settings = self._pipeline_settings(publish_immediately=True)
+        settings = self._pipeline_settings(
+            publish_mode="immediate",
+            reference_date=date(2026, 7, 4),
+        )
         video_path = Path("downloads/happyscribe/Launch video-subtitled.mp4")
         messages: list[str] = []
 
@@ -583,7 +589,7 @@ class PublishPipelineTests(unittest.TestCase):
 
 
 class PublishRunModeTests(unittest.TestCase):
-    def test_resolve_publish_run_mode_defaults_to_immediate_today(self) -> None:
+    def test_resolve_publish_run_mode_defaults_to_staggered_today(self) -> None:
         from argparse import Namespace
         from datetime import date, datetime, timezone
 
@@ -598,13 +604,13 @@ class PublishRunModeTests(unittest.TestCase):
             patch("datetime.datetime", wraps=datetime) as datetime_cls,
         ):
             datetime_cls.now.return_value = datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc)
-            publish_immediately, publish_on_date, private_test = resolve_publish_run_mode(
+            publish_mode, reference_date, private_test = resolve_publish_run_mode(
                 args,
                 publish_timezone="UTC",
             )
 
-        self.assertTrue(publish_immediately)
-        self.assertEqual(publish_on_date, date(2026, 7, 5))
+        self.assertEqual(publish_mode, "staggered")
+        self.assertEqual(reference_date, date(2026, 7, 5))
         self.assertFalse(private_test)
 
     def test_resolve_publish_run_mode_schedule_still_limits_to_today(self) -> None:
@@ -622,13 +628,13 @@ class PublishRunModeTests(unittest.TestCase):
             patch("datetime.datetime", wraps=datetime) as datetime_cls,
         ):
             datetime_cls.now.return_value = datetime(2026, 7, 5, 18, 0, tzinfo=timezone.utc)
-            publish_immediately, publish_on_date, private_test = resolve_publish_run_mode(
+            publish_mode, reference_date, private_test = resolve_publish_run_mode(
                 args,
                 publish_timezone="UTC",
             )
 
-        self.assertFalse(publish_immediately)
-        self.assertEqual(publish_on_date, date(2026, 7, 5))
+        self.assertEqual(publish_mode, "scheduled")
+        self.assertEqual(reference_date, date(2026, 7, 5))
         self.assertTrue(private_test)
 
 

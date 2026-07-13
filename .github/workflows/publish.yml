@@ -1,11 +1,8 @@
 name: Publish
 
+# Primary schedule: external cron (cron-job.org) → workflow_dispatch.
+# Default publish mode is staggered: Instagram today, YouTube/Facebook tomorrow.
 on:
-  schedule:
-    # Poll for catalog videos and Instagram timing (~18:00 Europe/Sofia in summer).
-    - cron: "*/15 14-16 * * *"
-    # Morning quotes (~08:00 Europe/Sofia in summer).
-    - cron: "0 5 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -48,9 +45,7 @@ env:
 jobs:
   videos:
     if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       (inputs.mode == 'all' || inputs.mode == 'videos')) ||
-      (github.event_name == 'schedule' && github.event.schedule == '*/15 14-16 * * *')
+      inputs.mode == 'all' || inputs.mode == 'videos'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -73,16 +68,14 @@ jobs:
       - name: Publish catalog videos
         run: |
           EXTRA_ARGS=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.private }}" = "true" ]; then
+          if [ "${{ inputs.private }}" = "true" ]; then
             EXTRA_ARGS="--private"
           fi
           python -m media_publisher ${EXTRA_ARGS}
 
   quotes:
     if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       (inputs.mode == 'all' || inputs.mode == 'quotes')) ||
-      (github.event_name == 'schedule' && github.event.schedule == '0 5 * * *')
+      inputs.mode == 'all' || inputs.mode == 'quotes'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -105,7 +98,7 @@ jobs:
       - name: Publish daily quotes
         run: |
           EXTRA_ARGS=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.private }}" = "true" ]; then
+          if [ "${{ inputs.private }}" = "true" ]; then
             EXTRA_ARGS="--private"
           fi
           python -m media_publisher --quotes ${EXTRA_ARGS}

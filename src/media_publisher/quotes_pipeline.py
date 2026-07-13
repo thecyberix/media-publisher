@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -30,6 +30,7 @@ from media_publisher.sources.quotes import (
 from media_publisher.scheduling import (
     MIN_SCHEDULE_LEAD_SECONDS,
     PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS,
+    PublishMode,
     facebook_can_schedule,
     facebook_wait_message,
     instagram_is_due,
@@ -59,9 +60,9 @@ class QuotesPipelineSettings:
     ffmpeg_path: str | None
     canva_quotes_design_id: str | None = None
     canva_quotes_folder_id: str | None = None
-    publish_immediately: bool = False
+    publish_mode: PublishMode = "staggered"
     private_test: bool = False
-    publish_on_date: date | None = None
+    reference_date: date | None = None
     platforms: tuple[PlatformName, ...] | None = None
 
 
@@ -103,12 +104,12 @@ def pending_platforms(
 
 
 def resolve_quote_month(
-    publish_on_date: date | None,
+    reference_date: date | None,
     *,
     publish_timezone: str,
 ) -> tuple[int, int]:
-    if publish_on_date is not None:
-        return publish_on_date.year, publish_on_date.month
+    if reference_date is not None:
+        return reference_date.year, reference_date.month
 
     from datetime import datetime
 
@@ -118,12 +119,55 @@ def resolve_quote_month(
     return today.year, today.month
 
 
+def quote_work_items(
+    posts: list[LocalQuotePost],
+    *,
+    settings: QuotesPipelineSettings,
+) -> list[tuple[LocalQuotePost, tuple[PlatformName, ...], bool]]:
+    """Return (post, platforms, publish_immediately) work items for this run."""
+    allowed = settings.platforms
+    if settings.publish_mode == "staggered":
+        if settings.reference_date is None:
+            raise ValueError("reference_date is required for staggered quote publish")
+        today = settings.reference_date
+        tomorrow = today + timedelta(days=1)
+        items: list[tuple[LocalQuotePost, tuple[PlatformName, ...], bool]] = []
+        for post in filter_quotes_for_local_date(
+            posts, today, publish_timezone=settings.publish_timezone
+        ):
+            platforms = ("instagram",)
+            if allowed is not None:
+                platforms = tuple(p for p in platforms if p in allowed)
+            if platforms:
+                items.append((post, platforms, True))
+        for post in filter_quotes_for_local_date(
+            posts, tomorrow, publish_timezone=settings.publish_timezone
+        ):
+            platforms = ("youtube", "facebook")
+            if allowed is not None:
+                platforms = tuple(p for p in platforms if p in allowed)
+            if platforms:
+                items.append((post, platforms, False))
+        return items
+
+    filtered = posts
+    if settings.reference_date is not None:
+        filtered = filter_quotes_for_local_date(
+            posts,
+            settings.reference_date,
+            publish_timezone=settings.publish_timezone,
+        )
+    immediate = settings.publish_mode == "immediate"
+    platforms = QUOTE_PLATFORMS if allowed is None else allowed
+    return [(post, platforms, immediate) for post in filtered]
+
+
 def quotes_need_instagram_design(
     settings: QuotesPipelineSettings,
 ) -> bool:
     if settings.platforms is not None and "instagram" not in settings.platforms:
         return False
-    if settings.private_test and settings.publish_immediately:
+    if settings.private_test and settings.publish_mode == "immediate":
         return False
     return True
 
@@ -180,7 +224,7 @@ def run_quotes_pipeline(
 ) -> tuple[int, list[PlatformPublishResult]]:
     """Download the monthly Canva PDF and schedule/publish daily quotes."""
     year, month = resolve_quote_month(
-        settings.publish_on_date,
+        settings.reference_date,
         publish_timezone=settings.publish_timezone,
     )
     design_title = quote_canva_design_title(year, month)
@@ -228,26 +272,18 @@ def run_quotes_pipeline(
             print_line=print_line,
         )
 
-    if settings.publish_on_date is not None:
-        posts = filter_quotes_for_local_date(
-            posts,
-            settings.publish_on_date,
-            publish_timezone=settings.publish_timezone,
-        )
-        if not posts:
-            print_line(
-                f"No quote posts found for {settings.publish_on_date.isoformat()}."
-            )
-            return 0, []
-
     if settings.private_test:
         print_line(
             "Private test: quotes go to YouTube (private) and Facebook "
             f"(scheduled {PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead). "
             "Instagram skipped."
         )
-
-    if settings.publish_immediately:
+    elif settings.publish_mode == "staggered":
+        print_line(
+            "Staggered publish: today's quote to Instagram immediately; "
+            "tomorrow's quote scheduled on YouTube and Facebook for review."
+        )
+    elif settings.publish_mode == "immediate":
         print_line(
             "Daily quote pages are converted to short videos for YouTube. "
             "Facebook and Instagram use the rendered page image. Publishing immediately."
@@ -259,43 +295,70 @@ def run_quotes_pipeline(
             "automatically near the scheduled time)."
         )
 
+    try:
+        work_items = quote_work_items(posts, settings=settings)
+    except ValueError as exc:
+        print_line(str(exc))
+        return 1, []
+
+    if not work_items:
+        if settings.publish_mode == "staggered" and settings.reference_date is not None:
+            tomorrow = (settings.reference_date + timedelta(days=1)).isoformat()
+            print_line(
+                "No quote posts ready for staggered publish "
+                f"(Instagram today {settings.reference_date.isoformat()}, "
+                f"YouTube/Facebook tomorrow {tomorrow})."
+            )
+        elif settings.reference_date is not None:
+            print_line(
+                f"No quote posts found for {settings.reference_date.isoformat()}."
+            )
+        else:
+            print_line("No quote posts ready to publish.")
+        return 0, []
+
     state = load_quote_state(settings.work_dir)
     results: list[PlatformPublishResult] = []
-    scheduled_any = False
+    processed_any = False
     quote_video_dir = settings.work_dir / QUOTE_VIDEO_DIRNAME
 
-    for post in posts:
-        due_platforms = pending_platforms(post, state, platforms=settings.platforms)
+    for post, target_platforms, publish_immediately in work_items:
+        due_platforms = pending_platforms(post, state, platforms=target_platforms)
         if not due_platforms:
             continue
-        if not settings.publish_immediately and not quote_is_due(post):
+        if (
+            not publish_immediately
+            and settings.publish_mode == "scheduled"
+            and not quote_is_due(post)
+        ):
             print_line(
                 f"Skipping {post.stem}: publish time "
                 f"{post.publish_at.isoformat()} is too soon or already passed."
             )
             continue
 
-        publish_at = None if settings.publish_immediately else post.publish_at
+        publish_at = None if publish_immediately else post.publish_at
 
         caption_note = "with caption" if post.caption else "image only"
         print_line(
             f"Processing {post.stem}\t{post.publish_at.isoformat()}\t{caption_note}"
         )
-        scheduled_any = True
+        processed_any = True
 
         for platform in due_platforms:
             if settings.private_test and platform == "instagram":
                 print_line("  instagram: skipped during private test (--private)")
                 continue
             if (
-                not settings.publish_immediately
+                not publish_immediately
+                and settings.publish_mode == "scheduled"
                 and platform == "instagram"
                 and not instagram_is_due(post.publish_at)
             ):
                 print_line(f"  instagram: {instagram_wait_message(post.publish_at)}")
                 continue
             if (
-                not settings.publish_immediately
+                not publish_immediately
                 and platform == "facebook"
                 and not facebook_can_schedule(post.publish_at)
             ):
@@ -317,7 +380,7 @@ def run_quotes_pipeline(
                 quote_publish_at = publish_at
                 if (
                     settings.private_test
-                    and settings.publish_immediately
+                    and publish_immediately
                     and platform == "facebook"
                 ):
                     quote_publish_at = private_test_facebook_publish_at()
@@ -326,7 +389,7 @@ def run_quotes_pipeline(
                     image_path=image_path,
                     caption=post.caption,
                     publish_at=quote_publish_at,
-                    private=settings.private_test and settings.publish_immediately,
+                    private=settings.private_test and publish_immediately,
                     platform=platform,
                     page_id=settings.meta_page_id,
                     instagram_account_id=settings.meta_instagram_account_id,
@@ -351,8 +414,8 @@ def run_quotes_pipeline(
                     source_pdf=post.source_path.name,
                 )
                 save_quote_state(settings.work_dir, state)
-                when = "now" if settings.publish_immediately else post.publish_at.isoformat()
-                if settings.publish_immediately:
+                when = "now" if publish_immediately else post.publish_at.isoformat()
+                if publish_immediately:
                     if settings.private_test and platform == "youtube":
                         mode = "published privately"
                     elif settings.private_test and platform == "facebook":
@@ -360,8 +423,6 @@ def run_quotes_pipeline(
                         when = quote_publish_at.isoformat() if quote_publish_at else when
                     else:
                         mode = "published"
-                elif platform == "instagram":
-                    mode = "published"
                 else:
                     mode = "scheduled"
                 print_line(f"  {platform}: {mode} for {when} ({permalink})")
@@ -391,17 +452,17 @@ def run_quotes_pipeline(
                     )
                 )
 
-    if not scheduled_any:
+    if not processed_any:
         print_line(
             "No quote posts ready to publish."
-            if settings.publish_immediately
+            if settings.publish_mode == "immediate"
             else "No quote posts ready to schedule."
         )
         return 0, results
 
     failures = [result for result in results if not result.success]
     successes = [result for result in results if result.success]
-    action = "published" if settings.publish_immediately else "scheduled"
+    action = "published" if settings.publish_mode == "immediate" else "scheduled/published"
     print_line(
         f"Done: {len(successes)} {action}, {len(failures)} failed "
         f"across {len({result.record_id for result in results})} day(s)."

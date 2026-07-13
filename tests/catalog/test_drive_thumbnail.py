@@ -112,20 +112,16 @@ class DriveThumbnailTests(unittest.TestCase):
             }
         ]
         with patch(
-            "catalog_parser.drive_thumbnail.has_original_video_thumbnail_source",
-            return_value=True,
+            "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+            side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
+            or dest.write_bytes(b"jpg"),
         ):
-            with patch(
-                "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
-                side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
-                or dest.write_bytes(b"jpg"),
-            ):
-                enriched = enrich_records_with_original_video_thumbnails(
-                    records,
-                    drive_service,
-                    None,
-                    staging_dir=staging_dir,
-                )
+            enriched = enrich_records_with_original_video_thumbnails(
+                records,
+                drive_service,
+                None,
+                staging_dir=staging_dir,
+            )
 
         self.assertIsNone(enriched[0]["ytThumbnail"])
         self.assertIn("_originalThumbnailPath", enriched[0])

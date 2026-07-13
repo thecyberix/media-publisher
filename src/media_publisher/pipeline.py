@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -38,11 +38,11 @@ from media_publisher.sources.publish_media import (
 )
 from media_publisher.sources.tn_publish import TnPublishSettings
 from media_publisher.scheduling import (
-    filter_ready_tasks,
-    filter_tasks_for_local_date,
-    instagram_wait_message,
+    PublishMode,
     prepare_job_for_immediate_publish,
     private_test_facebook_publish_at,
+    select_tasks_for_run,
+    task_uses_immediate_publish,
 )
 from media_publisher.sources.happyscribe_web import HappyScribeWebError
 from media_publisher.video_duration import (
@@ -93,9 +93,9 @@ class PublishPipelineSettings:
     meta_instagram_account_id: str
     meta_access_token: str
     meta_app_id: str | None
-    publish_immediately: bool = False
+    publish_mode: PublishMode = "staggered"
     private_test: bool = False
-    publish_on_date: date | None = None
+    reference_date: date | None = None
     regenerate_videos: bool = False
     use_web_export: bool = False
     happyscribe_published_folder_id: str | None = None
@@ -211,16 +211,25 @@ def run_publish_pipeline(
         print_line("No pending schedules found.")
         return 0, []
 
-    if settings.publish_on_date is not None:
-        tasks = filter_tasks_for_local_date(
+    if settings.reference_date is not None:
+        tasks = select_tasks_for_run(
             tasks,
-            settings.publish_on_date,
+            publish_mode=settings.publish_mode,
+            reference_date=settings.reference_date,
             publish_timezone=settings.publish_timezone,
         )
         if not tasks:
-            print_line(
-                f"No pending schedules found for {settings.publish_on_date.isoformat()}."
-            )
+            if settings.publish_mode == "staggered":
+                tomorrow = (settings.reference_date + timedelta(days=1)).isoformat()
+                today = settings.reference_date.isoformat()
+                print_line(
+                    "No pending schedules found for staggered publish "
+                    f"(Instagram today {today}, YouTube/Facebook tomorrow {tomorrow})."
+                )
+            else:
+                print_line(
+                    f"No pending schedules found for {settings.reference_date.isoformat()}."
+                )
             return 0, []
 
     platforms_needed = required_platforms(tasks)
@@ -240,19 +249,7 @@ def run_publish_pipeline(
     )
 
     for record_id, record_tasks in grouped.items():
-        if settings.publish_immediately:
-            ready_tasks = list(record_tasks)
-        else:
-            ready_tasks = filter_ready_tasks(record_tasks)
-            waiting_instagram = [
-                task
-                for task in record_tasks
-                if task.platform == "instagram" and task not in ready_tasks
-            ]
-            if waiting_instagram:
-                print_line(
-                    f"Waiting {record_id}\t{instagram_wait_message(waiting_instagram[0].publish_at)}"
-                )
+        ready_tasks = list(record_tasks)
         if not ready_tasks:
             continue
 
@@ -331,7 +328,6 @@ def run_publish_pipeline(
 
         if drive_client is not None and settings.publish_override_drive_folder_id:
             video_override = resolve_publish_video(
-                record_fields,
                 title=str(lookup_title),
                 drive=drive_client,
                 override_root_folder_id=settings.publish_override_drive_folder_id,
@@ -398,13 +394,18 @@ def run_publish_pipeline(
             task.job.video_path = str(video_path)
             task.job.thumbnail_path = thumbnail_path
             catalog_publish_at = task.publish_at
-            if settings.publish_immediately:
+            uses_immediate = task_uses_immediate_publish(
+                task.platform,
+                settings.publish_mode,
+            )
+            if uses_immediate:
                 if settings.private_test and task.platform == "facebook":
                     task.job.publish_at = private_test_facebook_publish_at()
                 else:
                     prepare_job_for_immediate_publish(
                         task.job,
-                        private=settings.private_test,
+                        private=settings.private_test
+                        and settings.publish_mode == "immediate",
                     )
             try:
                 permalink = publish_platform_task(
@@ -422,7 +423,7 @@ def run_publish_pipeline(
                 record_fields = dict(updated.fields)
                 when = (
                     "now"
-                    if settings.publish_immediately
+                    if uses_immediate
                     and not (
                         settings.private_test and task.platform == "facebook"
                     )
@@ -436,10 +437,8 @@ def run_publish_pipeline(
                     else "scheduled for test"
                     if settings.private_test and task.platform == "facebook"
                     else "published"
-                    if settings.publish_immediately
+                    if uses_immediate
                     else "scheduled"
-                    if task.platform != "instagram"
-                    else "published"
                 )
                 print_line(f"  {task.platform}: {mode} for {when} ({permalink})")
                 results.append(

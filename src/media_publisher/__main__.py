@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from media_publisher.config import load_settings, update_env_values
@@ -697,7 +697,6 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
 
     if drive_client is not None and settings.publish_override_drive_folder_id:
         video_override = resolve_publish_video(
-            dict(record.fields),
             title=lookup_title,
             drive=drive_client,
             override_root_folder_id=settings.publish_override_drive_folder_id,
@@ -1055,9 +1054,9 @@ def build_quotes_pipeline_settings(
     *,
     meta_page_id: str,
     meta_instagram_account_id: str,
-    publish_immediately: bool = False,
+    publish_mode: str = "staggered",
     private_test: bool = False,
-    publish_on_date=None,
+    reference_date=None,
     platforms: tuple[PlatformName, ...] | None = None,
 ) -> QuotesPipelineSettings:
     return QuotesPipelineSettings(
@@ -1077,9 +1076,9 @@ def build_quotes_pipeline_settings(
         ffmpeg_path=settings.happyscribe_ffmpeg,
         canva_quotes_design_id=settings.canva_quotes_design_id,
         canva_quotes_folder_id=resolve_canva_quotes_folder_id(settings),
-        publish_immediately=publish_immediately,
+        publish_mode=publish_mode,
         private_test=private_test,
-        publish_on_date=publish_on_date,
+        reference_date=reference_date,
         platforms=platforms,
     )
 
@@ -1088,47 +1087,57 @@ def resolve_publish_run_mode(
     args,
     *,
     publish_timezone: str,
-) -> tuple[bool, "date", bool]:
-    """Return publish_immediately, today's publish date, and private_test for a CLI run."""
+) -> tuple[str, "date", bool]:
+    """Return publish_mode, today's reference date, and private_test for a CLI run."""
     from datetime import datetime
 
     from media_publisher.timezones import get_timezone
 
     private_test = bool(getattr(args, "private", False))
-    publish_immediately = not bool(getattr(args, "schedule", False))
-    target_date = datetime.now(get_timezone(publish_timezone)).date()
-    return publish_immediately, target_date, private_test
+    reference_date = datetime.now(get_timezone(publish_timezone)).date()
+    if getattr(args, "schedule", False):
+        return "scheduled", reference_date, private_test
+    if private_test:
+        return "immediate", reference_date, private_test
+    return "staggered", reference_date, private_test
 
 
 def print_publish_run_mode(
     *,
-    publish_immediately: bool,
-    publish_on_date,
+    publish_mode: str,
+    reference_date,
     private_test: bool,
     content_label: str = "videos",
 ) -> None:
-    when = publish_on_date.isoformat()
-    if not publish_immediately:
+    today = reference_date.isoformat()
+    tomorrow = (reference_date + timedelta(days=1)).isoformat()
+    if publish_mode == "staggered":
         print_console(
-            f"Using native platform scheduling for pending {content_label} due on {when}."
+            f"Staggered publish for {content_label}: Instagram today ({today}) "
+            f"immediately; YouTube/Facebook tomorrow ({tomorrow}) scheduled for review."
+        )
+        return
+    if publish_mode == "scheduled":
+        print_console(
+            f"Using native platform scheduling for pending {content_label} due on {today}."
         )
         return
     if private_test:
         if content_label == "quote posts":
             print_console(
-                f"Test publish for {when}: quotes to YouTube (private) and "
+                f"Test publish for {today}: quotes to YouTube (private) and "
                 f"Facebook (scheduled {PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead); "
                 "Instagram skipped."
             )
         else:
             print_console(
-                f"Test publish for {when}: YouTube private and Facebook scheduled "
+                f"Test publish for {today}: YouTube private and Facebook scheduled "
                 f"{PRIVATE_TEST_FACEBOOK_SCHEDULE_LEAD_DAYS} days ahead only "
                 "(Instagram skipped)."
             )
     else:
         print_console(
-            f"Publishing pending {content_label} for {when} immediately."
+            f"Publishing pending {content_label} for {today} immediately."
         )
 
 
@@ -1153,13 +1162,13 @@ def run_quotes_publish(settings, args) -> int:
         return 1
 
     platforms = resolve_selected_platforms(args)
-    publish_immediately, publish_on_date, private_test = resolve_publish_run_mode(
+    publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
         publish_timezone=settings.quotes_publish_timezone,
     )
     print_publish_run_mode(
-        publish_immediately=publish_immediately,
-        publish_on_date=publish_on_date,
+        publish_mode=publish_mode,
+        reference_date=reference_date,
         private_test=private_test,
         content_label="quote posts",
     )
@@ -1174,9 +1183,9 @@ def run_quotes_publish(settings, args) -> int:
                 settings,
                 meta_page_id=page_id,
                 meta_instagram_account_id=instagram_account_id,
-                publish_immediately=publish_immediately,
+                publish_mode=publish_mode,
                 private_test=private_test,
-                publish_on_date=publish_on_date,
+                reference_date=reference_date,
                 platforms=platforms,
             ),
             meta_client=meta_client,
@@ -1196,9 +1205,9 @@ def build_publish_pipeline_settings(
     meta_instagram_account_id: str,
     headless: bool,
     skip_thumbnails: bool = False,
-    publish_immediately: bool = False,
+    publish_mode: str = "staggered",
     private_test: bool = False,
-    publish_on_date=None,
+    reference_date=None,
     regenerate_videos: bool = False,
     use_web_export: bool = False,
 ) -> PublishPipelineSettings:
@@ -1233,9 +1242,9 @@ def build_publish_pipeline_settings(
         meta_instagram_account_id=meta_instagram_account_id,
         meta_access_token=settings.meta_access_token or "",
         meta_app_id=settings.meta_app_id,
-        publish_immediately=publish_immediately,
+        publish_mode=publish_mode,
         private_test=private_test,
-        publish_on_date=publish_on_date,
+        reference_date=reference_date,
         regenerate_videos=regenerate_videos,
         use_web_export=use_web_export,
         happyscribe_published_folder_id=settings.happyscribe_published_folder_id,
@@ -1276,7 +1285,7 @@ def validate_publish_pipeline_settings(settings, tasks) -> list[str]:
 
 def run_default_publish(settings, args) -> int:
     platforms = resolve_selected_platforms(args)
-    publish_immediately, publish_on_date, private_test = resolve_publish_run_mode(
+    publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
         publish_timezone=settings.publish_timezone,
     )
@@ -1285,8 +1294,8 @@ def run_default_publish(settings, args) -> int:
     if regenerate_videos:
         print_console("Re-downloading videos from HappyScribe (ignoring cached local files).")
     print_publish_run_mode(
-        publish_immediately=publish_immediately,
-        publish_on_date=publish_on_date,
+        publish_mode=publish_mode,
+        reference_date=reference_date,
         private_test=private_test,
     )
     if platforms is not None:
@@ -1346,9 +1355,9 @@ def run_default_publish(settings, args) -> int:
                 meta_instagram_account_id=instagram_account_id,
                 headless=args.happyscribe_export_headless,
                 skip_thumbnails=bool(getattr(args, "skip_thumbnails", False)),
-                publish_immediately=publish_immediately,
+                publish_mode=publish_mode,
                 private_test=private_test,
-                publish_on_date=publish_on_date,
+                reference_date=reference_date,
                 regenerate_videos=regenerate_videos,
                 use_web_export=use_web_export,
             ),

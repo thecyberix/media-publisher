@@ -1,8 +1,20 @@
-"""Resolve publish-time thumbnails and video overrides for catalog videos."""
+"""Resolve publish-time Bulgarian thumbnails and optional Drive video overrides.
+
+Original platform thumbnails belong in Airtable (uploaded on catalog ingest).
+Publishing uses a translated thumbnail only when Original Video Thumbnail is set:
+
+1. Drive override folder (Thumbnails subfolder), by Title
+2. Canva catalog folder (short vs long), by Title — move to Published on success
+3. TN render generated on the fly
+
+Video source for publishing (independent of thumbnail logic):
+
+1. Drive override folder (Videos subfolder), by Title
+2. HappyScribe download (handled by the publish pipeline)
+"""
 from __future__ import annotations
 
 import re
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -17,7 +29,6 @@ from media_publisher.sources.canva import (
     CanvaError,
     CanvaThumbnailTarget,
     catalog_video_name_from_job,
-    ensure_catalog_thumbnail_from_canva,
     find_cached_thumbnail_path,
     parse_canva_resource,
     thumbnail_catalog_url_for_format,
@@ -87,37 +98,6 @@ def merge_publish_media_cleanup(
     if not merged.drive_file_ids_to_delete and not merged.canva_design_id:
         return None
     return merged
-
-
-def _download_airtable_attachment(url: str, destination: Path) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers={"User-Agent": "media-publisher/1.0"})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        destination.write_bytes(response.read())
-    return destination
-
-
-def _resolve_airtable_thumbnail_attachment(
-    record_fields: dict[str, Any],
-    *,
-    title: str,
-    download_dir: Path,
-) -> PublishThumbnailResult | None:
-    attachment = record_fields.get(FIELD_ORIGINAL_VIDEO_THUMBNAIL)
-    if not isinstance(attachment, list) or not attachment:
-        return None
-    first = attachment[0]
-    if not isinstance(first, dict):
-        return None
-    url = first.get("url")
-    filename = first.get("filename") or f"{_sanitize_filename(title)}.jpg"
-    if not isinstance(url, str) or not url.strip():
-        return None
-    destination = download_dir / "airtable" / _sanitize_filename(str(filename))
-    if destination.is_file():
-        return PublishThumbnailResult(path=destination, source="airtable-attachment")
-    _download_airtable_attachment(url.strip(), destination)
-    return PublishThumbnailResult(path=destination, source="airtable-attachment")
 
 
 def resolve_drive_override_subfolder(
@@ -250,7 +230,11 @@ def resolve_publish_thumbnail(
     published_subfolder_name: str,
     tn_settings: TnPublishSettings,
 ) -> PublishThumbnailResult:
-    """Resolve a publish thumbnail only when Original Video Thumbnail is set."""
+    """Resolve a Bulgarian publish thumbnail when Original Video Thumbnail is set.
+
+    The Airtable attachment itself is not used at publish time; it only gates
+    whether a translated thumbnail is required.
+    """
     if not has_original_video_thumbnail(record_fields):
         return PublishThumbnailResult(path=None)
 
@@ -289,28 +273,6 @@ def resolve_publish_thumbnail(
         )
         if generated is not None and generated.path is not None:
             return generated
-
-    if canva_client is not None:
-        try:
-            enriched = ensure_catalog_thumbnail_from_canva(
-                job,
-                client=canva_client,
-                download_dir=canva_download_dir,
-                long_catalog_url=long_catalog_url,
-                short_catalog_url=short_catalog_url,
-            )
-            path = Path(enriched.thumbnail_path) if enriched.thumbnail_path else None
-            return PublishThumbnailResult(path=path, source="canva-fallback")
-        except CanvaError:
-            pass
-
-    attachment_result = _resolve_airtable_thumbnail_attachment(
-        record_fields,
-        title=lookup_title,
-        download_dir=canva_download_dir,
-    )
-    if attachment_result is not None and attachment_result.path is not None:
-        return attachment_result
 
     return PublishThumbnailResult(path=None)
 
@@ -353,7 +315,6 @@ def resolve_drive_override_video(
 
 
 def resolve_publish_video(
-    record_fields: dict[str, Any],
     *,
     title: str,
     drive: GoogleDriveClient | None,
@@ -361,9 +322,7 @@ def resolve_publish_video(
     videos_subfolder: str,
     download_dir: Path,
 ) -> PublishVideoResult:
-    if not has_original_video_thumbnail(record_fields):
-        return PublishVideoResult(path=None)
-
+    """Return a Drive override video when present; otherwise no local path."""
     lookup_title = title.strip()
     if not lookup_title:
         return PublishVideoResult(path=None)

@@ -370,15 +370,11 @@ def enrich_records_with_original_video_thumbnails(
             continue
 
         try:
-            if staging_dir is not None and has_original_video_thumbnail_source(
-                drive_service,
-                docs_service,
-                folder_id,
-            ):
-                source_url = str(updated.get("ctLink") or "").strip()
+            source_url = str(updated.get("ctLink") or "").strip()
+            if staging_dir is not None:
                 if not source_url:
                     raise DriveThumbnailError(
-                        "Thumbnail source found in Drive but ctLink is missing"
+                        "Cannot stage original thumbnail on ingest: ctLink is missing"
                     )
                 from media_publisher.sources.source_thumbnail import original_thumbnail_destination
 
@@ -392,6 +388,29 @@ def enrich_records_with_original_video_thumbnails(
                 updated[f"{thumbnail_field}Source"] = "original-platform:local-upload"
                 updated.pop(f"{thumbnail_field}Error", None)
                 print(f"  -> staged for upload: {destination.name}")
+            elif has_original_video_thumbnail_source(
+                drive_service,
+                docs_service,
+                folder_id,
+            ):
+                if not source_url:
+                    raise DriveThumbnailError(
+                        "Thumbnail source found in Drive but ctLink is missing"
+                    )
+                attachment, source = resolve_original_video_thumbnail(
+                    drive_service,
+                    docs_service,
+                    folder_id,
+                    original_video_url=source_url,
+                    canva_client=canva_client,
+                )
+                updated[thumbnail_field] = attachment
+                updated[f"{thumbnail_field}Source"] = source
+                updated.pop(f"{thumbnail_field}Error", None)
+                if attachment:
+                    print(f"  -> {thumbnail_field}: {source}")
+                else:
+                    print("  -> not found")
             else:
                 attachment, source = resolve_original_video_thumbnail(
                     drive_service,
