@@ -7,11 +7,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from media_publisher.runtime_env import (
+    CANVA_TOKEN_BASELINE,
     CANVA_TOKEN_RELATIVE_PATH,
     CREDENTIAL_ENV_FILES,
     INITIAL_CREDENTIAL_JSON,
     materialize_credentials,
     maybe_persist_canva_token,
+    note_canva_token_baseline,
 )
 
 
@@ -72,29 +74,56 @@ class RuntimeEnvTests(unittest.TestCase):
             token_path = root / CANVA_TOKEN_RELATIVE_PATH
             token_path.parent.mkdir(parents=True)
             token_path.write_text('{"refresh_token": "new"}', encoding="utf-8")
-            INITIAL_CREDENTIAL_JSON[CANVA_TOKEN_RELATIVE_PATH] = '{"refresh_token": "old"}'
+            note_canva_token_baseline(root)
+            import media_publisher.runtime_env as runtime_env
+
+            runtime_env.CANVA_TOKEN_BASELINE = '{"refresh_token": "old"}'
 
             with patch.dict(
                 os.environ,
                 {
                     "CANVA_TOKEN_SYNC_PAT": "pat",
-                    "GITHUB_REPOSITORY": "owner/repo",
                 },
                 clear=True,
-            ), patch("media_publisher.runtime_env.subprocess.run") as run_mock:
-                run_mock.return_value.returncode = 0
-                run_mock.return_value.stdout = ""
-                run_mock.return_value.stderr = ""
+            ), patch(
+                "media_publisher.runtime_env._set_github_actions_secret_file_api"
+            ) as api_mock:
                 message = maybe_persist_canva_token(root)
 
             self.assertEqual(
                 message,
                 "Updated CANVA_TOKEN_JSON GitHub secret after Canva token refresh.",
             )
-            run_mock.assert_called_once()
-            command = run_mock.call_args.args[0]
-            self.assertEqual(command[:4], ["gh", "secret", "set", "CANVA_TOKEN_JSON"])
-            self.assertEqual(run_mock.call_args.kwargs["env"]["GH_TOKEN"], "pat")
+            api_mock.assert_called_once()
+            self.assertEqual(
+                api_mock.call_args.kwargs["token"],
+                "pat",
+            )
+            self.assertEqual(
+                api_mock.call_args.args[0],
+                "thecyberix/media-publisher",
+            )
+
+    def test_maybe_persist_canva_token_uses_default_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            token_path = root / CANVA_TOKEN_RELATIVE_PATH
+            token_path.parent.mkdir(parents=True)
+            token_path.write_text('{"refresh_token": "new"}', encoding="utf-8")
+            import media_publisher.runtime_env as runtime_env
+
+            runtime_env.CANVA_TOKEN_BASELINE = '{"refresh_token": "old"}'
+
+            with patch.dict(
+                os.environ,
+                {"CANVA_TOKEN_SYNC_PAT": "pat"},
+                clear=True,
+            ), patch(
+                "media_publisher.runtime_env._set_github_actions_secret_file_api"
+            ) as api_mock:
+                maybe_persist_canva_token(root)
+
+            self.assertEqual(api_mock.call_args.args[0], "thecyberix/media-publisher")
 
     def test_materialize_credentials_skips_unset_env_vars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

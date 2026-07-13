@@ -30,9 +30,7 @@ class RuntimeEnvTests(unittest.TestCase):
             token_path = root / runtime_env.CANVA_TOKEN_RELATIVE_PATH
             token_path.parent.mkdir(parents=True)
             token_path.write_text('{"refresh_token": "new"}', encoding="utf-8")
-            runtime_env.INITIAL_CREDENTIAL_JSON[runtime_env.CANVA_TOKEN_RELATIVE_PATH] = (
-                '{"refresh_token": "old"}'
-            )
+            runtime_env.CANVA_TOKEN_BASELINE = '{"refresh_token": "old"}'
 
             with patch.dict(os.environ, {}, clear=True):
                 self.assertIsNone(runtime_env.maybe_persist_canva_token(root))
@@ -43,29 +41,24 @@ class RuntimeEnvTests(unittest.TestCase):
             token_path = root / runtime_env.CANVA_TOKEN_RELATIVE_PATH
             token_path.parent.mkdir(parents=True)
             token_path.write_text('{"refresh_token": "new"}', encoding="utf-8")
-            runtime_env.INITIAL_CREDENTIAL_JSON[runtime_env.CANVA_TOKEN_RELATIVE_PATH] = (
-                '{"refresh_token": "old"}'
-            )
+            runtime_env.CANVA_TOKEN_BASELINE = '{"refresh_token": "old"}'
 
             with patch.dict(
                 os.environ,
                 {
                     "CANVA_TOKEN_SYNC_PAT": "pat",
-                    "GITHUB_REPOSITORY": "owner/repo",
                 },
                 clear=True,
-            ), patch("media_publisher.runtime_env.subprocess.run") as run_mock:
-                run_mock.return_value.returncode = 0
-                run_mock.return_value.stdout = ""
-                run_mock.return_value.stderr = ""
+            ), patch(
+                "media_publisher.runtime_env._set_github_actions_secret_file_api"
+            ) as api_mock:
                 message = runtime_env.maybe_persist_canva_token(root)
 
             self.assertEqual(
                 message,
                 "Updated CANVA_TOKEN_JSON GitHub secret after Canva token refresh.",
             )
-            command = run_mock.call_args.args[0]
-            self.assertEqual(command[:4], ["gh", "secret", "set", "CANVA_TOKEN_JSON"])
+            api_mock.assert_called_once()
 
 
 if __name__ == "__main__":

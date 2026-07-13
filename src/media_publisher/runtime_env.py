@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import base64
+import json
 import os
+import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 # Environment variables whose values are written to credential files before startup.
@@ -17,7 +22,10 @@ CREDENTIAL_ENV_FILES: dict[str, str] = {
 }
 
 CANVA_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["CANVA_TOKEN_JSON"]
+DEFAULT_GITHUB_REPOSITORY = "thecyberix/media-publisher"
+GITHUB_API_VERSION = "2022-11-28"
 INITIAL_CREDENTIAL_JSON: dict[str, str] = {}
+CANVA_TOKEN_BASELINE: str | None = None
 
 
 def materialize_credentials(project_root: Path) -> list[Path]:
@@ -37,20 +45,185 @@ def materialize_credentials(project_root: Path) -> list[Path]:
         destination.write_text(payload, encoding="utf-8")
         INITIAL_CREDENTIAL_JSON[relative_path] = payload
         written.append(destination)
+    note_canva_token_baseline(project_root)
     return written
 
 
-def maybe_persist_canva_token(project_root: Path) -> str | None:
-    """Write a rotated Canva token back to GitHub Secrets after CI refresh.
+def note_canva_token_baseline(project_root: Path) -> None:
+    """Remember the Canva token on disk at session start (before any refresh)."""
+    global CANVA_TOKEN_BASELINE
+    token_path = project_root / CANVA_TOKEN_RELATIVE_PATH
+    if token_path.is_file():
+        CANVA_TOKEN_BASELINE = token_path.read_text(encoding="utf-8").strip()
+        return
+    initial = INITIAL_CREDENTIAL_JSON.get(CANVA_TOKEN_RELATIVE_PATH)
+    CANVA_TOKEN_BASELINE = initial.strip() if isinstance(initial, str) else None
 
-  Set CANVA_TOKEN_SYNC_PAT to a PAT with repository secret write access.
-  In GitHub Actions, GITHUB_REPOSITORY is provided automatically.
+
+def _canva_token_baseline() -> str | None:
+    if CANVA_TOKEN_BASELINE is not None:
+        return CANVA_TOKEN_BASELINE
+    initial = INITIAL_CREDENTIAL_JSON.get(CANVA_TOKEN_RELATIVE_PATH)
+    if isinstance(initial, str):
+        return initial.strip()
+    return None
+
+
+def _github_repository() -> str | None:
+    for env_name in ("GITHUB_REPOSITORY", "GITHUB_REPO"):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            return value
+    return DEFAULT_GITHUB_REPOSITORY
+
+
+def _github_api_request(
+    method: str,
+    url: str,
+    *,
+    token: str,
+    body: dict[str, str] | None = None,
+) -> dict[str, object]:
+    payload = None if body is None else json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=payload, method=method)
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("Accept", "application/vnd.github+json")
+    request.add_header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+    if body is not None:
+        request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            raw = response.read()
+            if not raw:
+                return {}
+            parsed = json.loads(raw.decode("utf-8"))
+            return parsed if isinstance(parsed, dict) else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        message = f"GitHub API {exc.code} for {url}: {detail}"
+        if exc.code == 403 and "/actions/secrets/" in url:
+            message += (
+                " Ensure CANVA_TOKEN_SYNC_PAT is a fine-grained PAT with "
+                "Actions secrets: Read and write on this repository."
+            )
+        raise RuntimeError(message) from exc
+
+
+def _encrypt_github_secret(public_key_b64: str, secret_value: str) -> str:
+    try:
+        from nacl import encoding, public
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyNaCl is required to update GitHub secrets without the gh CLI. "
+            "Install with: pip install pynacl"
+        ) from exc
+
+    public_key = public.PublicKey(
+        public_key_b64.encode("utf-8"),
+        encoding.Base64Encoder(),
+    )
+    sealed_box = public.SealedBox(public_key)
+    encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
+    return base64.b64encode(encrypted).decode("utf-8")
+
+
+def _set_github_actions_secret_via_gh(
+    repository: str,
+    secret_name: str,
+    file_path: Path,
+    *,
+    token: str,
+) -> None:
+    gh_path = shutil.which("gh")
+    if gh_path is None:
+        raise RuntimeError("gh CLI not found")
+
+    result = subprocess.run(
+        [
+            gh_path,
+            "secret",
+            "set",
+            secret_name,
+            "--repo",
+            repository,
+            "-f",
+            str(file_path),
+        ],
+        env={**os.environ, "GH_TOKEN": token},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "unknown error").strip()
+        raise RuntimeError(f"Failed to update {secret_name} secret: {detail}")
+
+
+def _set_github_actions_secret_file(
+    repository: str,
+    secret_name: str,
+    file_path: Path,
+    *,
+    token: str,
+) -> None:
+    if shutil.which("gh") is not None:
+        try:
+            _set_github_actions_secret_via_gh(
+                repository,
+                secret_name,
+                file_path,
+                token=token,
+            )
+            return
+        except RuntimeError:
+            pass
+    _set_github_actions_secret_file_api(
+        repository,
+        secret_name,
+        file_path,
+        token=token,
+    )
+
+
+def _set_github_actions_secret_file_api(
+    repository: str,
+    secret_name: str,
+    file_path: Path,
+    *,
+    token: str,
+) -> None:
+    key_payload = _github_api_request(
+        "GET",
+        f"https://api.github.com/repos/{repository}/actions/secrets/public-key",
+        token=token,
+    )
+    key_id = key_payload.get("key_id")
+    public_key = key_payload.get("key")
+    if not isinstance(key_id, str) or not isinstance(public_key, str):
+        raise RuntimeError("GitHub secret public-key response was invalid")
+
+    secret_value = file_path.read_text(encoding="utf-8")
+    encrypted_value = _encrypt_github_secret(public_key, secret_value)
+    _github_api_request(
+        "PUT",
+        f"https://api.github.com/repos/{repository}/actions/secrets/{secret_name}",
+        token=token,
+        body={"encrypted_value": encrypted_value, "key_id": key_id},
+    )
+
+
+def maybe_persist_canva_token(project_root: Path) -> str | None:
+    """Write a rotated Canva token back to GitHub Secrets after local/CI refresh.
+
+    Set CANVA_TOKEN_SYNC_PAT to a PAT with repository secret write access.
+    GITHUB_REPOSITORY defaults to thecyberix/media-publisher when unset locally.
     """
     sync_pat = os.getenv("CANVA_TOKEN_SYNC_PAT", "").strip()
     if not sync_pat:
         return None
 
-    repository = os.getenv("GITHUB_REPOSITORY", "").strip()
+    repository = _github_repository()
     if not repository:
         return None
 
@@ -62,29 +235,19 @@ def maybe_persist_canva_token(project_root: Path) -> str | None:
     if not current:
         return None
 
-    initial = INITIAL_CREDENTIAL_JSON.get(CANVA_TOKEN_RELATIVE_PATH)
-    if initial is not None and initial.strip() == current:
+    baseline = _canva_token_baseline()
+    if baseline is not None and baseline == current:
         return None
 
-    result = subprocess.run(
-        [
-            "gh",
-            "secret",
-            "set",
-            "CANVA_TOKEN_JSON",
-            "--repo",
-            repository,
-            "-f",
-            str(token_path),
-        ],
-        env={**os.environ, "GH_TOKEN": sync_pat},
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+    _set_github_actions_secret_file(
+        repository,
+        "CANVA_TOKEN_JSON",
+        token_path,
+        token=sync_pat,
     )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "unknown error").strip()
-        raise RuntimeError(f"Failed to update CANVA_TOKEN_JSON secret: {detail}")
+
+    global CANVA_TOKEN_BASELINE
+    CANVA_TOKEN_BASELINE = current
+    INITIAL_CREDENTIAL_JSON[CANVA_TOKEN_RELATIVE_PATH] = current
 
     return "Updated CANVA_TOKEN_JSON GitHub secret after Canva token refresh."
