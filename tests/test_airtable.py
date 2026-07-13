@@ -29,6 +29,7 @@ from media_publisher.sources.airtable import (
     TYPE_VIDEO,
     auto_schedule_tomorrow_catalog_item,
     build_platform_published_update,
+    catalog_instagram_schedule_excluded,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
     mark_record_done_and_published_if_complete,
@@ -164,6 +165,46 @@ class CatalogScheduleTests(unittest.TestCase):
         self.assertEqual(fields[FIELD_SG_YT_DATE], "2026-07-06")
         self.assertEqual(fields[FIELD_SG_FB_DATE], "2026-07-06")
         self.assertEqual(fields[FIELD_SG_IG_DATE], "2026-07-06")
+
+    def test_auto_schedule_tomorrow_omits_instagram_for_long_videos(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        records = [
+            AirtableRecord(
+                id="rec-long",
+                created_time="2026-07-01T10:00:00.000Z",
+                fields={
+                    FIELD_STATUS: "5. Synchronization done",
+                    FIELD_TITLE: "Long talk",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Long tr",
+                    "Type": TYPE_VIDEO,
+                    "Duration": 1487,
+                },
+            ),
+        ]
+        with (
+            patch.object(client, "list_records", return_value=records),
+            patch.object(client, "update_record") as update_mock,
+        ):
+            update_mock.return_value = AirtableRecord(id="rec-long", fields={})
+            scheduled = auto_schedule_tomorrow_catalog_item(
+                client,
+                target_date=date(2026, 7, 11),  # Saturday => Video
+                publish_timezone="UTC",
+                publish_hour=18,
+            )
+        self.assertIsNotNone(scheduled)
+        fields = update_mock.call_args.args[1]
+        self.assertEqual(fields[FIELD_SG_YT_DATE], "2026-07-11")
+        self.assertEqual(fields[FIELD_SG_FB_DATE], "2026-07-11")
+        self.assertNotIn(FIELD_SG_IG_DATE, fields)
+
+    def test_catalog_instagram_schedule_excluded(self) -> None:
+        self.assertTrue(
+            catalog_instagram_schedule_excluded({"Duration": 16 * 60})
+        )
+        self.assertFalse(
+            catalog_instagram_schedule_excluded({"Duration": 10 * 60})
+        )
 
     def test_auto_schedule_tomorrow_noop_when_pending_already_exists(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
@@ -315,12 +356,30 @@ class CatalogScheduleTests(unittest.TestCase):
             )
         )
 
+        yt_fb_only_fields = {
+            FIELD_SG_YT_DATE: "2026-07-05",
+            FIELD_SG_FB_DATE: "2026-07-05",
+            FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+            FIELD_SG_FB_PUBLISHED: "https://facebook.com/watch/?v=1",
+        }
+        self.assertFalse(record_publish_platforms_complete(yt_fb_only_fields))
+
+        long_form_fields = {
+            **yt_fb_only_fields,
+            "Duration": 16 * 60,
+        }
+        self.assertTrue(record_publish_platforms_complete(long_form_fields))
+
     def test_mark_record_done_and_published_if_complete(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         record_fields = {
             FIELD_STATUS: "5. Synchronization done",
             FIELD_SG_YT_DATE: "2026-07-05",
+            FIELD_SG_FB_DATE: "2026-07-05",
+            FIELD_SG_IG_DATE: "2026-07-05",
             FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+            FIELD_SG_FB_PUBLISHED: "https://facebook.com/watch/?v=1",
+            FIELD_SG_IG_PUBLISHED: "https://instagram.com/p/1",
         }
         with patch.object(
             client,

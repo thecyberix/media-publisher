@@ -266,13 +266,30 @@ def desired_type_for_publish_date(target_date: date) -> str:
     return TYPE_VIDEO if target_date.weekday() == 5 else TYPE_REEL
 
 
+def catalog_instagram_schedule_excluded(fields: dict[str, Any]) -> bool:
+    """True when Instagram should not be scheduled (Graph API limit is 15 minutes)."""
+    from media_publisher.video_duration import (
+        instagram_exceeds_api_limit,
+        parse_duration_seconds,
+    )
+
+    duration = parse_duration_seconds(fields.get(FIELD_DURATION))
+    return instagram_exceeds_api_limit(duration)
+
+
+def catalog_instagram_publish_required(fields: dict[str, Any]) -> bool:
+    """True when a catalog row still needs an Instagram publish."""
+    if _field_text(fields.get(FIELD_SG_IG_DATE)):
+        return True
+    return not catalog_instagram_schedule_excluded(fields)
+
+
 def auto_schedule_tomorrow_catalog_item(
     client: "AirtableClient",
     *,
     target_date: date,
     publish_timezone: str = DEFAULT_PUBLISH_TIMEZONE,
     publish_hour: int = DEFAULT_PUBLISH_HOUR,
-    platforms: tuple[PlatformName, ...] | None = None,
     apply: bool = True,
 ) -> AirtableRecord | None:
     """Pick one unscheduled catalog record and set publish dates for target_date.
@@ -341,11 +358,12 @@ def auto_schedule_tomorrow_catalog_item(
 
     update_fields: dict[str, Any] = {}
     for config in PLATFORM_FIELD_CONFIGS:
-        if platforms is not None and config.platform not in platforms:
+        if (
+            config.platform == "instagram"
+            and catalog_instagram_schedule_excluded(chosen.fields)
+        ):
             continue
         update_fields[config.date_field] = _iso_date(target_date)
-    if not update_fields:
-        return None
 
     if not apply:
         return AirtableRecord(
@@ -452,7 +470,26 @@ def record_publish_platforms_complete(
         scheduled_any = True
         if not _field_text(record_fields.get(config.published_field)):
             return False
-    return scheduled_any
+
+    if not scheduled_any:
+        return False
+
+    # Catalog videos scheduled on YouTube or Facebook also require Instagram
+    # unless the video exceeds Instagram's 15-minute API limit.
+    if "instagram" not in excluded and not is_quote_record(record_fields):
+        yt_or_fb_scheduled = any(
+            _field_text(record_fields.get(config.date_field))
+            for config in PLATFORM_FIELD_CONFIGS
+            if config.platform in {"youtube", "facebook"}
+        )
+        if (
+            yt_or_fb_scheduled
+            and not _field_text(record_fields.get(FIELD_SG_IG_PUBLISHED))
+            and catalog_instagram_publish_required(record_fields)
+        ):
+            return False
+
+    return True
 
 
 def mark_record_done_and_published_if_complete(

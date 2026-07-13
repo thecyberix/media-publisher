@@ -39,7 +39,12 @@ def _task(record_id: str, platform: str, title: str = "Translated title") -> Pla
         publish_at=publish_at,
         job=job,
         record_id=record_id,
-        record_fields={FIELD_TITLE: "Original catalog name"},
+        record_fields={
+            FIELD_TITLE: "Original catalog name",
+            "SG-YT-Date published": "2026-07-04",
+            "SG-FB-Date published": "2026-07-04",
+            "SG-IG-Date published": "2026-07-04",
+        },
     )
 
 
@@ -349,8 +354,11 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].success)
         publish_mock.assert_called_once()
-        self.assertEqual(update_mock.call_count, 2)
-        update_mock.assert_any_call("recABC", {"Status": "6. Done & Published"})
+        self.assertEqual(update_mock.call_count, 1)
+        update_mock.assert_called_once_with(
+            "recABC",
+            {"SG-YT-Published video": "https://www.youtube.com/watch?v=abc123", "SMedia Uploaded": ["SG YouTube"]},
+        )
 
     def test_run_publish_pipeline_fails_when_thumbnail_resolution_fails(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

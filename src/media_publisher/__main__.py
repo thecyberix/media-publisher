@@ -1407,7 +1407,6 @@ def run_default_publish(settings, args) -> int:
                 target_date=today_local + timedelta(days=1),
                 publish_timezone=settings.publish_timezone,
                 publish_hour=settings.publish_hour,
-                platforms=platforms,
             )
         except AirtableError as exc:
             print_console(f"Auto-schedule skipped: {exc}")
@@ -2068,7 +2067,6 @@ def main() -> int:
             print("Missing required settings:", ", ".join(missing))
             return 1
 
-        platforms = resolve_selected_platforms(args)
         try:
             client = airtable_client_from_settings(settings)
             from datetime import datetime
@@ -2083,7 +2081,6 @@ def main() -> int:
                 target_date=target_date,
                 publish_timezone=settings.publish_timezone,
                 publish_hour=settings.publish_hour,
-                platforms=platforms,
                 apply=apply,
             )
         except AirtableError as exc:
