@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 IMAGE_MIME_PREFIX = "image/"
 VIDEO_MIME_PREFIX = "video/"
@@ -202,6 +202,31 @@ class GoogleDriveClient:
         destination.write_bytes(buffer.getvalue())
         return destination
 
+    def _file_capabilities(self, file_id: str) -> dict[str, bool]:
+        try:
+            metadata = (
+                self._drive.files()
+                .get(
+                    fileId=file_id,
+                    fields="capabilities/canDelete,capabilities/canTrash",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to read Drive file capabilities for {file_id}: {exc}"
+            ) from exc
+        capabilities = metadata.get("capabilities", {})
+        if not isinstance(capabilities, dict):
+            return {}
+        result: dict[str, bool] = {}
+        for name in ("canDelete", "canTrash"):
+            value = capabilities.get(name)
+            if isinstance(value, bool):
+                result[name] = value
+        return result
+
     def delete_file(self, file_id: str) -> None:
         try:
             self._drive.files().delete(
@@ -211,6 +236,56 @@ class GoogleDriveClient:
         except Exception as exc:
             raise GoogleDriveError(
                 f"Failed to delete Drive file {file_id}: {exc}"
+            ) from exc
+
+    def trash_file(self, file_id: str) -> None:
+        try:
+            self._drive.files().update(
+                fileId=file_id,
+                body={"trashed": True},
+                supportsAllDrives=True,
+            ).execute()
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to trash Drive file {file_id}: {exc}"
+            ) from exc
+
+    def remove_file(self, file_id: str) -> str:
+        """Delete a Drive file, or trash it when delete is not permitted."""
+        capabilities = self._file_capabilities(file_id)
+        if capabilities.get("canDelete"):
+            self.delete_file(file_id)
+            return "deleted"
+        if capabilities.get("canTrash"):
+            self.trash_file(file_id)
+            return "trashed"
+        raise GoogleDriveError(
+            f"Drive file {file_id} cannot be deleted or trashed with current permissions"
+        )
+
+    def move_file(self, file_id: str, destination_folder_id: str) -> None:
+        try:
+            metadata = (
+                self._drive.files()
+                .get(
+                    fileId=file_id,
+                    fields="parents",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+            parents = metadata.get("parents", [])
+            previous_parents = ",".join(parents) if isinstance(parents, list) else None
+            self._drive.files().update(
+                fileId=file_id,
+                addParents=destination_folder_id,
+                removeParents=previous_parents,
+                supportsAllDrives=True,
+                fields="id, parents",
+            ).execute()
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to move Drive file {file_id} to folder {destination_folder_id}: {exc}"
             ) from exc
 
     def find_file_by_title(

@@ -20,6 +20,8 @@ from media_publisher.sources.airtable import (
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
     mark_platform_scheduled,
+    mark_record_done_and_published_if_complete,
+    STATUS_DONE_PUBLISHED,
 )
 from media_publisher.sources.happyscribe import (
     HappyScribeClient,
@@ -33,6 +35,7 @@ from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     merge_publish_media_cleanup,
     apply_publish_media_cleanup,
+    combined_media_cleanup_from_fields,
     resolve_publish_thumbnail,
     resolve_publish_video,
 )
@@ -263,6 +266,9 @@ def run_publish_pipeline(
             ready_tasks = [
                 task for task in ready_tasks if task.platform != "instagram"
             ]
+        excluded_platforms: frozenset[PlatformName] = frozenset(
+            {"instagram"} if settings.private_test else set()
+        )
         if not ready_tasks:
             continue
 
@@ -400,6 +406,7 @@ def run_publish_pipeline(
             ready_tasks = [
                 task for task in ready_tasks if task.platform != "instagram"
             ]
+            excluded_platforms = frozenset(set(excluded_platforms) | {"instagram"})
 
         record_success_count = 0
         for task in ready_tasks:
@@ -429,7 +436,16 @@ def run_publish_pipeline(
                     platform=task.platform,
                     permalink=permalink,
                 )
-                record_fields = dict(updated.fields)
+                record_fields = {**record_fields, **updated.fields}
+                done_record = mark_record_done_and_published_if_complete(
+                    airtable,
+                    record_id=record_id,
+                    record_fields=record_fields,
+                    excluded_platforms=excluded_platforms,
+                )
+                if done_record is not None:
+                    record_fields = {**record_fields, **done_record.fields}
+                    print_line(f"  status: 6. {STATUS_DONE_PUBLISHED}")
                 when = (
                     "now"
                     if uses_immediate
@@ -464,13 +480,20 @@ def run_publish_pipeline(
                     )
                 )
 
-        if record_success_count == len(ready_tasks) and publish_cleanup is not None:
-            apply_publish_media_cleanup(
+        if record_success_count == len(ready_tasks):
+            publish_cleanup = merge_publish_media_cleanup(
                 publish_cleanup,
-                drive=drive_client,
-                canva_client=settings.canva_client,
-                log=print_line,
+                combined_media_cleanup_from_fields(record_fields),
             )
+            if publish_cleanup is not None:
+                apply_publish_media_cleanup(
+                    publish_cleanup,
+                    drive=drive_client,
+                    canva_client=settings.canva_client,
+                    airtable=airtable,
+                    record_id=record_id,
+                    log=print_line,
+                )
 
     failures = [result for result in results if not result.success]
     successes = [result for result in results if result.success]

@@ -3,13 +3,13 @@
 Original platform thumbnails belong in Airtable (uploaded on catalog ingest).
 Publishing uses a translated thumbnail only when Original Video Thumbnail is set:
 
-1. Drive override folder (Thumbnails subfolder), by Title
-2. Canva catalog folder (short vs long), by Title — move to Published on success
+1. Drive override folder (Thumbnails and Thumbnails/Published), by Title — move to Published on success
+2. Canva catalog folder (short vs long, including Published), by Title — move to Published on success
 3. TN render generated on the fly
 
 Video source for publishing (independent of thumbnail logic):
 
-1. Drive override folder (Videos subfolder), by Title
+1. Drive override folder (Videos subfolder), by Title — delete on success
 2. HappyScribe download (handled by the publish pipeline)
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import Any, Callable
 
 from media_publisher.models import PublishJob
 from media_publisher.sources.airtable import (
+    FIELD_COMBINED_MEDIA_FILE,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     has_original_video_thumbnail,
 )
@@ -50,11 +51,19 @@ IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".mkv", ".webm")
 
 
+@dataclass(frozen=True)
+class DriveFileMove:
+    file_id: str
+    destination_folder_id: str
+
+
 @dataclass
 class PublishMediaCleanup:
     drive_file_ids_to_delete: list[str] = field(default_factory=list)
+    drive_file_moves: list[DriveFileMove] = field(default_factory=list)
     canva_design_id: str | None = None
     canva_published_folder_id: str | None = None
+    combined_media_file_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +85,34 @@ def _sanitize_filename(name: str) -> str:
     return cleaned or "file"
 
 
+def extract_drive_file_id(value: str) -> str | None:
+    if not value:
+        return None
+    text = value.strip()
+    match = re.search(r"/file/d/([^/]+)", text)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"[a-zA-Z0-9_-]{10,}", text):
+        return text
+    return None
+
+
+def combined_media_cleanup_from_fields(
+    record_fields: dict[str, Any],
+) -> PublishMediaCleanup | None:
+    combined = record_fields.get(FIELD_COMBINED_MEDIA_FILE)
+    if combined is None:
+        return None
+    if not isinstance(combined, str):
+        combined = str(combined)
+    if not combined.strip():
+        return None
+    file_id = extract_drive_file_id(combined)
+    if not file_id:
+        return None
+    return PublishMediaCleanup(combined_media_file_id=file_id)
+
+
 def merge_publish_media_cleanup(
     left: PublishMediaCleanup | None,
     right: PublishMediaCleanup | None,
@@ -85,17 +122,30 @@ def merge_publish_media_cleanup(
     merged = PublishMediaCleanup()
     if left is not None:
         merged.drive_file_ids_to_delete.extend(left.drive_file_ids_to_delete)
+        merged.drive_file_moves.extend(left.drive_file_moves)
         merged.canva_design_id = left.canva_design_id or merged.canva_design_id
         merged.canva_published_folder_id = (
             left.canva_published_folder_id or merged.canva_published_folder_id
         )
+        merged.combined_media_file_id = (
+            left.combined_media_file_id or merged.combined_media_file_id
+        )
     if right is not None:
         merged.drive_file_ids_to_delete.extend(right.drive_file_ids_to_delete)
+        merged.drive_file_moves.extend(right.drive_file_moves)
         merged.canva_design_id = right.canva_design_id or merged.canva_design_id
         merged.canva_published_folder_id = (
             right.canva_published_folder_id or merged.canva_published_folder_id
         )
-    if not merged.drive_file_ids_to_delete and not merged.canva_design_id:
+        merged.combined_media_file_id = (
+            right.combined_media_file_id or merged.combined_media_file_id
+        )
+    if (
+        not merged.drive_file_ids_to_delete
+        and not merged.drive_file_moves
+        and not merged.canva_design_id
+        and not merged.combined_media_file_id
+    ):
         return None
     return merged
 
@@ -117,11 +167,30 @@ def _override_match_stem(name: str) -> str:
     return _sanitize_filename(stem).casefold().strip()
 
 
+def _find_drive_override_image(
+    drive: GoogleDriveClient,
+    folder_ids: list[str],
+    target: str,
+) -> tuple[DriveFile, str] | None:
+    for folder_id in folder_ids:
+        for item in drive.list_children(folder_id):
+            if item.mime_type == "application/vnd.google-apps.folder":
+                continue
+            if _override_match_stem(item.name) != target:
+                continue
+            if not item.mime_type.startswith(IMAGE_MIME_PREFIX):
+                if Path(item.name).suffix.casefold() not in IMAGE_EXTENSIONS:
+                    continue
+            return item, folder_id
+    return None
+
+
 def resolve_drive_override_thumbnail(
     drive: GoogleDriveClient,
     *,
     root_folder_id: str,
     thumbnails_subfolder: str,
+    published_subfolder_name: str,
     title: str,
     download_dir: Path,
 ) -> PublishThumbnailResult | None:
@@ -137,26 +206,36 @@ def resolve_drive_override_thumbnail(
     if not target:
         return None
 
-    match = None
-    for item in drive.list_children(folder_id):
-        if item.mime_type == "application/vnd.google-apps.folder":
-            continue
-        if _override_match_stem(item.name) != target:
-            continue
-        if not item.mime_type.startswith(IMAGE_MIME_PREFIX):
-            if Path(item.name).suffix.casefold() not in IMAGE_EXTENSIONS:
-                continue
-        match = item
-        break
-    if match is None:
+    search_folder_ids = [folder_id]
+    published_folder = drive.find_child_folder(folder_id, published_subfolder_name)
+    if published_folder is not None:
+        search_folder_ids.append(published_folder.id)
+
+    found = _find_drive_override_image(drive, search_folder_ids, target)
+    if found is None:
         return None
+    match, parent_folder_id = found
 
     destination = download_dir / "overrides" / "thumbnails" / _sanitize_filename(match.name)
     drive.download_file(match.id, destination)
-    cleanup = PublishMediaCleanup(drive_file_ids_to_delete=[match.id])
+    cleanup: PublishMediaCleanup | None = None
+    if published_folder is not None and parent_folder_id == folder_id:
+        cleanup = PublishMediaCleanup(
+            drive_file_moves=[
+                DriveFileMove(
+                    file_id=match.id,
+                    destination_folder_id=published_folder.id,
+                )
+            ]
+        )
+    source = (
+        "drive-override-thumbnail-published"
+        if published_folder is not None and parent_folder_id == published_folder.id
+        else "drive-override-thumbnail"
+    )
     return PublishThumbnailResult(
         path=destination,
-        source="drive-override-thumbnail",
+        source=source,
         cleanup=cleanup,
     )
 
@@ -185,24 +264,34 @@ def resolve_canva_catalog_thumbnail(
     if resource_type != "folder":
         return None
 
-    design = client.find_design_in_folder(resource_id, title)
+    published_folder = client.find_subfolder(resource_id, published_subfolder_name)
+    already_in_published = False
+    try:
+        design = client.find_design_in_folder(resource_id, title)
+    except CanvaError:
+        if published_folder is None:
+            raise
+        design = client.find_design_in_folder(published_folder.id, title)
+        already_in_published = True
 
     destination = thumbnail_destination_path(download_dir, title)
     target = CanvaThumbnailTarget(design_id=design.id)
     client.download_thumbnail_target(target, destination)
 
     cleanup: PublishMediaCleanup | None = None
-    if move_to_published:
-        published_folder = client.find_subfolder(resource_id, published_subfolder_name)
-        if published_folder is not None:
-            cleanup = PublishMediaCleanup(
-                canva_design_id=design.id,
-                canva_published_folder_id=published_folder.id,
-            )
+    if move_to_published and not already_in_published and published_folder is not None:
+        cleanup = PublishMediaCleanup(
+            canva_design_id=design.id,
+            canva_published_folder_id=published_folder.id,
+        )
 
     return PublishThumbnailResult(
         path=destination,
-        source="canva-catalog",
+        source=(
+            "canva-catalog-published"
+            if already_in_published
+            else "canva-catalog"
+        ),
         cleanup=cleanup,
     )
 
@@ -256,12 +345,13 @@ def resolve_publish_thumbnail(
             drive,
             root_folder_id=override_root_folder_id,
             thumbnails_subfolder=thumbnails_subfolder,
+            published_subfolder_name=published_subfolder_name,
             title=lookup_title,
             download_dir=canva_download_dir,
         )
         if drive_result is not None and drive_result.path is not None:
             return drive_result
-        attempts.append("drive override: no matching file in Thumbnails folder")
+        attempts.append("drive override: no matching file in Thumbnails or Published folder")
 
     if canva_client is None:
         attempts.append("canva catalog: Canva client unavailable")
@@ -383,6 +473,8 @@ def apply_publish_media_cleanup(
     *,
     drive: GoogleDriveClient | None,
     canva_client: CanvaClient | None,
+    airtable: Any | None = None,
+    record_id: str | None = None,
     log: Callable[[str], None] | None = None,
 ) -> None:
     if cleanup is None:
@@ -390,12 +482,44 @@ def apply_publish_media_cleanup(
     emit = log or (lambda message: None)
 
     if drive is not None:
+        for move in cleanup.drive_file_moves:
+            try:
+                drive.move_file(move.file_id, move.destination_folder_id)
+                emit(
+                    "  cleanup: moved Drive override file "
+                    f"{move.file_id} to Published folder"
+                )
+            except GoogleDriveError as exc:
+                emit(
+                    "  cleanup: failed to move Drive override file "
+                    f"{move.file_id}: {exc}"
+                )
+
         for file_id in cleanup.drive_file_ids_to_delete:
             try:
                 drive.delete_file(file_id)
                 emit(f"  cleanup: deleted Drive override file {file_id}")
             except GoogleDriveError as exc:
                 emit(f"  cleanup: failed to delete Drive file {file_id}: {exc}")
+
+        if cleanup.combined_media_file_id:
+            try:
+                action = drive.remove_file(cleanup.combined_media_file_id)
+                emit(
+                    "  cleanup: "
+                    f"{action} Combined Media File {cleanup.combined_media_file_id}"
+                )
+                if airtable is not None and record_id:
+                    airtable.update_record(
+                        record_id,
+                        {FIELD_COMBINED_MEDIA_FILE: ""},
+                    )
+                    emit(f"  cleanup: cleared {FIELD_COMBINED_MEDIA_FILE!r} on {record_id}")
+            except GoogleDriveError as exc:
+                emit(
+                    "  cleanup: failed to remove Combined Media File "
+                    f"{cleanup.combined_media_file_id}: {exc}"
+                )
 
     if (
         canva_client is not None

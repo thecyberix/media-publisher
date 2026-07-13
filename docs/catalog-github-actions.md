@@ -1,6 +1,6 @@
 # GitHub Actions — daily workflow
 
-The [daily workflow](../.github/workflows/catalog-daily-workflow.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, catalog ingest from Google Sheets, and sync-done cleanup. Humans update **Status** and translated fields in Airtable; the bot does not read or write comments.
+The [daily workflow](../.github/workflows/catalog-daily-workflow.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, and catalog ingest from Google Sheets. Humans update **Status** and translated fields in Airtable; the bot does not read or write comments. Combined media cleanup runs in the **publish** workflow after a video is successfully published.
 
 ## Schedule and timezone
 

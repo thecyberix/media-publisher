@@ -14,6 +14,7 @@ from media_publisher.sources.airtable import (
     FIELD_SG_FB_DATE,
     FIELD_SG_FB_PUBLISHED,
     FIELD_SG_IG_DATE,
+    FIELD_SG_IG_PUBLISHED,
     FIELD_SG_YT_DATE,
     FIELD_SG_YT_PUBLISHED,
     FIELD_SMEDIA_UPLOADED,
@@ -29,8 +30,10 @@ from media_publisher.sources.airtable import (
     build_platform_published_update,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
+    mark_record_done_and_published_if_complete,
     missing_translation_report,
     pending_schedule_filter_formula,
+    record_publish_platforms_complete,
     record_schedule_tasks,
     record_to_publish_job,
     video_format_from_type,
@@ -213,6 +216,70 @@ class CatalogScheduleTests(unittest.TestCase):
         tasks = record_schedule_tasks(record)
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0].platform, "youtube")
+
+    def test_record_publish_platforms_complete(self) -> None:
+        complete_fields = {
+            FIELD_SG_YT_DATE: "2026-07-05",
+            FIELD_SG_FB_DATE: "2026-07-05",
+            FIELD_SG_IG_DATE: "2026-07-05",
+            FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+            FIELD_SG_FB_PUBLISHED: "https://facebook.com/watch/?v=1",
+            FIELD_SG_IG_PUBLISHED: "https://instagram.com/p/1",
+        }
+        self.assertTrue(record_publish_platforms_complete(complete_fields))
+
+        partial_fields = dict(complete_fields)
+        partial_fields.pop(FIELD_SG_FB_PUBLISHED)
+        self.assertFalse(record_publish_platforms_complete(partial_fields))
+
+        private_fields = dict(complete_fields)
+        private_fields.pop(FIELD_SG_IG_PUBLISHED)
+        self.assertTrue(
+            record_publish_platforms_complete(
+                private_fields,
+                excluded_platforms=frozenset({"instagram"}),
+            )
+        )
+
+    def test_mark_record_done_and_published_if_complete(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        record_fields = {
+            FIELD_STATUS: "5. Synchronization done",
+            FIELD_SG_YT_DATE: "2026-07-05",
+            FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+        }
+        with patch.object(
+            client,
+            "update_record",
+            return_value=AirtableRecord(
+                id="recABC",
+                fields={FIELD_STATUS: "6. Done & Published"},
+            ),
+        ) as update_mock:
+            updated = mark_record_done_and_published_if_complete(
+                client,
+                record_id="recABC",
+                record_fields=record_fields,
+            )
+        self.assertIsNotNone(updated)
+        update_mock.assert_called_once_with(
+            "recABC",
+            {FIELD_STATUS: "6. Done & Published"},
+        )
+
+        update_mock.reset_mock()
+        not_updated = mark_record_done_and_published_if_complete(
+            client,
+            record_id="recABC",
+            record_fields={
+                FIELD_STATUS: "5. Synchronization done",
+                FIELD_SG_YT_DATE: "2026-07-05",
+                FIELD_SG_FB_DATE: "2026-07-06",
+                FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+            },
+        )
+        self.assertIsNone(not_updated)
+        update_mock.assert_not_called()
 
     def test_build_platform_published_update_merges_smedia_uploaded(self) -> None:
         update = build_platform_published_update(

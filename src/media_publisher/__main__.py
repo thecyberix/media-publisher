@@ -25,6 +25,7 @@ from media_publisher.pipeline import PublishPipelineSettings, run_publish_pipeli
 from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
+    combined_media_cleanup_from_fields,
     merge_publish_media_cleanup,
     resolve_publish_thumbnail,
     resolve_publish_video,
@@ -74,8 +75,10 @@ from media_publisher.sources.airtable import (
     fetch_pending_schedule_tasks,
     has_video_name_translated,
     mark_platform_scheduled,
+    mark_record_done_and_published_if_complete,
     record_schedule_tasks,
     record_to_publish_job,
+    STATUS_DONE_PUBLISHED,
 )
 from media_publisher.sources.canva import (
     DEFAULT_SCOPES,
@@ -714,7 +717,18 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
     return task, client, cleanup
 
 
-def finish_schedule_publish_cleanup(settings, cleanup: PublishMediaCleanup | None) -> None:
+def finish_schedule_publish_cleanup(
+    settings,
+    cleanup: PublishMediaCleanup | None,
+    *,
+    airtable=None,
+    record_id: str | None = None,
+    record_fields: dict | None = None,
+) -> None:
+    cleanup = merge_publish_media_cleanup(
+        cleanup,
+        combined_media_cleanup_from_fields(record_fields or {}),
+    )
     if cleanup is None:
         return
     drive_client = None
@@ -731,8 +745,39 @@ def finish_schedule_publish_cleanup(settings, cleanup: PublishMediaCleanup | Non
         cleanup,
         drive=drive_client,
         canva_client=canva_client,
+        airtable=airtable,
+        record_id=record_id,
         log=print,
     )
+
+
+def finalize_record_after_platform_publish(
+    settings,
+    *,
+    airtable,
+    record_id: str,
+    record_fields: dict,
+    publish_cleanup: PublishMediaCleanup | None,
+    excluded_platforms: frozenset | None = None,
+) -> dict:
+    fields = dict(record_fields)
+    done_record = mark_record_done_and_published_if_complete(
+        airtable,
+        record_id=record_id,
+        record_fields=fields,
+        excluded_platforms=excluded_platforms,
+    )
+    if done_record is not None:
+        fields = {**fields, **done_record.fields}
+        print(f"Status updated to 6. {STATUS_DONE_PUBLISHED}")
+    finish_schedule_publish_cleanup(
+        settings,
+        publish_cleanup,
+        airtable=airtable,
+        record_id=record_id,
+        record_fields=fields,
+    )
+    return fields
 
 
 def load_publish_job_from_airtable(settings, record_id: str):
@@ -2000,14 +2045,20 @@ def main() -> int:
                 **template_urls_from_settings(settings),
             )
             permalink = youtube_video_url(video_id)
-            mark_platform_scheduled(
+            updated = mark_platform_scheduled(
                 airtable,
                 record_id=task.record_id,
                 record_fields=task.record_fields,
                 platform="youtube",
                 permalink=permalink,
             )
-            finish_schedule_publish_cleanup(settings, publish_cleanup)
+            finalize_record_after_platform_publish(
+                settings,
+                airtable=airtable,
+                record_id=task.record_id,
+                record_fields=dict(updated.fields),
+                publish_cleanup=publish_cleanup,
+            )
         except (AirtableError, YouTubePublishError) as exc:
             print(f"YouTube scheduling failed: {exc}")
             return 1
@@ -2039,14 +2090,20 @@ def main() -> int:
                 **template_urls_from_settings(settings),
             )
             permalink = meta_client.get_facebook_video_permalink(post_id)
-            mark_platform_scheduled(
+            updated = mark_platform_scheduled(
                 airtable,
                 record_id=task.record_id,
                 record_fields=task.record_fields,
                 platform="facebook",
                 permalink=permalink,
             )
-            finish_schedule_publish_cleanup(settings, publish_cleanup)
+            finalize_record_after_platform_publish(
+                settings,
+                airtable=airtable,
+                record_id=task.record_id,
+                record_fields=dict(updated.fields),
+                publish_cleanup=publish_cleanup,
+            )
         except (AirtableError, FacebookPublishError, MetaError) as exc:
             print(f"Facebook scheduling failed: {exc}")
             return 1
@@ -2101,14 +2158,20 @@ def main() -> int:
                 **template_urls_from_settings(settings),
             )
             permalink = meta_client.get_instagram_media_permalink(media_id)
-            mark_platform_scheduled(
+            updated = mark_platform_scheduled(
                 airtable,
                 record_id=task.record_id,
                 record_fields=task.record_fields,
                 platform="instagram",
                 permalink=permalink,
             )
-            finish_schedule_publish_cleanup(settings, publish_cleanup)
+            finalize_record_after_platform_publish(
+                settings,
+                airtable=airtable,
+                record_id=task.record_id,
+                record_fields=dict(updated.fields),
+                publish_cleanup=publish_cleanup,
+            )
         except (AirtableError, InstagramPublishError, MetaError) as exc:
             print(f"Instagram scheduling failed: {exc}")
             return 1

@@ -3,20 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from googleapiclient.errors import HttpError
-
 from catalog_parser.airtable import (
     AirtableClient,
-    FIELD_COMBINED_MEDIA_FILE,
     FIELD_STATUS,
     FIELD_TYPE,
-    STATUS_SYNC_DONE,
     WORKFLOW_STATUSES,
 )
-from catalog_parser.auth import get_docs_service, get_drive_service, service_account_email_hint
+from catalog_parser.auth import get_docs_service, get_drive_service
 from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.drive_combine import DriveCombineError, verify_drive_output_folder_access
-from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
 from catalog_parser.workflow.actions import ActionResult, execute_action
 from catalog_parser.workflow.config import load_workflow_config
 from catalog_parser.workflow.rules import (
@@ -101,12 +96,6 @@ def run_workflow(
 
     if not planned_actions:
         print("No workflow actions planned.")
-        _cleanup_combined_media_for_sync_done(
-            airtable=airtable,
-            drive_service=drive_service,
-            table_cache=table_cache,
-            dry_run=dry_run,
-        )
         return 0
 
     if not dry_run and any(
@@ -145,12 +134,6 @@ def run_workflow(
 
     failures = sum(1 for result in results if not result.success)
 
-    _cleanup_combined_media_for_sync_done(
-        airtable=airtable,
-        drive_service=drive_service,
-        table_cache=table_cache,
-        dry_run=dry_run,
-    )
     return 1 if failures else 0
 
 
@@ -190,250 +173,3 @@ def _enforce_status_transition_requirements(
         actions=actions,
         dry_run=dry_run,
     )
-
-
-def _extract_drive_file_id(value: str) -> str | None:
-    """
-    Extract Google Drive fileId from URLs like:
-      https://drive.google.com/file/d/<FILE_ID>/view
-    or accept raw file ids.
-    """
-    import re
-
-    if not value:
-        return None
-    s = value.strip()
-    match = re.search(r"/file/d/([^/]+)", s)
-    if match:
-        return match.group(1)
-    if re.fullmatch(r"[a-zA-Z0-9_-]{10,}", s):
-        return s
-    return None
-
-
-def _drive_cleanup_access_hint() -> str:
-    hint = service_account_email_hint()
-    if hint:
-        return (
-            f"{hint.rstrip('.')} On shared drives, Content manager can trash files via the API "
-            "but permanent delete requires Manager. Ensure that account is a shared-drive member "
-            "with at least Content manager on the output folder."
-        )
-    return (
-        " On shared drives, Content manager can trash files via the API but permanent delete "
-        "requires Manager. Ensure the workflow Google account is a shared-drive member with "
-        "at least Content manager on the output folder."
-    )
-
-
-def _drive_capability(
-    metadata: dict[str, Any],
-    name: str,
-) -> bool | None:
-    capabilities = metadata.get("capabilities")
-    if not isinstance(capabilities, dict):
-        return None
-    value = capabilities.get(name)
-    return value if isinstance(value, bool) else None
-
-
-def _get_drive_file_metadata_for_cleanup(
-    drive_service: Any,
-    file_id: str,
-) -> dict[str, Any] | None:
-    try:
-        metadata = drive_service.files().get(
-            fileId=file_id,
-            fields="id,name,capabilities/canDelete,capabilities/canTrash",
-            supportsAllDrives=True,
-        ).execute()
-    except HttpError as exc:
-        if exc.resp.status == 404:
-            return None
-        raise
-    return metadata if isinstance(metadata, dict) else None
-
-
-def _remove_drive_file_for_cleanup(
-    drive_service: Any,
-    file_id: str,
-    *,
-    metadata: dict[str, Any],
-) -> str:
-    can_delete = _drive_capability(metadata, "canDelete")
-    can_trash = _drive_capability(metadata, "canTrash")
-
-    if can_delete:
-        drive_service.files().delete(
-            fileId=file_id,
-            supportsAllDrives=True,
-        ).execute()
-        return "deleted"
-
-    if can_trash:
-        drive_service.files().update(
-            fileId=file_id,
-            body={"trashed": True},
-            supportsAllDrives=True,
-        ).execute()
-        return "trashed"
-
-    raise PermissionError("no delete or trash permission")
-
-
-def _cleanup_drive_action_label(metadata: dict[str, Any] | None) -> str:
-    if metadata is None:
-        return "remove"
-    if _drive_capability(metadata, "canDelete"):
-        return "delete"
-    if _drive_capability(metadata, "canTrash"):
-        return "trash"
-    return "remove"
-
-
-def _clear_combined_media_field(
-    *,
-    airtable: AirtableClient,
-    table_cache: TableCache,
-    record_id: str,
-) -> None:
-    airtable.update_record_fields(
-        record_id,
-        {FIELD_COMBINED_MEDIA_FILE: ""},
-    )
-    table_cache.update_fields(record_id, {FIELD_COMBINED_MEDIA_FILE: ""})
-
-
-def _cleanup_combined_media_for_sync_done(
-    *,
-    airtable: AirtableClient,
-    drive_service: Any,
-    table_cache: TableCache,
-    dry_run: bool,
-) -> None:
-    """
-    Delete `Combined Media File` Drive assets for records in
-    '5. Synchronization done', and clear the Airtable field.
-    """
-    records = table_cache.filter_records(
-        lambda record: _record_is_sync_done_with_media(record),
-    )
-    if not records:
-        return
-
-    cleaned = 0
-    skipped = 0
-    drive_failures = 0
-
-    for record in records:
-        record_id = record.get("id")
-        fields = record.get("fields", {})
-        if not isinstance(record_id, str) or not isinstance(fields, dict):
-            continue
-
-        combined = fields.get(FIELD_COMBINED_MEDIA_FILE)
-        if combined is None:
-            skipped += 1
-            continue
-        if not isinstance(combined, str):
-            combined = str(combined)
-        if not combined.strip():
-            skipped += 1
-            continue
-
-        file_id = _extract_drive_file_id(combined)
-        if not file_id:
-            print(
-                f"Cleanup skip (cannot parse Drive file id): {record_id} ({combined[:60]!r})"
-            )
-            skipped += 1
-            continue
-
-        if dry_run:
-            try:
-                metadata = _get_drive_file_metadata_for_cleanup(drive_service, file_id)
-            except HttpError:
-                metadata = None
-            action = _cleanup_drive_action_label(metadata)
-            print(
-                f"Cleanup would {action} Drive file {file_id} and clear "
-                f"{FIELD_COMBINED_MEDIA_FILE} on {record_id}"
-            )
-            cleaned += 1
-            continue
-
-        try:
-            metadata = _get_drive_file_metadata_for_cleanup(drive_service, file_id)
-        except HttpError as exc:
-            drive_failures += 1
-            print(f"Cleanup failed to access {file_id} for {record_id}: {exc}")
-            continue
-
-        if metadata is None:
-            print(
-                f"Cleanup Drive file not found: {file_id} ({record_id}); clearing Airtable field"
-            )
-            _clear_combined_media_field(
-                airtable=airtable,
-                table_cache=table_cache,
-                record_id=record_id,
-            )
-            cleaned += 1
-            continue
-
-        file_name = metadata.get("name")
-        label = file_name if isinstance(file_name, str) and file_name else file_id
-
-        try:
-            action = _remove_drive_file_for_cleanup(
-                drive_service,
-                file_id,
-                metadata=metadata,
-            )
-        except PermissionError:
-            drive_failures += 1
-            print(
-                f"Cleanup cannot remove {label!r} ({file_id}) for {record_id}: "
-                f"no delete or trash permission.{_drive_cleanup_access_hint()}"
-            )
-            continue
-        except HttpError as exc:
-            drive_failures += 1
-            print(
-                f"Cleanup failed to remove {file_id} for {record_id}: {exc}"
-                f"{_drive_cleanup_access_hint()}"
-            )
-            continue
-        except Exception as exc:
-            drive_failures += 1
-            print(f"Cleanup failed to remove {file_id} for {record_id}: {exc}")
-            continue
-
-        print(f"Cleanup {action} Drive file {label!r} ({file_id}) for {record_id}")
-        _clear_combined_media_field(
-            airtable=airtable,
-            table_cache=table_cache,
-            record_id=record_id,
-        )
-        cleaned += 1
-
-    print(
-        f"Cleanup combined media for '{STATUS_SYNC_DONE}': cleaned {cleaned}, skipped {skipped}, drive failures {drive_failures}"
-    )
-
-
-def _record_is_sync_done_with_media(record: dict[str, Any]) -> bool:
-    fields = record.get("fields")
-    if not isinstance(fields, dict):
-        return False
-    if fields.get(FIELD_STATUS) != STATUS_SYNC_DONE:
-        return False
-    record_type = fields.get(FIELD_TYPE)
-    if record_type not in {TYPE_REEL, TYPE_VIDEO}:
-        return False
-    combined = fields.get(FIELD_COMBINED_MEDIA_FILE)
-    if combined is None:
-        return False
-    if not isinstance(combined, str):
-        combined = str(combined)
-    return bool(combined.strip())

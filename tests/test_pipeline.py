@@ -323,7 +323,19 @@ class PublishPipelineTests(unittest.TestCase):
         ) as publish_mock, patch.object(
             client,
             "update_record",
-            return_value=AirtableRecord(id="recABC", fields={"SG-YT-Published video": "url"}),
+            side_effect=[
+                AirtableRecord(
+                    id="recABC",
+                    fields={
+                        "Status": "5. Synchronization done",
+                        "SG-YT-Published video": "url",
+                    },
+                ),
+                AirtableRecord(
+                    id="recABC",
+                    fields={"Status": "6. Done & Published"},
+                ),
+            ],
         ) as update_mock:
             exit_code, results = run_publish_pipeline(
                 client,
@@ -337,7 +349,8 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].success)
         publish_mock.assert_called_once()
-        update_mock.assert_called_once()
+        self.assertEqual(update_mock.call_count, 2)
+        update_mock.assert_any_call("recABC", {"Status": "6. Done & Published"})
 
     def test_run_publish_pipeline_fails_when_thumbnail_resolution_fails(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

@@ -4,22 +4,16 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from googleapiclient.errors import HttpError
-
 from catalog_parser.airtable import (
-    FIELD_COMBINED_MEDIA_FILE,
     FIELD_EDITOR,
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TYPE,
     STATUS_EDITING_DONE,
-    STATUS_SYNC_DONE,
     STATUS_TODO,
     STATUS_TRANSLATION_DONE,
 )
-from catalog_parser.parser import TYPE_REEL
 from catalog_parser.workflow.actions import execute_action
-from catalog_parser.workflow.orchestrator import _cleanup_combined_media_for_sync_done
 from catalog_parser.workflow.table_cache import TableCache
 from catalog_parser.workflow.comments import (
     comment_indicates_editor_ready,
@@ -430,125 +424,6 @@ class WorkflowActionTests(unittest.TestCase):
             {FIELD_EDITOR: "Dilyana Hayes"},
         )
         self.assertEqual(table_cache.get("rec1")["fields"][FIELD_EDITOR], "Dilyana Hayes")
-
-
-class WorkflowCleanupTests(unittest.TestCase):
-    def _drive_service(self) -> MagicMock:
-        drive_service = MagicMock()
-        drive_service.files.return_value.get.return_value = MagicMock()
-        drive_service.files.return_value.delete.return_value = MagicMock()
-        drive_service.files.return_value.update.return_value = MagicMock()
-        return drive_service
-
-    def test_cleanup_clears_airtable_when_drive_file_not_found(self) -> None:
-        record = {
-            "id": "rec7U5TT9md4U15Ss",
-            "fields": {
-                FIELD_STATUS: STATUS_SYNC_DONE,
-                FIELD_TYPE: TYPE_REEL,
-                FIELD_COMBINED_MEDIA_FILE: (
-                    "https://drive.google.com/file/d/1pxop1kEkBvwBmlciTF4knHjgkKFzPUHH/view"
-                ),
-            },
-        }
-        table_cache = TableCache([record])
-        airtable = MagicMock()
-        drive_service = self._drive_service()
-        drive_service.files.return_value.get.return_value.execute.side_effect = HttpError(
-            resp=MagicMock(status=404),
-            content=b"File not found",
-        )
-
-        _cleanup_combined_media_for_sync_done(
-            airtable=airtable,
-            drive_service=drive_service,
-            table_cache=table_cache,
-            dry_run=False,
-        )
-
-        airtable.update_record_fields.assert_called_once_with(
-            "rec7U5TT9md4U15Ss",
-            {FIELD_COMBINED_MEDIA_FILE: ""},
-        )
-        updated = table_cache.get("rec7U5TT9md4U15Ss")
-        assert updated is not None
-        self.assertEqual(updated["fields"][FIELD_COMBINED_MEDIA_FILE], "")
-        drive_service.files.return_value.delete.assert_not_called()
-
-    def test_cleanup_trashes_when_shared_drive_allows_trash_but_not_delete(self) -> None:
-        record = {
-            "id": "rec7U5TT9md4U15Ss",
-            "fields": {
-                FIELD_STATUS: STATUS_SYNC_DONE,
-                FIELD_TYPE: TYPE_REEL,
-                FIELD_COMBINED_MEDIA_FILE: (
-                    "https://drive.google.com/file/d/1pxop1kEkBvwBmlciTF4knHjgkKFzPUHH/view"
-                ),
-            },
-        }
-        table_cache = TableCache([record])
-        airtable = MagicMock()
-        drive_service = self._drive_service()
-        drive_service.files.return_value.get.return_value.execute.return_value = {
-            "id": "1pxop1kEkBvwBmlciTF4knHjgkKFzPUHH",
-            "name": "Do Not Worry About The Content Of Someone Elses Mind.mp4",
-            "capabilities": {"canDelete": False, "canTrash": True},
-        }
-
-        _cleanup_combined_media_for_sync_done(
-            airtable=airtable,
-            drive_service=drive_service,
-            table_cache=table_cache,
-            dry_run=False,
-        )
-
-        drive_service.files.return_value.delete.assert_not_called()
-        drive_service.files.return_value.update.assert_called_once_with(
-            fileId="1pxop1kEkBvwBmlciTF4knHjgkKFzPUHH",
-            body={"trashed": True},
-            supportsAllDrives=True,
-        )
-        airtable.update_record_fields.assert_called_once_with(
-            "rec7U5TT9md4U15Ss",
-            {FIELD_COMBINED_MEDIA_FILE: ""},
-        )
-        updated = table_cache.get("rec7U5TT9md4U15Ss")
-        assert updated is not None
-        self.assertEqual(updated["fields"][FIELD_COMBINED_MEDIA_FILE], "")
-
-    def test_cleanup_skips_when_drive_file_has_no_delete_or_trash_permission(self) -> None:
-        record = {
-            "id": "rec7U5TT9md4U15Ss",
-            "fields": {
-                FIELD_STATUS: STATUS_SYNC_DONE,
-                FIELD_TYPE: TYPE_REEL,
-                FIELD_COMBINED_MEDIA_FILE: (
-                    "https://drive.google.com/file/d/1pxop1kEkBvwBmlciTF4knHjgkKFzPUHH/view"
-                ),
-            },
-        }
-        table_cache = TableCache([record])
-        airtable = MagicMock()
-        drive_service = self._drive_service()
-        drive_service.files.return_value.get.return_value.execute.return_value = {
-            "id": "1pxop1kEkBvwBmlciTF4knHjgkKFzPUHH",
-            "name": "Do Not Worry About The Content Of Someone Elses Mind.mp4",
-            "capabilities": {"canDelete": False, "canTrash": False},
-        }
-
-        _cleanup_combined_media_for_sync_done(
-            airtable=airtable,
-            drive_service=drive_service,
-            table_cache=table_cache,
-            dry_run=False,
-        )
-
-        airtable.update_record_fields.assert_not_called()
-        updated = table_cache.get("rec7U5TT9md4U15Ss")
-        assert updated is not None
-        self.assertTrue(updated["fields"][FIELD_COMBINED_MEDIA_FILE])
-        drive_service.files.return_value.delete.assert_not_called()
-        drive_service.files.return_value.update.assert_not_called()
 
 
 if __name__ == "__main__":

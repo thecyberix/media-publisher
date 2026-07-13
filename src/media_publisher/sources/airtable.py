@@ -35,9 +35,11 @@ TYPE_QUOTE = "Quote"
 DEFAULT_PUBLISH_TIMEZONE = "Europe/Sofia"
 DEFAULT_PUBLISH_HOUR = 18
 FIELD_VIDEO_FOLDER = "Video Folder"
+FIELD_COMBINED_MEDIA_FILE = "Combined Media File"
 FIELD_TRANSLATION_RESOURCES = "Translation resources"
 FIELD_STATUS = "Status"
 STATUS_SYNC_DONE = "Synchronization done"
+STATUS_DONE_PUBLISHED = "Done & Published"
 FIELD_SG_YT_DATE = "SG-YT-Date published"
 FIELD_SG_FB_DATE = "SG-FB-Date published"
 FIELD_SG_IG_DATE = "SG-IG-Date published"
@@ -303,6 +305,50 @@ def record_to_publish_job(record: AirtableRecord) -> PublishJob:
 def is_sync_done_status(value: Any) -> bool:
     text = _field_text(value)
     return bool(text and STATUS_SYNC_DONE in text)
+
+
+def is_done_published_status(value: Any) -> bool:
+    text = _field_text(value)
+    return bool(text and STATUS_DONE_PUBLISHED in text)
+
+
+def record_publish_platforms_complete(
+    record_fields: dict[str, Any],
+    *,
+    excluded_platforms: frozenset[PlatformName] | None = None,
+) -> bool:
+    """Return True when every scheduled platform has a published permalink."""
+    excluded = excluded_platforms or frozenset()
+    scheduled_any = False
+    for config in PLATFORM_FIELD_CONFIGS:
+        if config.platform in excluded:
+            continue
+        if not _field_text(record_fields.get(config.date_field)):
+            continue
+        scheduled_any = True
+        if not _field_text(record_fields.get(config.published_field)):
+            return False
+    return scheduled_any
+
+
+def mark_record_done_and_published_if_complete(
+    client: AirtableClient,
+    *,
+    record_id: str,
+    record_fields: dict[str, Any],
+    excluded_platforms: frozenset[PlatformName] | None = None,
+) -> AirtableRecord | None:
+    """Move sync-done videos to Done & Published once all scheduled platforms are live."""
+    if is_done_published_status(record_fields.get(FIELD_STATUS)):
+        return None
+    if not is_sync_done_status(record_fields.get(FIELD_STATUS)):
+        return None
+    if not record_publish_platforms_complete(
+        record_fields,
+        excluded_platforms=excluded_platforms,
+    ):
+        return None
+    return client.update_record(record_id, {FIELD_STATUS: f"6. {STATUS_DONE_PUBLISHED}"})
 
 
 def sync_done_filter_formula() -> str:
