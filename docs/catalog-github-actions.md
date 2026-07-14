@@ -223,14 +223,19 @@ python -m media_publisher --canva-auth
 python -m media_publisher --canva-auth-code <authorization-code>
 ```
 
-### Smartcat session expiration alerts
+### Authorization checks (Smartcat and Canva)
 
-Before each run, job `check-smartcat-session` validates `SMARTCAT_STORAGE_STATE_JSON`. If the session is expired:
+Before each run, job `check-authorization` validates configured credentials:
+
+- **Smartcat** — `SMARTCAT_STORAGE_STATE_JSON` (Playwright session for sheet ingest)
+- **Canva** — `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, and `CANVA_TOKEN_JSON` (token refresh via the same path as `python -m media_publisher --test-canva`)
+
+If either configured check fails:
 
 1. An email is sent via Gmail SMTP with renewal instructions.
-2. The main workflow job is skipped (ingest would fail anyway).
+2. The main workflow job is skipped.
 
-Renew the session locally:
+Renew Smartcat locally:
 
 ```powershell
 python -m catalog_parser --smartcat-login
@@ -238,10 +243,20 @@ python -m catalog_parser --smartcat-login
 
 Then update the `SMARTCAT_STORAGE_STATE_JSON` secret with the new file contents.
 
+Renew Canva locally:
+
+```powershell
+python scripts/_canva_auth_interactive.py
+```
+
+When `CANVA_TOKEN_SYNC_PAT` is set, the script updates the `CANVA_TOKEN_JSON` GitHub secret automatically.
+
 Test locally:
 
 ```powershell
+python scripts/catalog/check_authorization.py --skip-smartcat-if-missing --skip-canva-if-missing
 python scripts/catalog/test_smartcat_session.py
+python -m media_publisher --test-canva
 python scripts/catalog/send_notification_email.py --subject "test" --body "test message"
 ```
 

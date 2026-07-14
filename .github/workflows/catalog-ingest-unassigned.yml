@@ -29,7 +29,7 @@ env:
   NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
 
 jobs:
-  check-smartcat-session:
+  check-authorization:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,32 +54,48 @@ jobs:
           fi
           printf '%s' "$SMARTCAT_STORAGE_STATE_JSON" > smartcat-state.json
 
-      - name: Check Smartcat session
-        id: smartcat_check
+      - name: Restore Canva token
+        env:
+          CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
         run: |
-          if [ ! -f smartcat-state.json ]; then
-            echo "SKIP: SMARTCAT_STORAGE_STATE_JSON secret not configured"
+          if [ -z "$CANVA_TOKEN_JSON" ]; then
+            echo "No CANVA_TOKEN_JSON secret configured"
             exit 0
           fi
-          python scripts/catalog/test_smartcat_session.py --storage-state smartcat-state.json
+          mkdir -p credentials
+          printf '%s' "$CANVA_TOKEN_JSON" > credentials/canva-token.json
+
+      - name: Check authorization
+        id: auth_check
+        run: |
+          python scripts/catalog/check_authorization.py \
+            --smartcat-storage-state smartcat-state.json \
+            --skip-smartcat-if-missing \
+            --skip-canva-if-missing
         env:
           SMARTCAT_UI_BASE: https://ea.smartcat.com
+          CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
+          CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
 
-      - name: Send Smartcat expiration email
-        if: failure() && steps.smartcat_check.outcome == 'failure'
+      - name: Send authorization failure email
+        if: failure() && steps.auth_check.outcome == 'failure'
         env:
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
           GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
         run: |
           python scripts/catalog/send_notification_email.py \
-            --subject "catalog-parser: Smartcat session expired" \
+            --subject "catalog-parser: authorization check failed" \
             --body "$(cat <<'EOF'
-          The unassigned ingest workflow cannot run until the Smartcat session is renewed.
+          The unassigned ingest workflow cannot run until authorization is renewed.
 
-          Fix locally:
+          Smartcat:
             1. python -m catalog_parser --smartcat-login
             2. Copy the new smartcat-state.json into the GitHub secret SMARTCAT_STORAGE_STATE_JSON
+
+          Canva:
+            1. python scripts/_canva_auth_interactive.py
+            2. Confirm CANVA_TOKEN_JSON was updated (the script syncs it when CANVA_TOKEN_SYNC_PAT is set)
 
           Repository: ${{ github.repository }}
           Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -88,10 +104,10 @@ jobs:
 
   ingest:
     runs-on: ubuntu-latest
-    needs: check-smartcat-session
+    needs: check-authorization
     if: >-
       always() &&
-      (needs.check-smartcat-session.result == 'success' || needs.check-smartcat-session.result == 'skipped')
+      (needs.check-authorization.result == 'success' || needs.check-authorization.result == 'skipped')
     steps:
       - uses: actions/checkout@v4
 

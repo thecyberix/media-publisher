@@ -1,111 +1,22 @@
+"""Backward-compatible Smartcat-only entry point."""
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from catalog_parser.smartcat import DEFAULT_UI_BASE
-from catalog_parser.smartcat_web import _looks_like_login_url
-
-EXIT_OK = 0
-EXIT_EXPIRED = 1
-EXIT_MISSING = 2
-EXIT_ERROR = 3
-
-
-def _assert_not_login_page(*, page_url: str, step: str) -> None:
-    if _looks_like_login_url(page_url):
-        raise RuntimeError(
-            f"Smartcat session expired (redirected to login while checking {step}). "
-            "Run locally: python -m catalog_parser --smartcat-login"
-        )
-
-
-def _verify_project_api_access(
-    request: object,
-    *,
-    ui_base: str,
-    project_id: str,
-) -> None:
-    """Use the same web API ingest relies on; only 401/403 mean an auth problem."""
-    response = request.post(  # type: ignore[attr-defined]
-        f"{ui_base}/api/Projects/{project_id}/FileItemIds",
-        data=json.dumps(
-            {
-                "isFolderMode": True,
-                "orderBy": 0,
-                "desc": False,
-                "filter": {
-                    "searchName": "",
-                    "createdByAccountUserIds": [],
-                    "targetLanguageIds": [],
-                    "documentTargetStatuses": [],
-                    "stageNumbersWithNoAssignments": [],
-                    "stageNumbersWithIncompleteState": [],
-                    "creationDateFrom": None,
-                    "creationDateTo": None,
-                },
-            }
-        ),
-        headers={"Content-Type": "application/json"},
-    )
-    if response.status in {401, 403}:
-        raise RuntimeError(
-            f"Smartcat session rejected by project API (HTTP {response.status}). "
-            "Run locally: python -m catalog_parser --smartcat-login"
-        )
-
-
-def check_smartcat_session(
-    *,
-    storage_state_path: Path,
-    ui_base: str = DEFAULT_UI_BASE,
-    probe_project_id: str | None = None,
-    timeout_ms: int = 90_000,
-) -> None:
-    if not storage_state_path.exists():
-        raise FileNotFoundError(
-            f"Smartcat session file not found: {storage_state_path}. "
-            "Run locally: python -m catalog_parser --smartcat-login"
-        )
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright is required. Install with: pip install playwright && playwright install chromium"
-        ) from exc
-
-    ui_base = ui_base.rstrip("/")
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(storage_state=str(storage_state_path))
-        page = context.new_page()
-        page.set_default_timeout(timeout_ms)
-        try:
-            page.goto(ui_base, wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_timeout(3000)
-            _assert_not_login_page(page_url=page.url, step="home")
-
-            page.goto(f"{ui_base}/projects", wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_timeout(3000)
-            _assert_not_login_page(page_url=page.url, step="projects")
-
-            if probe_project_id:
-                _verify_project_api_access(
-                    context.request,
-                    ui_base=ui_base,
-                    project_id=probe_project_id,
-                )
-        finally:
-            context.close()
-            browser.close()
+from check_authorization import (
+    EXIT_ERROR,
+    EXIT_EXPIRED,
+    EXIT_MISSING,
+    EXIT_OK,
+    REPO_ROOT,
+    check_smartcat_session,
+)
 
 
 def main() -> int:
@@ -118,7 +29,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--ui-base",
-        default=os.getenv("SMARTCAT_UI_BASE", DEFAULT_UI_BASE).strip() or DEFAULT_UI_BASE,
+        default=os.getenv("SMARTCAT_UI_BASE", "https://ea.smartcat.com").strip()
+        or "https://ea.smartcat.com",
         help="Smartcat UI base URL.",
     )
     parser.add_argument(
