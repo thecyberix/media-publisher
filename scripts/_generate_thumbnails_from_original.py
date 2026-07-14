@@ -20,6 +20,10 @@ from media_publisher.sources.airtable import (
 )
 from media_publisher.sources.tn_docx import caption_lines_for_render
 from media_publisher.sources.tn_publish import render_destination
+from media_publisher.sources.tn_reference import (
+    cover_reference_text,
+    extract_line_styles_from_reference_thumbnail,
+)
 from media_publisher.sources.tn_renderer import TnRenderError, render_tn_thumbnail
 
 DEFAULT_TITLES = (
@@ -114,11 +118,26 @@ def main() -> int:
         print(f"  template: {template.size[0]}x{template.size[1]}")
         print(f"  caption:  {' / '.join(caption_lines)}")
 
+        reference = template.copy()
+        line_styles = extract_line_styles_from_reference_thumbnail(
+            reference,
+            template.size,
+            caption_line_count=len(caption_lines),
+        )
+        if not line_styles:
+            failures.append((title, "could not derive line styles from original English text"))
+            print("  FAIL could not derive line styles from original English text")
+            print()
+            continue
+
+        template = cover_reference_text(reference)
+        print(f"  styles:   {len(line_styles)} reference line(s) from original English layout")
+
         try:
             result = render_tn_thumbnail(
                 template=template,
                 english_text=caption_text,
-                line_styles=[],
+                line_styles=line_styles,
                 destination=destination,
                 catalog_title=title,
             )
