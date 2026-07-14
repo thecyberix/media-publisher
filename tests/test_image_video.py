@@ -8,13 +8,14 @@ from unittest.mock import patch
 from media_publisher.sources.image_video import (
     ImageVideoError,
     QUOTE_VIDEO_DURATION_SECONDS,
+    SHORT_COVER_INTRO_SECONDS,
     ensure_quote_video,
-    ensure_short_with_cover_at_end,
+    ensure_short_with_cover_intro,
 )
 
 
 class ImageVideoTests(unittest.TestCase):
-    def test_ensure_short_with_cover_at_end_requires_ffmpeg(self) -> None:
+    def test_ensure_short_with_cover_intro_requires_ffmpeg(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             video = root / "clip.mp4"
@@ -26,22 +27,22 @@ class ImageVideoTests(unittest.TestCase):
                 side_effect=ImageVideoError("missing ffmpeg"),
             ):
                 with self.assertRaises(ImageVideoError):
-                    ensure_short_with_cover_at_end(video, thumb)
+                    ensure_short_with_cover_intro(video, thumb)
 
-    def test_ensure_short_with_cover_at_end_uses_cache(self) -> None:
+    def test_ensure_short_with_cover_intro_uses_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             video = root / "clip.mp4"
             thumb = root / "cover.png"
             video.write_bytes(b"video")
             thumb.write_bytes(b"png")
-            baked = root / "clip.youtube-short-cover-end.mp4"
+            baked = root / "clip.youtube-short-cover-intro.mp4"
             baked.write_bytes(b"baked")
 
             with patch(
                 "media_publisher.sources.image_video._run_ffmpeg"
             ) as ffmpeg_mock:
-                result = ensure_short_with_cover_at_end(
+                result = ensure_short_with_cover_intro(
                     video,
                     thumb,
                     ffmpeg_path="ffmpeg",
@@ -50,7 +51,7 @@ class ImageVideoTests(unittest.TestCase):
         self.assertEqual(result.resolve(), baked.resolve())
         ffmpeg_mock.assert_not_called()
 
-    def test_ensure_short_with_cover_at_end_appends_static_cover(self) -> None:
+    def test_ensure_short_with_cover_intro_prepends_static_cover(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             video = root / "clip.mp4"
@@ -64,34 +65,43 @@ class ImageVideoTests(unittest.TestCase):
                 output.write_bytes(b"mp4")
 
             with patch(
-                "media_publisher.sources.image_video._resolve_ffmpeg",
-                return_value="ffmpeg",
+                "media_publisher.sources.image_video._video_has_audio_stream",
+                return_value=True,
             ):
                 with patch(
-                    "media_publisher.sources.image_video._run_ffmpeg",
-                    side_effect=fake_ffmpeg,
-                ) as ffmpeg_mock:
-                    result = ensure_short_with_cover_at_end(
-                        video,
-                        thumb,
-                        ffmpeg_path="ffmpeg",
-                        outro_seconds=2.0,
-                    )
+                    "media_publisher.sources.image_video._resolve_ffmpeg",
+                    return_value="ffmpeg",
+                ):
+                    with patch(
+                        "media_publisher.sources.image_video._run_ffmpeg",
+                        side_effect=fake_ffmpeg,
+                    ) as ffmpeg_mock:
+                        result = ensure_short_with_cover_intro(
+                            video,
+                            thumb,
+                            ffmpeg_path="ffmpeg",
+                            intro_seconds=5.0,
+                        )
 
         self.assertEqual(
             result.resolve(),
-            (root / "clip.youtube-short-cover-end.mp4").resolve(),
+            (root / "clip.youtube-short-cover-intro.mp4").resolve(),
         )
         ffmpeg_mock.assert_called_once()
         command = ffmpeg_mock.call_args.args[0]
         self.assertEqual(command[0], "ffmpeg")
-        self.assertEqual(Path(command[command.index("-i") + 1]).resolve(), video.resolve())
-        self.assertEqual(command[command.index("-t") + 1], "2.0")
-        second_input_index = command.index("-i", command.index("-i") + 1)
-        thumb_arg = command[second_input_index + 1]
+        thumb_arg = command[command.index("-i") + 1]
+        video_arg = command[command.index("-i", command.index("-i") + 1) + 1]
         self.assertEqual(Path(thumb_arg).resolve(), thumb.resolve())
+        self.assertEqual(Path(video_arg).resolve(), video.resolve())
+        self.assertEqual(command[command.index("-t") + 1], "5.0")
         filter_arg = command[command.index("-filter_complex") + 1]
-        self.assertIn("concat=n=2:v=1:a=0", filter_arg)
+        self.assertIn("[intro][main]concat=n=2:v=1:a=0", filter_arg)
+        self.assertIn("adelay=5000|5000", filter_arg)
+        self.assertIn("[aout]", command)
+
+    def test_default_intro_duration_is_five_seconds(self) -> None:
+        self.assertEqual(SHORT_COVER_INTRO_SECONDS, 5.0)
 
     def test_ensure_quote_video_uses_ten_second_cache_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

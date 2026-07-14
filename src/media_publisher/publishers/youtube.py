@@ -18,8 +18,8 @@ from typing import Any
 from media_publisher.models import PublishJob
 from media_publisher.sources.image_video import (
     ImageVideoError,
-    SHORT_COVER_END_SECONDS,
-    ensure_short_with_cover_at_end,
+    SHORT_COVER_INTRO_SECONDS,
+    ensure_short_with_cover_intro,
 )
 
 API_BASE = "https://www.googleapis.com/youtube/v3"
@@ -1030,7 +1030,7 @@ def publish_to_youtube(
     instagram_url: str | None = None,
     youtube_channel_url: str | None = None,
     ffmpeg_path: str | None = None,
-    cover_end_seconds: float | None = None,
+    cover_intro_seconds: float | None = None,
     playlist_id: str | None = None,
     playlist_title: str | None = DEFAULT_YOUTUBE_PLAYLIST_TITLE,
 ) -> str:
@@ -1066,11 +1066,11 @@ def publish_to_youtube(
             ffmpeg_path=ffmpeg_path,
         )
         try:
-            upload_path = ensure_short_with_cover_at_end(
+            upload_path = ensure_short_with_cover_intro(
                 video_path,
                 thumbnail,
                 ffmpeg_path=ffmpeg_path,
-                outro_seconds=cover_end_seconds or SHORT_COVER_END_SECONDS,
+                intro_seconds=cover_intro_seconds or SHORT_COVER_INTRO_SECONDS,
             )
         except ImageVideoError as exc:
             raise YouTubePublishError(str(exc)) from exc

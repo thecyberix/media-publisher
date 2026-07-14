@@ -11,7 +11,9 @@ class ImageVideoError(RuntimeError):
 
 SHORT_VIDEO_WIDTH = 1080
 SHORT_VIDEO_HEIGHT = 1920
-SHORT_COVER_END_SECONDS = 2.0
+SHORT_COVER_INTRO_SECONDS = 5.0
+# Backward-compatible alias for older imports and env names.
+SHORT_COVER_END_SECONDS = SHORT_COVER_INTRO_SECONDS
 QUOTE_VIDEO_DURATION_SECONDS = 10.0
 
 
@@ -19,7 +21,7 @@ def _resolve_ffmpeg(ffmpeg_path: str | None = None) -> str:
     ffmpeg = ffmpeg_path or shutil.which("ffmpeg")
     if not ffmpeg:
         raise ImageVideoError(
-            "ffmpeg is required for quote videos and Short cover outros; "
+            "ffmpeg is required for quote videos and Short cover intros; "
             "install ffmpeg or set HAPPYSCRIBE_FFMPEG"
         )
     return ffmpeg
@@ -40,16 +42,120 @@ def _run_ffmpeg(command: list[str], *, action: str) -> None:
         raise ImageVideoError(f"ffmpeg failed to {action}: {detail}") from exc
 
 
-def _short_cover_end_filter() -> str:
+def _video_has_audio_stream(video_path: Path) -> bool:
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        return True
+
+    result = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
+            str(video_path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    return bool(result.stdout.strip())
+
+
+def _short_cover_intro_filter(*, delay_ms: int, include_audio: bool) -> str:
     width = SHORT_VIDEO_WIDTH
     height = SHORT_VIDEO_HEIGHT
-    return (
-        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+    parts = [
+        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},setsar=1,fps=30,format=yuv420p[intro];"
+        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[main];"
-        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},setsar=1,fps=30,format=yuv420p[outro];"
-        f"[main][outro]concat=n=2:v=1:a=0[outv]"
+        f"[intro][main]concat=n=2:v=1:a=0[outv]",
+    ]
+    if include_audio:
+        parts.append(
+            f";[1:a]adelay={delay_ms}|{delay_ms},aresample=async=1:first_pts=0[aout]"
+        )
+    return "".join(parts)
+
+
+def ensure_short_with_cover_intro(
+    video_path: Path,
+    thumbnail_path: Path,
+    *,
+    ffmpeg_path: str | None = None,
+    intro_seconds: float = SHORT_COVER_INTRO_SECONDS,
+) -> Path:
+    """Prepend a static cover clip before a Short upload.
+
+    Intended for subtitle-burned catalog videos: run this after HappyScribe/ffmpeg
+    has baked subtitles into the main clip so the text stays aligned with speech.
+    """
+    source_video = video_path.resolve()
+    source_thumb = thumbnail_path.resolve()
+    if not source_video.is_file():
+        raise ImageVideoError(f"Video file not found: {source_video}")
+    if not source_thumb.is_file():
+        raise ImageVideoError(f"Thumbnail file not found: {source_thumb}")
+    if intro_seconds <= 0:
+        raise ImageVideoError("intro_seconds must be greater than zero")
+
+    ffmpeg = _resolve_ffmpeg(ffmpeg_path)
+    destination = source_video.with_name(f"{source_video.stem}.youtube-short-cover-intro.mp4")
+    newest_source = max(source_video.stat().st_mtime, source_thumb.stat().st_mtime)
+    if destination.is_file() and destination.stat().st_mtime >= newest_source:
+        return destination
+
+    has_audio = _video_has_audio_stream(source_video)
+    delay_ms = int(round(intro_seconds * 1000))
+    filter_complex = _short_cover_intro_filter(
+        delay_ms=delay_ms,
+        include_audio=has_audio,
     )
+
+    command = [
+        ffmpeg,
+        "-y",
+        "-loop",
+        "1",
+        "-framerate",
+        "30",
+        "-t",
+        str(intro_seconds),
+        "-i",
+        str(source_thumb),
+        "-i",
+        str(source_video),
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[outv]",
+    ]
+    if has_audio:
+        command.extend(["-map", "[aout]"])
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+    )
+    if has_audio:
+        command.extend(["-c:a", "aac", "-ar", "48000"])
+    command.extend(["-movflags", "+faststart", str(destination)])
+    _run_ffmpeg(command, action=f"prepend cover intro for {source_video.name}")
+
+    if not destination.is_file():
+        raise ImageVideoError(f"ffmpeg did not create Short cover file: {destination}")
+    return destination
 
 
 def ensure_short_with_cover_at_end(
@@ -57,58 +163,15 @@ def ensure_short_with_cover_at_end(
     thumbnail_path: Path,
     *,
     ffmpeg_path: str | None = None,
-    outro_seconds: float = SHORT_COVER_END_SECONDS,
+    outro_seconds: float = SHORT_COVER_INTRO_SECONDS,
 ) -> Path:
-    """Append a static cover clip so the frame can be picked in the YouTube mobile app."""
-    source_video = video_path.resolve()
-    source_thumb = thumbnail_path.resolve()
-    if not source_video.is_file():
-        raise ImageVideoError(f"Video file not found: {source_video}")
-    if not source_thumb.is_file():
-        raise ImageVideoError(f"Thumbnail file not found: {source_thumb}")
-
-    ffmpeg = _resolve_ffmpeg(ffmpeg_path)
-    destination = source_video.with_name(f"{source_video.stem}.youtube-short-cover-end.mp4")
-    newest_source = max(source_video.stat().st_mtime, source_thumb.stat().st_mtime)
-    if destination.is_file() and destination.stat().st_mtime >= newest_source:
-        return destination
-
-    command = [
-        ffmpeg,
-        "-y",
-        "-i",
-        str(source_video),
-        "-loop",
-        "1",
-        "-framerate",
-        "30",
-        "-t",
-        str(outro_seconds),
-        "-i",
-        str(source_thumb),
-        "-filter_complex",
-        _short_cover_end_filter(),
-        "-map",
-        "[outv]",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-ar",
-        "48000",
-        "-movflags",
-        "+faststart",
-        str(destination),
-    ]
-    _run_ffmpeg(command, action=f"append cover outro for {source_video.name}")
-
-    if not destination.is_file():
-        raise ImageVideoError(f"ffmpeg did not create Short cover file: {destination}")
-    return destination
+    """Backward-compatible alias for :func:`ensure_short_with_cover_intro`."""
+    return ensure_short_with_cover_intro(
+        video_path,
+        thumbnail_path,
+        ffmpeg_path=ffmpeg_path,
+        intro_seconds=outro_seconds,
+    )
 
 
 def image_to_quote_video(

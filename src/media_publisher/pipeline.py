@@ -101,7 +101,7 @@ class PublishPipelineSettings:
     regenerate_videos: bool = False
     use_web_export: bool = False
     happyscribe_published_folder_id: str | None = None
-    youtube_short_cover_end_seconds: float = 2.0
+    youtube_short_cover_intro_seconds: float = 5.0
     skip_thumbnails: bool = False
     publish_override_drive_folder_id: str = ""
     publish_override_thumbnails_subfolder: str = "Thumbnails"
@@ -144,7 +144,7 @@ def publish_platform_task(
             token_path=settings.youtube_token,
             expected_channel_handle=settings.youtube_channel_handle,
             ffmpeg_path=settings.ffmpeg_path,
-            cover_end_seconds=settings.youtube_short_cover_end_seconds,
+            cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
             playlist_id=settings.youtube_playlist_id,
             playlist_title=settings.youtube_playlist_title,
             **settings.template_urls,

@@ -35,6 +35,7 @@ STATUS_TODO = "1. To do"
 STATUS_TRANSLATION_DONE = "2. Translation done"
 STATUS_EDITING_DONE = "3. Editing done"
 STATUS_SYNC_DONE = "5. Synchronization done"
+STATUS_NOT_ASSIGNED = "7. Not Assigned"
 
 WORKFLOW_STATUSES = (
     STATUS_TODO,

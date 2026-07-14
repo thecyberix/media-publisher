@@ -274,14 +274,14 @@ class YouTubeClientTests(unittest.TestCase):
 
         wait_mock.assert_called_once_with("vid123")
 
-    def test_publish_to_youtube_appends_short_cover_at_end(self) -> None:
+    def test_publish_to_youtube_prepends_short_cover_intro(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             secrets_path = self._write_client_secrets(root)
             token_path = root / "token.json"
             video_path = root / "clip.mp4"
             thumb_path = root / "cover.png"
-            baked_path = root / "clip.youtube-short-cover-end.mp4"
+            baked_path = root / "clip.youtube-short-cover-intro.mp4"
             video_path.write_bytes(b"video")
             thumb_path.write_bytes(b"png")
             prepared = root / "cover.youtube-thumb.jpg"
@@ -298,7 +298,7 @@ class YouTubeClientTests(unittest.TestCase):
                 return_value=prepared,
             ):
                 with patch(
-                    "media_publisher.publishers.youtube.ensure_short_with_cover_at_end",
+                    "media_publisher.publishers.youtube.ensure_short_with_cover_intro",
                     return_value=baked_path,
                 ) as cover_mock:
                     with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
@@ -314,7 +314,7 @@ class YouTubeClientTests(unittest.TestCase):
             video_path,
             prepared,
             ffmpeg_path=None,
-            outro_seconds=2.0,
+            intro_seconds=5.0,
         )
         upload_path = client_cls.return_value.upload_video.call_args.args[0]
         self.assertEqual(upload_path, baked_path)
@@ -341,7 +341,7 @@ class YouTubeClientTests(unittest.TestCase):
                 return_value=prepared,
             ):
                 with patch(
-                    "media_publisher.publishers.youtube.ensure_short_with_cover_at_end",
+                    "media_publisher.publishers.youtube.ensure_short_with_cover_intro",
                     return_value=video_path,
                 ):
                     with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
@@ -360,7 +360,7 @@ class YouTubeClientTests(unittest.TestCase):
             prepared,
         )
 
-    def test_publish_to_youtube_skips_cover_end_for_image_quotes(self) -> None:
+    def test_publish_to_youtube_skips_cover_intro_for_image_quotes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             secrets_path = self._write_client_secrets(root)
@@ -377,7 +377,7 @@ class YouTubeClientTests(unittest.TestCase):
                 content_kind="image",
             )
             with patch(
-                "media_publisher.publishers.youtube.ensure_short_with_cover_at_end"
+                "media_publisher.publishers.youtube.ensure_short_with_cover_intro"
             ) as cover_mock:
                 with patch(
                     "media_publisher.publishers.youtube.prepare_youtube_thumbnail",

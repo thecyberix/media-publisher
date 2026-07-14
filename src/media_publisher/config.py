@@ -46,7 +46,7 @@ class Settings:
     youtube_token: str = "credentials/youtube-token.json"
     youtube_channel_handle: str = "SadhguruBulgarian"
     youtube_channel_url: str = "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q"
-    youtube_short_cover_end_seconds: float = 2.0
+    youtube_short_cover_intro_seconds: float = 5.0
     youtube_playlist_title: str = "Съзнателна Планета"
     youtube_playlist_id: str | None = None
     channel_report_mapping: str = "config/channel_report_bulgarian.json"
@@ -114,6 +114,12 @@ def load_settings(project_root: Path | None = None) -> Settings:
     def optional(name: str) -> str | None:
         value = os.getenv(name, "").strip()
         return value or None
+
+    intro_seconds_raw = (
+        os.getenv("YOUTUBE_SHORT_COVER_INTRO_SECONDS", "").strip()
+        or os.getenv("YOUTUBE_SHORT_COVER_END_SECONDS", "5").strip()
+        or "5"
+    )
 
     return Settings(
         airtable_token=os.getenv("AIRTABLE_TOKEN", "").strip(),
@@ -195,9 +201,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q",
         ).strip()
         or "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q",
-        youtube_short_cover_end_seconds=float(
-            os.getenv("YOUTUBE_SHORT_COVER_END_SECONDS", "2").strip() or "2"
-        ),
+        youtube_short_cover_intro_seconds=float(intro_seconds_raw),
         youtube_playlist_title=os.getenv(
             "YOUTUBE_PLAYLIST_TITLE", "Съзнателна Планета"
         ).strip()

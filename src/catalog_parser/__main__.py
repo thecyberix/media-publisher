@@ -44,6 +44,7 @@ DEFAULT_TOKEN = PROJECT_ROOT / "token.json"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "catalog.json"
 DEFAULT_SMARTCAT_STATE = PROJECT_ROOT / DEFAULT_STORAGE_STATE
 DEFAULT_CANVA_TOKEN = PROJECT_ROOT / "credentials" / "canva-token.json"
+DEFAULT_UNASSIGNED_INGEST_COUNT = 4
 
 
 def load_existing_airtable_titles() -> set[str]:
@@ -366,6 +367,28 @@ def build_parser() -> argparse.ArgumentParser:
             f"Default: {DEFAULT_VIDEO_TYPE}."
         ),
     )
+    ingest_parser.add_argument(
+        "--count",
+        type=int,
+        default=None,
+        help=(
+            "Number of eligible rows to ingest into Airtable. "
+            f"With --unassigned, defaults to {DEFAULT_UNASSIGNED_INGEST_COUNT}."
+        ),
+    )
+    ingest_parser.add_argument(
+        "--unassigned",
+        action="store_true",
+        help=(
+            "Create Airtable rows without assigning a translator "
+            "(Status: 7. Not Assigned)."
+        ),
+    )
+    ingest_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview eligible rows without writing to Airtable.",
+    )
     smartcat_group = ingest_parser.add_mutually_exclusive_group()
     smartcat_group.add_argument(
         "--smartcat",
@@ -434,7 +457,70 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    count = args.count if args.count is not None else DEFAULT_UNASSIGNED_INGEST_COUNT
+    if count < 1:
+        parser.error("--count must be at least 1")
+
+    airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
+    airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
+    airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
+    if not airtable_token or not airtable_base_id or not airtable_table_name:
+        parser.error(
+            "Unassigned ingest requires AIRTABLE_TOKEN, AIRTABLE_BASE_ID, and "
+            "AIRTABLE_TABLE_NAME in .env"
+        )
+
+    video_type = parse_video_type(
+        args.video_type or os.getenv("VIDEO_TYPE") or DEFAULT_VIDEO_TYPE
+    )
+    from catalog_parser.workflow.config import load_workflow_config
+    from catalog_parser.workflow.ingest import ingest_batch_unassigned
+
+    config = load_workflow_config(PROJECT_ROOT)
+    airtable_client = AirtableClient(
+        token=airtable_token,
+        base_id=airtable_base_id,
+        table_name=airtable_table_name,
+        api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
+        or "https://api.airtable.com/v0",
+    )
+
+    print(
+        f"Unassigned ingest: {count} {video_type}(s)"
+        f"{' (dry-run)' if args.dry_run else ''}"
+    )
+    try:
+        created_ids = ingest_batch_unassigned(
+            airtable_client,
+            desired_type=video_type,
+            target_count=count,
+            max_video_seconds=config.max_video_seconds,
+            credentials_path=args.credentials,
+            token_path=args.token,
+            use_console=args.console_auth,
+            dry_run=args.dry_run,
+            log=print,
+        )
+    except RuntimeError as exc:
+        parser.error(str(exc))
+
+    if args.dry_run:
+        print("Dry-run complete.")
+        return 0
+
+    if not created_ids:
+        print("No eligible catalog rows found.")
+        return 1
+
+    print(f"Done: created {len(created_ids)} unassigned row(s).")
+    return 0
+
+
 def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if args.unassigned:
+        return run_unassigned_ingest(args, parser)
+
     sheet_id = args.sheet_id or os.getenv("SHEET_ID")
     if not sheet_id:
         parser.error("Provide --sheet-id or set SHEET_ID in .env")
