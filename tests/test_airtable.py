@@ -27,7 +27,6 @@ from media_publisher.sources.airtable import (
     TYPE_REEL,
     TYPE_QUOTE,
     TYPE_VIDEO,
-    auto_schedule_tomorrow_catalog_item,
     build_platform_published_update,
     catalog_instagram_schedule_excluded,
     fetch_missing_translation_reports,
@@ -119,85 +118,6 @@ class AirtableMappingTests(unittest.TestCase):
 
 
 class CatalogScheduleTests(unittest.TestCase):
-    def test_auto_schedule_tomorrow_prefers_thumbnail_and_sets_dates(self) -> None:
-        client = AirtableClient("pat-test", "app123", "Catalog")
-        # Two unscheduled reel records; prefer the one with "Original Video Thumbnail".
-        records = [
-            AirtableRecord(
-                id="rec-no-thumb",
-                created_time="2026-07-01T10:00:00.000Z",
-                fields={
-                    FIELD_STATUS: "5. Synchronization done",
-                    FIELD_TITLE: "A",
-                    FIELD_VIDEO_NAME_TRANSLATED: "A tr",
-                    "Type": TYPE_REEL,
-                },
-            ),
-            AirtableRecord(
-                id="rec-thumb",
-                created_time="2026-07-02T10:00:00.000Z",
-                fields={
-                    FIELD_STATUS: "5. Synchronization done",
-                    FIELD_TITLE: "B",
-                    FIELD_VIDEO_NAME_TRANSLATED: "B tr",
-                    "Type": TYPE_REEL,
-                    "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
-                },
-            ),
-        ]
-        with (
-            patch.object(client, "list_records", return_value=records),
-            patch.object(client, "update_record") as update_mock,
-        ):
-            update_mock.return_value = AirtableRecord(id="rec-thumb", fields={})
-            scheduled = auto_schedule_tomorrow_catalog_item(
-                client,
-                target_date=date(2026, 7, 6),  # Monday => Reel
-                publish_timezone="UTC",
-                publish_hour=18,
-            )
-        self.assertIsNotNone(scheduled)
-        update_mock.assert_called_once()
-        args = update_mock.call_args.args
-        kwargs = update_mock.call_args.kwargs
-        self.assertEqual(args[0], "rec-thumb")
-        fields = args[1] if len(args) > 1 else kwargs["fields"]
-        self.assertEqual(fields[FIELD_SG_YT_DATE], "2026-07-06")
-        self.assertEqual(fields[FIELD_SG_FB_DATE], "2026-07-06")
-        self.assertEqual(fields[FIELD_SG_IG_DATE], "2026-07-06")
-
-    def test_auto_schedule_tomorrow_omits_instagram_for_long_videos(self) -> None:
-        client = AirtableClient("pat-test", "app123", "Catalog")
-        records = [
-            AirtableRecord(
-                id="rec-long",
-                created_time="2026-07-01T10:00:00.000Z",
-                fields={
-                    FIELD_STATUS: "5. Synchronization done",
-                    FIELD_TITLE: "Long talk",
-                    FIELD_VIDEO_NAME_TRANSLATED: "Long tr",
-                    "Type": TYPE_VIDEO,
-                    "Duration": 1487,
-                },
-            ),
-        ]
-        with (
-            patch.object(client, "list_records", return_value=records),
-            patch.object(client, "update_record") as update_mock,
-        ):
-            update_mock.return_value = AirtableRecord(id="rec-long", fields={})
-            scheduled = auto_schedule_tomorrow_catalog_item(
-                client,
-                target_date=date(2026, 7, 11),  # Saturday => Video
-                publish_timezone="UTC",
-                publish_hour=18,
-            )
-        self.assertIsNotNone(scheduled)
-        fields = update_mock.call_args.args[1]
-        self.assertEqual(fields[FIELD_SG_YT_DATE], "2026-07-11")
-        self.assertEqual(fields[FIELD_SG_FB_DATE], "2026-07-11")
-        self.assertNotIn(FIELD_SG_IG_DATE, fields)
-
     def test_catalog_instagram_schedule_excluded(self) -> None:
         self.assertTrue(
             catalog_instagram_schedule_excluded({"Duration": 16 * 60})
@@ -205,32 +125,6 @@ class CatalogScheduleTests(unittest.TestCase):
         self.assertFalse(
             catalog_instagram_schedule_excluded({"Duration": 10 * 60})
         )
-
-    def test_auto_schedule_tomorrow_noop_when_pending_already_exists(self) -> None:
-        client = AirtableClient("pat-test", "app123", "Catalog")
-        # Pending short-form task already scheduled for target date.
-        pending_record = AirtableRecord(
-            id="rec-pending",
-            fields={
-                FIELD_STATUS: "5. Synchronization done",
-                FIELD_TITLE: "Already scheduled",
-                FIELD_VIDEO_NAME_TRANSLATED: "Tr",
-                FIELD_SG_YT_DATE: "2026-07-06",
-                "Type": TYPE_REEL,
-            },
-        )
-        with (
-            patch.object(client, "list_records", return_value=[pending_record]),
-            patch.object(client, "update_record") as update_mock,
-        ):
-            scheduled = auto_schedule_tomorrow_catalog_item(
-                client,
-                target_date=date(2026, 7, 6),
-                publish_timezone="UTC",
-                publish_hour=18,
-            )
-        self.assertIsNone(scheduled)
-        update_mock.assert_not_called()
 
     def test_record_schedule_tasks_for_sync_done_row(self) -> None:
         record = AirtableRecord(

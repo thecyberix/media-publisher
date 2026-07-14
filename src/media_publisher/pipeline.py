@@ -36,7 +36,6 @@ from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     merge_publish_media_cleanup,
     apply_publish_media_cleanup,
-    combined_media_cleanup_from_fields,
     resolve_publish_thumbnail,
     resolve_publish_video,
 )
@@ -486,10 +485,6 @@ def run_publish_pipeline(
                 excluded_platforms=excluded_platforms,
             )
         ):
-            publish_cleanup = merge_publish_media_cleanup(
-                publish_cleanup,
-                combined_media_cleanup_from_fields(record_fields),
-            )
             if publish_cleanup is not None:
                 apply_publish_media_cleanup(
                     publish_cleanup,

@@ -232,40 +232,6 @@ def is_quote_record(fields: dict[str, Any]) -> bool:
     return _field_text(fields.get(FIELD_TYPE)) == TYPE_QUOTE
 
 
-def _iso_date(value: date) -> str:
-    return value.isoformat()
-
-
-def _record_has_any_publish_date(fields: dict[str, Any]) -> bool:
-    return any(
-        _field_text(fields.get(config.date_field)) is not None
-        for config in PLATFORM_FIELD_CONFIGS
-    )
-
-
-def _record_type_text(fields: dict[str, Any]) -> str | None:
-    return _field_text(fields.get(FIELD_TYPE))
-
-
-def is_video_type(fields: dict[str, Any]) -> bool:
-    return _record_type_text(fields) == TYPE_VIDEO
-
-
-def is_reel_type(fields: dict[str, Any]) -> bool:
-    # Airtable uses both "Reel" and "Short" for short-form video content.
-    return _record_type_text(fields) in {TYPE_REEL, TYPE_SHORT}
-
-
-def desired_type_for_publish_date(target_date: date) -> str:
-    """Return the expected Airtable Type value for the given publish date.
-
-    - Saturday => long-form "Video"
-    - Other days => short-form "Reel"/"Short"
-    """
-    # Python: Monday=0 ... Saturday=5 ... Sunday=6
-    return TYPE_VIDEO if target_date.weekday() == 5 else TYPE_REEL
-
-
 def catalog_instagram_schedule_excluded(fields: dict[str, Any]) -> bool:
     """True when Instagram should not be scheduled (Graph API limit is 15 minutes)."""
     from media_publisher.video_duration import (
@@ -283,96 +249,6 @@ def catalog_instagram_publish_required(fields: dict[str, Any]) -> bool:
         return True
     return not catalog_instagram_schedule_excluded(fields)
 
-
-def auto_schedule_tomorrow_catalog_item(
-    client: "AirtableClient",
-    *,
-    target_date: date,
-    publish_timezone: str = DEFAULT_PUBLISH_TIMEZONE,
-    publish_hour: int = DEFAULT_PUBLISH_HOUR,
-    apply: bool = True,
-) -> AirtableRecord | None:
-    """Pick one unscheduled catalog record and set publish dates for target_date.
-
-    This is intended to be safe when called multiple times per day:
-    - If any *pending* platform schedule already exists for target_date and the desired type,
-      returns None.
-    - Otherwise schedules exactly one unscheduled record (no SG-*-Date published set).
-
-    Preference order:
-    1) Records with an Airtable "Original Video Thumbnail" attachment
-    2) Oldest createdTime first (stable tie-break)
-    """
-    desired = desired_type_for_publish_date(target_date)
-
-    # If there's already something pending for tomorrow of the correct content type, do nothing.
-    pending = fetch_pending_schedule_tasks(
-        client,
-        publish_timezone=publish_timezone,
-        publish_hour=publish_hour,
-        videos_only=True,
-    )
-    target_day_tasks = [
-        task
-        for task in pending
-        if task.publish_at.astimezone(get_timezone(publish_timezone)).date() == target_date
-    ]
-    if desired == TYPE_VIDEO:
-        if any(task.job.video_format == "post" for task in target_day_tasks):
-            return None
-    else:
-        if any(task.job.video_format == "short_form" for task in target_day_tasks):
-            return None
-
-    # Find unscheduled, sync-done, translated, non-quote items matching the desired type.
-    candidates: list[AirtableRecord] = []
-    for record in client.list_records(
-        filter_formula=sync_done_filter_formula(),
-    ):
-        fields = record.fields
-        if is_quote_record(fields):
-            continue
-        if not has_video_name_translated(fields):
-            continue
-        if is_done_published_status(fields.get(FIELD_STATUS)):
-            continue
-        if _record_has_any_publish_date(fields):
-            continue
-
-        if desired == TYPE_VIDEO and not is_video_type(fields):
-            continue
-        if desired != TYPE_VIDEO and not is_reel_type(fields):
-            continue
-        candidates.append(record)
-
-    if not candidates:
-        return None
-
-    def _sort_key(record: AirtableRecord) -> tuple[int, str]:
-        thumb_rank = 0 if has_original_video_thumbnail(record.fields) else 1
-        created = record.created_time or ""
-        return (thumb_rank, created)
-
-    candidates.sort(key=_sort_key)
-    chosen = candidates[0]
-
-    update_fields: dict[str, Any] = {}
-    for config in PLATFORM_FIELD_CONFIGS:
-        if (
-            config.platform == "instagram"
-            and catalog_instagram_schedule_excluded(chosen.fields)
-        ):
-            continue
-        update_fields[config.date_field] = _iso_date(target_date)
-
-    if not apply:
-        return AirtableRecord(
-            id=chosen.id,
-            fields={**dict(chosen.fields), **update_fields},
-            created_time=chosen.created_time,
-        )
-
-    return client.update_record(chosen.id, update_fields)
 
 def record_to_quote_job(record: AirtableRecord) -> PublishJob:
     fields = record.fields

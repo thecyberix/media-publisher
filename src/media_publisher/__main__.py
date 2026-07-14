@@ -25,7 +25,6 @@ from media_publisher.pipeline import PublishPipelineSettings, run_publish_pipeli
 from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
-    combined_media_cleanup_from_fields,
     merge_publish_media_cleanup,
     resolve_publish_thumbnail,
     resolve_publish_video,
@@ -71,7 +70,6 @@ from media_publisher.sources.airtable import (
     FIELD_TITLE,
     FIELD_VIDEO_NAME_TRANSLATED,
     STATUS_SYNC_DONE,
-    auto_schedule_tomorrow_catalog_item,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
     has_video_name_translated,
@@ -287,20 +285,6 @@ def build_parser() -> argparse.ArgumentParser:
             "List Airtable videos with Status 'Synchronization done' that have a "
             "platform publish date set but no published permalink yet."
         ),
-    )
-    parser.add_argument(
-        "--auto-schedule",
-        action="store_true",
-        help=(
-            "Preview auto-scheduling for tomorrow: selects one catalog record (Video on Saturday, "
-            "Reel/Short on other days) and shows which SG-*-Date published fields would be set. "
-            "Does not write to Airtable unless --auto-schedule-apply is also provided."
-        ),
-    )
-    parser.add_argument(
-        "--auto-schedule-apply",
-        action="store_true",
-        help="When used with --auto-schedule, actually write the publish dates to Airtable.",
     )
     parser.add_argument(
         "--schedule",
@@ -742,10 +726,6 @@ def finish_schedule_publish_cleanup(
     record_id: str | None = None,
     record_fields: dict | None = None,
 ) -> None:
-    cleanup = merge_publish_media_cleanup(
-        cleanup,
-        combined_media_cleanup_from_fields(record_fields or {}),
-    )
     if cleanup is None:
         return
     drive_client = None
@@ -870,7 +850,6 @@ def cli_requested_action(args) -> bool:
             args.resolve_meta,
             args.meta_setup_token is not None,
             args.list_pending,
-            args.auto_schedule,
             args.schedule,
             args.schedule_youtube,
             args.schedule_facebook,
@@ -1395,21 +1374,6 @@ def run_default_publish(settings, args) -> int:
     try:
         airtable = airtable_client_from_settings(settings)
         schedule = publish_schedule_settings(settings)
-        # Auto-schedule tomorrow's catalog entry before publishing today's work.
-        try:
-            from datetime import datetime
-
-            from media_publisher.timezones import get_timezone
-
-            today_local = datetime.now(get_timezone(settings.publish_timezone)).date()
-            auto_schedule_tomorrow_catalog_item(
-                airtable,
-                target_date=today_local + timedelta(days=1),
-                publish_timezone=settings.publish_timezone,
-                publish_hour=settings.publish_hour,
-            )
-        except AirtableError as exc:
-            print_console(f"Auto-schedule skipped: {exc}")
         tasks = fetch_pending_schedule_tasks(
             airtable,
             **schedule,
@@ -2053,54 +2017,6 @@ def main() -> int:
                 f"{task.publish_at.isoformat()}\t{task.job.title}"
             )
         print(f"{len(tasks)} pending schedule(s).")
-        return 0
-
-    if args.auto_schedule:
-        missing = []
-        if not settings.airtable_token:
-            missing.append("AIRTABLE_TOKEN")
-        if not settings.airtable_base_id:
-            missing.append("AIRTABLE_BASE_ID")
-        if not settings.airtable_table_name:
-            missing.append("AIRTABLE_TABLE_NAME")
-        if missing:
-            print("Missing required settings:", ", ".join(missing))
-            return 1
-
-        try:
-            client = airtable_client_from_settings(settings)
-            from datetime import datetime
-
-            from media_publisher.timezones import get_timezone
-
-            today_local = datetime.now(get_timezone(settings.publish_timezone)).date()
-            target_date = today_local + timedelta(days=1)
-            apply = bool(getattr(args, "auto_schedule_apply", False))
-            record = auto_schedule_tomorrow_catalog_item(
-                client,
-                target_date=target_date,
-                publish_timezone=settings.publish_timezone,
-                publish_hour=settings.publish_hour,
-                apply=apply,
-            )
-        except AirtableError as exc:
-            print(f"Airtable catalog lookup failed: {exc}")
-            return 1
-
-        if record is None:
-            print_console(
-                f"Auto-schedule: no update needed for {target_date.isoformat()} "
-                "(already scheduled, or no matching unscheduled records found)."
-            )
-            return 0
-
-        title = record.fields.get(FIELD_TITLE) or "Untitled"
-        mode = "APPLIED" if bool(getattr(args, "auto_schedule_apply", False)) else "PREVIEW"
-        print_console(f"Auto-schedule ({mode}) for {target_date.isoformat()}: {record.id}\t{title}")
-        for label in ("SG-YT-Date published", "SG-FB-Date published", "SG-IG-Date published"):
-            value = record.fields.get(label)
-            if value:
-                print_console(f"  {label}: {value}")
         return 0
 
     if args.schedule_youtube:

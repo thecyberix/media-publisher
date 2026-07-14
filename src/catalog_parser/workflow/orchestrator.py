@@ -21,6 +21,7 @@ from catalog_parser.workflow.rules import (
     plan_record_actions,
 )
 from catalog_parser.workflow.table_cache import TableCache, DEFAULT_BACKUP_DIR
+from catalog_parser.workflow.publish_schedule import schedule_tomorrow_publish
 from catalog_parser.workflow.status_validation import (
     apply_status_reverts,
     detect_invalid_status_transitions,
@@ -96,45 +97,58 @@ def run_workflow(
 
     if not planned_actions:
         print("No workflow actions planned.")
-        return 0
+    else:
+        if not dry_run and any(
+            action.action_type == WorkflowActionType.COMBINE_MEDIA
+            for action in planned_actions
+        ):
+            output_parent_id = extract_drive_folder_id(config.output_drive_folder)
+            if output_parent_id is None:
+                print(
+                    "ERROR: Could not parse output Drive folder id from "
+                    f"{config.output_drive_folder!r}"
+                )
+                return 1
+            try:
+                verify_drive_output_folder_access(drive_service, output_parent_id)
+            except DriveCombineError as exc:
+                print(f"ERROR: {exc}")
+                return 1
 
-    if not dry_run and any(
-        action.action_type == WorkflowActionType.COMBINE_MEDIA for action in planned_actions
-    ):
-        output_parent_id = extract_drive_folder_id(config.output_drive_folder)
-        if output_parent_id is None:
-            print(f"ERROR: Could not parse output Drive folder id from {config.output_drive_folder!r}")
+        print(f"Planned {len(planned_actions)} action(s){' (dry-run)' if dry_run else ''}:")
+        results: list[ActionResult] = []
+        for action in planned_actions:
+            label = action.title or action.translator_name or action.record_id
+            print(f"  - {action.action_type.value}: {label} ({action.reason})")
+            result = execute_action(
+                action,
+                airtable=airtable,
+                config=config,
+                drive_service=drive_service,
+                docs_service=docs_service,
+                credentials_path=credentials_path,
+                token_path=token_path,
+                dry_run=dry_run,
+                use_console=use_console,
+                table_cache=table_cache,
+            )
+            results.append(result)
+            status = "OK" if result.success else "FAIL"
+            print(f"    -> {status}: {result.message}")
+
+        failures = sum(1 for result in results if not result.success)
+        if failures:
             return 1
-        try:
-            verify_drive_output_folder_access(drive_service, output_parent_id)
-        except DriveCombineError as exc:
-            print(f"ERROR: {exc}")
-            return 1
 
-    print(f"Planned {len(planned_actions)} action(s){' (dry-run)' if dry_run else ''}:")
-    results: list[ActionResult] = []
-    for action in planned_actions:
-        label = action.title or action.translator_name or action.record_id
-        print(f"  - {action.action_type.value}: {label} ({action.reason})")
-        result = execute_action(
-            action,
-            airtable=airtable,
-            config=config,
-            drive_service=drive_service,
-            docs_service=docs_service,
-            credentials_path=credentials_path,
-            token_path=token_path,
-            dry_run=dry_run,
-            use_console=use_console,
-            table_cache=table_cache,
-        )
-        results.append(result)
-        status = "OK" if result.success else "FAIL"
-        print(f"    -> {status}: {result.message}")
-
-    failures = sum(1 for result in results if not result.success)
-
-    return 1 if failures else 0
+    schedule_result = schedule_tomorrow_publish(
+        airtable=airtable,
+        records=table_cache.records,
+        drive_service=drive_service,
+        dry_run=dry_run,
+        log=print,
+    )
+    print(f"Publish schedule: {schedule_result.message}")
+    return 0 if schedule_result.success else 1
 
 
 def _require_env(name: str) -> str:
