@@ -12,6 +12,7 @@ from catalog_parser.airtable import (
     FIELD_TRANSLATOR,
     STATUS_NOT_ASSIGNED,
     STATUS_TODO,
+    load_existing_titles_for_ingest,
 )
 from catalog_parser.auth import get_docs_service, get_drive_service, get_sheets_service
 from catalog_parser.parser import (
@@ -163,10 +164,10 @@ def ingest_batch(
             language=smartcat_language,
         )
 
-    existing_titles = (
-        table_cache.existing_titles()
-        if table_cache is not None
-        else airtable.list_existing_titles()
+    existing_titles = load_existing_titles_for_ingest(
+        airtable,
+        table_cache=table_cache,
+        project_root=PROJECT_ROOT,
     )
     staging_dir = PROJECT_ROOT / "output" / "ingest-thumbnails"
     staging_dir.mkdir(parents=True, exist_ok=True)

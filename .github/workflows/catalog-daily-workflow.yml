@@ -124,6 +124,9 @@ jobs:
             if [ -f /tmp/workflow-state-restore/output/backups/airtable-latest.json ]; then
               cp /tmp/workflow-state-restore/output/backups/airtable-latest.json output/backups/
             fi
+            if [ -f /tmp/workflow-state-restore/output/backups/airtable-archive-titles.json ]; then
+              cp /tmp/workflow-state-restore/output/backups/airtable-archive-titles.json output/backups/
+            fi
           fi
 
       - name: Show Drive service account email
@@ -169,6 +172,7 @@ jobs:
           path: |
             output/workflow/status_history.json
             output/backups/airtable-latest.json
+            output/backups/airtable-archive-titles.json
           retention-days: 30
           if-no-files-found: ignore
 

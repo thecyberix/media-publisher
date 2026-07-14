@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from catalog_parser.__main__ import (
@@ -14,7 +14,7 @@ from catalog_parser.__main__ import (
     enrich_single_record_with_smartcat_web,
     load_env_file,
 )
-from catalog_parser.airtable import AirtableClient
+from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ingest
 from catalog_parser.auth import get_docs_service, get_drive_service, get_sheets_service
 from catalog_parser.drive_docs import enrich_records_with_yt_titles
 from catalog_parser.eligibility import explain_catalog_eligibility
@@ -91,12 +91,17 @@ def main() -> int:
         base_id=os.environ["AIRTABLE_BASE_ID"],
         table_name=os.environ["AIRTABLE_TABLE_NAME"],
     )
-    existing_titles = TableCache.load(
+    table_cache = TableCache.load(
         airtable,
         project_root=PROJECT_ROOT,
         backup=False,
         record_status_history=False,
-    ).existing_titles()
+    )
+    existing_titles = load_existing_titles_for_ingest(
+        airtable,
+        table_cache=table_cache,
+        project_root=PROJECT_ROOT,
+    )
     print(f"Airtable table: {os.environ['AIRTABLE_TABLE_NAME']!r}")
     print(f"Airtable titles loaded: {len(existing_titles)}")
 

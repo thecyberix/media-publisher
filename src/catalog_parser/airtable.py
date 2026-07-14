@@ -5,6 +5,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,28 @@ def normalize_title(value: Any) -> str | None:
     return normalized.casefold() if normalized else None
 
 
+def normalize_title_variants(value: Any) -> set[str]:
+    variants: set[str] = set()
+    direct = normalize_title(value)
+    if direct:
+        variants.add(direct)
+    original = normalize_title(normalize_original_video_name(value))
+    if original:
+        variants.add(original)
+    return variants
+
+
+@dataclass(frozen=True)
+class AirtableArchiveSource:
+    base_id: str
+    table_name: str
+    title_fields: tuple[str, ...]
+
+    @property
+    def title_field(self) -> str:
+        return self.title_fields[0]
+
+
 def build_yt_title_comment(yt_title: Any) -> str | None:
     if yt_title is None:
         return None
@@ -179,9 +202,14 @@ class AirtableClient:
         if not self.table_name:
             raise AirtableError("AIRTABLE_TABLE_NAME is required")
 
-    def _table_url(self) -> str:
-        encoded_table = urllib.parse.quote(self.table_name, safe="")
-        return f"{self.api_base}/{self.base_id}/{encoded_table}"
+    def _table_url(
+        self,
+        *,
+        table_name: str | None = None,
+        base_id: str | None = None,
+    ) -> str:
+        encoded_table = urllib.parse.quote((table_name or self.table_name).strip(), safe="")
+        return f"{self.api_base}/{(base_id or self.base_id).strip()}/{encoded_table}"
 
     def _record_comments_url(self, record_id: str) -> str:
         encoded_record_id = urllib.parse.quote(record_id, safe="")
@@ -192,7 +220,7 @@ class AirtableClient:
         method: str,
         url: str,
         *,
-        query: dict[str, str] | None = None,
+        query: dict[str, Any] | None = None,
         body: dict[str, Any] | None = None,
     ) -> Any:
         if query:
@@ -222,19 +250,51 @@ class AirtableClient:
         return json.loads(payload.decode("utf-8"))
 
     def list_existing_titles(self) -> set[str]:
-        titles: set[str] = set[str]()
+        return self.list_title_variants(title_fields=(FIELD_TITLE,))
+
+    def list_accessible_bases(self) -> list[dict[str, Any]]:
+        response = self._request("GET", f"{self.api_base}/meta/bases")
+        bases = response.get("bases", [])
+        return [base for base in bases if isinstance(base, dict)]
+
+    def list_base_tables(self, base_id: str) -> list[dict[str, Any]]:
+        encoded_base_id = urllib.parse.quote(base_id.strip(), safe="")
+        response = self._request("GET", f"{self.api_base}/meta/bases/{encoded_base_id}/tables")
+        tables = response.get("tables", [])
+        return [table for table in tables if isinstance(table, dict)]
+
+    def list_title_variants(
+        self,
+        *,
+        title_field: str | None = None,
+        title_fields: tuple[str, ...] | None = None,
+        table_name: str | None = None,
+        base_id: str | None = None,
+    ) -> set[str]:
+        fields = title_fields or ((title_field,) if title_field else ())
+        fields = tuple(field for field in fields if field)
+        if not fields:
+            raise AirtableError("At least one title field is required")
+
+        titles: set[str] = set()
         offset: str | None = None
 
         while True:
-            query: dict[str, str] = {"fields[]": FIELD_TITLE}
+            query: dict[str, Any] = {"fields[]": list(fields)}
             if offset:
                 query["offset"] = offset
 
-            response = self._request("GET", self._table_url(), query=query)
+            response = self._request(
+                "GET",
+                self._table_url(table_name=table_name, base_id=base_id),
+                query=query,
+            )
             for record in response.get("records", []):
-                title = normalize_title(record.get("fields", {}).get(FIELD_TITLE))
-                if title:
-                    titles.add(title)
+                record_fields = record.get("fields", {})
+                if not isinstance(record_fields, dict):
+                    continue
+                for field_name in fields:
+                    titles.update(normalize_title_variants(record_fields.get(field_name)))
 
             offset = response.get("offset")
             if not offset:
@@ -446,7 +506,7 @@ class AirtableClient:
         return created_ids
 
     def sync_catalog_records(self, records: list[dict[str, Any]]) -> tuple[int, int]:
-        existing_titles = self.list_existing_titles()
+        existing_titles = load_existing_titles_for_ingest(self)
         to_create: list[dict[str, Any]] = []
         skipped = 0
 
@@ -463,3 +523,44 @@ class AirtableClient:
 
         created = len(self.create_records(to_create))
         return created, skipped
+
+
+def load_existing_titles_for_ingest(
+    airtable: AirtableClient,
+    *,
+    table_cache: Any | None = None,
+    archive_sources: list[AirtableArchiveSource] | None = None,
+    project_root: Path | None = None,
+) -> set[str]:
+    from catalog_parser.workflow.archive_sources import resolve_archive_sources
+    from catalog_parser.workflow.archive_title_cache import load_archive_titles
+
+    if table_cache is not None:
+        titles = table_cache.existing_titles()
+    else:
+        titles = airtable.list_existing_titles()
+
+    if archive_sources is None:
+        records = table_cache.records if table_cache is not None else None
+        archive_sources = resolve_archive_sources(airtable, records=records)
+
+    filtered_sources: list[AirtableArchiveSource] = []
+    for source in archive_sources:
+        if (
+            source.base_id == airtable.base_id
+            and source.table_name == airtable.table_name
+            and source.title_fields == (FIELD_TITLE,)
+        ):
+            continue
+        filtered_sources.append(source)
+
+    if filtered_sources:
+        root = project_root or Path(__file__).resolve().parents[2]
+        titles.update(
+            load_archive_titles(
+                airtable,
+                filtered_sources,
+                project_root=root,
+            )
+        )
+    return titles

@@ -164,6 +164,12 @@ Configure under **Settings → Secrets and variables → Actions → Secrets**.
 | `AIRTABLE_TABLE_NAME` | Table name exactly as shown in Airtable, e.g. `Translator's Paradise`. |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (single line is fine). The service account must have access to the catalog sheet, video folders, Docs/Word files in those folders, and the output folder. |
 
+### Archive duplicate-title checks during ingest
+
+Ingest skips catalog rows whose title already exists in Airtable. Archive bases are discovered automatically from rows with Status **`7. Not Assigned`** whose Title looks like `2024 archive: https://airtable.com/...`. Each archive base can use a different title field (`Title` vs `Original Video Name`); the workflow detects that from the Airtable schema.
+
+Archive titles are cached permanently at `output/backups/airtable-archive-titles.json` so ingest only queries each archive base once. Set `AIRTABLE_ARCHIVE_CACHE_REFRESH=true` to force a refresh, or delete the cache file.
+
 ### Repository variables (non-secret config)
 
 These can live under **Settings → Secrets and variables → Actions → Variables** (or as secrets if you prefer):

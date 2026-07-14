@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from catalog_parser.airtable import (
+    AirtableArchiveSource,
     AirtableClient,
     build_yt_description_comment,
     build_yt_title_comment,
     catalog_record_comments,
     catalog_record_to_airtable_fields,
     FIELD_TITLE,
+    load_existing_titles_for_ingest,
     normalize_original_video_name,
     normalize_title,
+    normalize_title_variants,
     resolve_original_video_name,
 )
 
@@ -52,6 +56,36 @@ class AirtableMappingTests(unittest.TestCase):
 
     def test_normalize_title_is_case_insensitive(self) -> None:
         self.assertEqual(normalize_title("  Hello World  "), "hello world")
+
+    def test_normalize_title_variants_includes_sadhguru_stripped_form(self) -> None:
+        self.assertEqual(
+            normalize_title_variants("Sample Title | Sadhguru"),
+            {"sample title | sadhguru", "sample title"},
+        )
+
+    def test_load_existing_titles_for_ingest_merges_archive_titles(self) -> None:
+        client = AirtableClient("pat-test", "app-current", "Catalog")
+        cache = type("Cache", (), {"existing_titles": lambda self: {"current title"}})()
+
+        with patch(
+            "catalog_parser.workflow.archive_title_cache.load_archive_titles",
+            return_value={"archived title"},
+        ) as archive_mock:
+            titles = load_existing_titles_for_ingest(
+                client,
+                table_cache=cache,
+                archive_sources=[
+                    AirtableArchiveSource(
+                        base_id="app-archive",
+                        table_name="Archive",
+                        title_fields=("Original Video Name",),
+                    )
+                ],
+                project_root=Path("."),
+            )
+
+        self.assertEqual(titles, {"current title", "archived title"})
+        archive_mock.assert_called_once()
 
     def test_normalize_original_video_name_strips_sadhguru_suffix(self) -> None:
         self.assertEqual(
@@ -181,7 +215,10 @@ class AirtableSyncTests(unittest.TestCase):
             {"ctTitle": "New Entry", "ctLink": "https://b", "ctDuration": 40},
         ]
 
-        with patch.object(client, "list_existing_titles", return_value={"already there"}):
+        with patch(
+            "catalog_parser.airtable.load_existing_titles_for_ingest",
+            return_value={"already there"},
+        ):
             with patch.object(client, "create_records", return_value=["recNEW"]) as create_mock:
                 created, skipped = client.sync_catalog_records(records)
 

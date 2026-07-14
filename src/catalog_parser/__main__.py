@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from catalog_parser.airtable import AirtableClient, normalize_title
+from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ingest, normalize_title
 from catalog_parser.auth import (
     DEFAULT_AUTH_PORT,
     get_docs_service,
@@ -61,7 +61,7 @@ def load_existing_airtable_titles() -> set[str]:
         api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
         or "https://api.airtable.com/v0",
     )
-    return airtable_client.list_existing_titles()
+    return load_existing_titles_for_ingest(airtable_client, project_root=PROJECT_ROOT)
 
 
 def enrich_single_record_with_smartcat_api(
