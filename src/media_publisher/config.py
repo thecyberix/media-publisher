@@ -60,6 +60,8 @@ class Settings:
     tn_cache_dir: str = "downloads/tn-cache"
     tn_render_output_dir: str = "downloads/tn-rendered"
     tn_english_override_file: str = "downloads/tn-english-overrides.json"
+    thumbnail_review_drive_folder_id: str = "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN"
+    thumbnail_review_approved_subfolder: str = "Approved"
     publish_media_download_dir: str = "downloads/publish-media"
     meta_access_token: str | None = None
     meta_page_id: str | None = None
@@ -257,6 +259,16 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "downloads/tn-english-overrides.json",
         ).strip()
         or "downloads/tn-english-overrides.json",
+        thumbnail_review_drive_folder_id=os.getenv(
+            "THUMBNAIL_REVIEW_DRIVE_FOLDER_ID",
+            "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN",
+        ).strip()
+        or "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN",
+        thumbnail_review_approved_subfolder=os.getenv(
+            "THUMBNAIL_REVIEW_APPROVED_SUBFOLDER",
+            "Approved",
+        ).strip()
+        or "Approved",
         publish_media_download_dir=os.getenv(
             "PUBLISH_MEDIA_DOWNLOAD_DIR",
             "downloads/publish-media",
