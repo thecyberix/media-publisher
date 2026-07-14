@@ -210,6 +210,12 @@ When a video folder has no direct thumbnail image, ingest can export the design 
 
 If Canva secrets are missing, ingest still works for folders with a thumbnail image file in Drive. Canva-only thumbnails are skipped with an error on that record.
 
+### Approved review thumbnails
+
+Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
+
+Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. Optional overrides: `THUMBNAIL_REVIEW_DRIVE_FOLDER_ID`, `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`.
+
 Renew locally (either CLI works — same token file):
 
 ```powershell

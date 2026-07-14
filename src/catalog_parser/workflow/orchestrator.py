@@ -20,6 +20,9 @@ from catalog_parser.workflow.rules import (
     plan_ingest_actions,
     plan_record_actions,
 )
+from catalog_parser.workflow.approved_thumbnails import (
+    process_approved_review_thumbnails_in_workflow,
+)
 from catalog_parser.workflow.table_cache import TableCache, DEFAULT_BACKUP_DIR
 from catalog_parser.workflow.publish_schedule import schedule_tomorrow_publish
 from catalog_parser.workflow.status_validation import (
@@ -140,6 +143,13 @@ def run_workflow(
         if failures:
             return 1
 
+    approved_result = process_approved_review_thumbnails_in_workflow(
+        project_root=project_root,
+        records=table_cache.records,
+        dry_run=dry_run,
+        log=print,
+    )
+
     schedule_result = schedule_tomorrow_publish(
         airtable=airtable,
         records=table_cache.records,
@@ -148,7 +158,11 @@ def run_workflow(
         log=print,
     )
     print(f"Publish schedule: {schedule_result.message}")
-    return 0 if schedule_result.success else 1
+    if not schedule_result.success:
+        return 1
+    if approved_result.processed:
+        print(f"Approved thumbnails: {approved_result.processed} file(s) handled")
+    return 0
 
 
 def _require_env(name: str) -> str:
