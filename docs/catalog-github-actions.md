@@ -257,7 +257,7 @@ Test locally:
 
 ```powershell
 python scripts/catalog/check_authorization.py --skip-smartcat-if-missing --skip-canva-if-missing
-python scripts/catalog/test_smartcat_session.py
+python scripts/catalog/verify_smartcat_session.py
 python -m media_publisher --test-canva
 python scripts/catalog/send_notification_email.py --subject "test" --body "test message"
 ```

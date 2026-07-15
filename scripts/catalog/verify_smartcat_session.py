@@ -1,4 +1,4 @@
-"""Backward-compatible Smartcat-only entry point."""
+"""Verify Smartcat web session is still valid (CLI helper for local/CI checks)."""
 from __future__ import annotations
 
 import argparse
