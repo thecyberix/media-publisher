@@ -51,7 +51,9 @@ def publish_to_facebook(
 
     try:
         client = MetaClient(access_token, app_id=app_id)
-        unpublished = job.privacy_status.strip().lower() == "private"
+        # Facebook has no YouTube-style "private until schedule" status.
+        # A future publish_at always means public when it goes live (SCHEDULED);
+        # immediate publish is public (PUBLISHED). Never map privacy_status to DRAFT.
         if job.video_format == "short_form":
             return client.schedule_facebook_reel(
                 page_id=page_id,
@@ -60,7 +62,7 @@ def publish_to_facebook(
                 video_path=video_path,
                 video_url=video_url,
                 publish_at=job.publish_at,
-                unpublished=unpublished,
+                unpublished=False,
                 thumbnail_path=thumbnail_path,
             )
         return client.schedule_facebook_video(
@@ -70,7 +72,7 @@ def publish_to_facebook(
             video_path=video_path,
             video_url=video_url,
             publish_at=job.publish_at,
-            unpublished=unpublished,
+            unpublished=False,
             thumbnail_path=thumbnail_path,
         )
     except MetaError as exc:

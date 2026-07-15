@@ -164,7 +164,8 @@ def publish_local_quote(
             publish_at=publish_at,
             page_id=page_id,
             access_token=access_token,
-            unpublished=private and publish_at is None,
+            # Schedule for later = public at publish_at; immediate = public now.
+            unpublished=False,
         )
         if publish_at is None and private:
             return meta_client.get_facebook_post_permalink(photo_id)

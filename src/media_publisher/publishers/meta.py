@@ -1264,6 +1264,8 @@ class MetaClient:
         }
         if video_url:
             finish["file_url"] = video_url
+        # SCHEDULED = public at the given time (not a private draft).
+        # DRAFT is only for explicit unpublished=True with no schedule.
         if publish_at is not None:
             publish_at = validate_publish_at(publish_at)
             finish["scheduled_publish_time"] = str(unix_timestamp(publish_at))

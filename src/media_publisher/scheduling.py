@@ -178,7 +178,11 @@ def task_uses_immediate_publish(
 
 
 def prepare_job_for_immediate_publish(job: PublishJob, *, private: bool) -> None:
-    """Clear native platform scheduling and optionally mark content as private/unpublished."""
+    """Clear native platform scheduling for an immediate upload.
+
+    ``private=True`` only affects YouTube (privacyStatus=private). Facebook ignores
+    it and always publishes publicly — either immediately or via scheduled_publish_time.
+    """
     job.publish_at = None
     if private:
         job.privacy_status = "private"

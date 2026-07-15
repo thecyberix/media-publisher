@@ -16,7 +16,7 @@ Default mode depends on how the workflow is triggered:
 | Input | Use |
 |-------|-----|
 | **mode** | `all`, `videos`, or `quotes` |
-| **private** | Test mode: schedule public YouTube/Facebook for the next publish slot; skip Instagram |
+| **private** | Test mode: schedule YouTube/Facebook for the next publish slot (public when live); skip Instagram. Facebook is never kept as a private draft — scheduling means `SCHEDULED` → public at the set time. |
 | **staggered** | Leave **off** for manual today publish. Enable only when simulating production cron |
 
 ## Trigger via API (same as cron-job.org)
