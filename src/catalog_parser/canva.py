@@ -230,7 +230,12 @@ class CanvaClient:
     def _clear_pending_auth(self) -> None:
         self.pending_auth_path.unlink(missing_ok=True)
 
-    def _exchange_token(self, body: dict[str, str]) -> CanvaToken:
+    def _exchange_token(
+        self,
+        body: dict[str, str],
+        *,
+        fallback_refresh_token: str | None = None,
+    ) -> CanvaToken:
         request = urllib.request.Request(
             f"{self.api_base}/oauth/token",
             data=urllib.parse.urlencode(body).encode("utf-8"),
@@ -262,13 +267,14 @@ class CanvaClient:
             if expires_in is not None
             else None
         )
+        refresh_token = (
+            str(payload["refresh_token"])
+            if payload.get("refresh_token")
+            else fallback_refresh_token
+        )
         return CanvaToken(
             access_token=str(payload["access_token"]),
-            refresh_token=(
-                str(payload["refresh_token"])
-                if payload.get("refresh_token")
-                else None
-            ),
+            refresh_token=refresh_token,
             token_type=str(payload.get("token_type", "Bearer")),
             expires_at=expires_at,
             scope=str(payload["scope"]) if payload.get("scope") else None,
@@ -279,7 +285,8 @@ class CanvaClient:
             {
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
-            }
+            },
+            fallback_refresh_token=refresh_token,
         )
 
     def get_access_token(self) -> str:

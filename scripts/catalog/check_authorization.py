@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from catalog_parser.canva import CanvaClient, CanvaError, build_canva_client_from_env
+from catalog_parser.runtime_env import maybe_persist_canva_token, note_canva_token_baseline
 from catalog_parser.smartcat import DEFAULT_UI_BASE
 from catalog_parser.smartcat_web import _looks_like_login_url
 
@@ -204,6 +205,7 @@ def main() -> int:
     if _canva_is_configured(project_root=REPO_ROOT):
         client = build_canva_client_from_env(project_root=REPO_ROOT)
         assert client is not None
+        note_canva_token_baseline(REPO_ROOT)
         try:
             check_canva_authorization(client=client)
         except FileNotFoundError as exc:
@@ -214,6 +216,12 @@ def main() -> int:
             exit_code = max(exit_code, _classify_runtime_error(str(exc)))
         else:
             print("OK: Canva authorization is valid")
+            try:
+                message = maybe_persist_canva_token(REPO_ROOT)
+                if message:
+                    print(message)
+            except RuntimeError as exc:
+                print(f"Warning: {exc}", file=sys.stderr)
     elif args.skip_canva_if_missing:
         print("SKIP: Canva credentials or token file not configured")
     else:

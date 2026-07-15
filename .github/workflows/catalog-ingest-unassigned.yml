@@ -72,6 +72,9 @@ jobs:
           SMARTCAT_UI_BASE: https://ea.smartcat.com
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+          # Sync rotated refresh tokens immediately; job-scoped secrets stay stale.
+          CANVA_TOKEN_SYNC_PAT: ${{ secrets.CANVA_TOKEN_SYNC_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Send authorization failure email
         if: failure() && steps.auth_check.outcome == 'failure'

@@ -196,6 +196,7 @@ Alert emails go to `georgi.uzunov-ext@sadhguru.org` (configured in the workflow)
 | Secret | Description |
 |--------|-------------|
 | `SHEET_ID` | Google Sheet id from the catalog URL. |
+| `HAPPYSCRIBE_API_KEY` | HappyScribe API key used to check the watched library folder for leftover transcriptions (same secret as the publish workflow). Optional; the check is skipped when unset. |
 
 ### Optional: Canva thumbnail export during ingest
 
@@ -253,6 +254,8 @@ python scripts/_canva_auth_interactive.py
 
 When `CANVA_TOKEN_SYNC_PAT` is set, the script updates the `CANVA_TOKEN_JSON` GitHub secret automatically.
 
+Canva refresh tokens are **single-use**. The daily workflow auth-check refreshes the token and syncs `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Later steps keep the on-disk rotated token even though the job still has the pre-refresh secret value in its environment (GitHub does not re-inject updated secrets mid-job). Avoid refreshing the same local `credentials/canva-token.json` from multiple machines without syncing the secret afterward.
+
 Test locally:
 
 ```powershell
@@ -263,6 +266,24 @@ python scripts/catalog/send_notification_email.py --subject "test" --body "test 
 ```
 
 (`GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD` must be set in the environment for the email test.)
+
+### HappyScribe watch-folder alert
+
+After a successful authorization check, the daily workflow lists transcriptions in:
+
+`https://www.happyscribe.com/v2/8104266/library/53816432`
+
+If the folder is **not empty**, an email is sent to `NOTIFY_EMAIL` with the item count and titles. The check is non-blocking: an empty folder, missing `HAPPYSCRIBE_API_KEY`, or a HappyScribe API error does not fail the catalog orchestrator.
+
+Override the watched URL with env `HAPPYSCRIBE_WATCH_LIBRARY_URL` (or `--library-url`).
+
+Test locally:
+
+```powershell
+python scripts/catalog/check_happyscribe_library.py --skip-if-missing
+```
+
+Requires secret `HAPPYSCRIBE_API_KEY` (same as the publish workflow).
 
 ### Optional: Smartcat company API (alternative to web session)
 

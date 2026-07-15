@@ -125,6 +125,31 @@ class RuntimeEnvTests(unittest.TestCase):
 
             self.assertEqual(api_mock.call_args.args[0], "thecyberix/media-publisher")
 
+    def test_materialize_credentials_keeps_newer_canva_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            token_path = root / CANVA_TOKEN_RELATIVE_PATH
+            token_path.parent.mkdir(parents=True)
+            refreshed = (
+                '{"access_token":"new","refresh_token":"rt-new","expires_at":2000}'
+            )
+            stale = '{"access_token":"old","refresh_token":"rt-old","expires_at":1000}'
+            token_path.write_text(refreshed, encoding="utf-8")
+
+            with patch.dict(
+                os.environ,
+                {"CANVA_TOKEN_JSON": stale},
+                clear=False,
+            ):
+                written = materialize_credentials(root)
+
+            self.assertEqual(written, [])
+            self.assertEqual(token_path.read_text(encoding="utf-8"), refreshed)
+            import media_publisher.runtime_env as runtime_env
+
+            # Baseline stays the stale secret so maybe_persist can sync the newer file.
+            self.assertEqual(runtime_env.CANVA_TOKEN_BASELINE, stale)
+
     def test_materialize_credentials_skips_unset_env_vars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

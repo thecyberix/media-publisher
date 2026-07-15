@@ -7,6 +7,7 @@ from media_publisher.runtime_env import (
     INITIAL_CREDENTIAL_JSON,
     materialize_credentials,
     maybe_persist_canva_token,
+    note_canva_token_baseline,
 )
 
 DEFAULT_CANVA_TOKEN_RELATIVE_PATH = CANVA_TOKEN_RELATIVE_PATH
@@ -17,4 +18,5 @@ __all__ = [
     "INITIAL_CREDENTIAL_JSON",
     "materialize_credentials",
     "maybe_persist_canva_token",
+    "note_canva_token_baseline",
 ]

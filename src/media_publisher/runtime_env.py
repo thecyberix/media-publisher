@@ -28,24 +28,72 @@ INITIAL_CREDENTIAL_JSON: dict[str, str] = {}
 CANVA_TOKEN_BASELINE: str | None = None
 
 
+def _canva_token_expires_at(payload: str) -> float | None:
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("expires_at")
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _should_keep_existing_canva_token(existing: str, incoming: str) -> bool:
+    """Prefer an already-refreshed on-disk token over a stale job-scoped secret.
+
+    Canva refresh tokens are single-use. Auth-check / earlier steps may rotate the
+    token on disk, while later steps still inject the pre-refresh secret value.
+    """
+    existing_expires = _canva_token_expires_at(existing)
+    incoming_expires = _canva_token_expires_at(incoming)
+    if existing_expires is None or incoming_expires is None:
+        return False
+    return existing_expires > incoming_expires
+
+
 def materialize_credentials(project_root: Path) -> list[Path]:
     """Write credential JSON files from *_JSON environment variables.
 
     When an env var is set, its contents replace the target file. When unset,
     existing local files are left unchanged.
+
+    For Canva, a newer on-disk token (higher expires_at) is kept so a refresh in
+    an earlier workflow step is not clobbered by the stale secret still present in
+    that job's environment.
     """
     INITIAL_CREDENTIAL_JSON.clear()
     written: list[Path] = []
+    stale_canva_secret: str | None = None
     for env_name, relative_path in CREDENTIAL_ENV_FILES.items():
         payload = os.getenv(env_name, "").strip()
         if not payload:
             continue
         destination = project_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
+        if (
+            env_name == "CANVA_TOKEN_JSON"
+            and destination.is_file()
+            and _should_keep_existing_canva_token(
+                destination.read_text(encoding="utf-8").strip(),
+                payload,
+            )
+        ):
+            # Keep rotated disk token; remember the env secret as sync baseline.
+            stale_canva_secret = payload
+            INITIAL_CREDENTIAL_JSON[relative_path] = payload
+            continue
         destination.write_text(payload, encoding="utf-8")
         INITIAL_CREDENTIAL_JSON[relative_path] = payload
         written.append(destination)
     note_canva_token_baseline(project_root)
+    if stale_canva_secret is not None:
+        # Force maybe_persist_canva_token to sync the fresher on-disk token back.
+        global CANVA_TOKEN_BASELINE
+        CANVA_TOKEN_BASELINE = stale_canva_secret
+        INITIAL_CREDENTIAL_JSON[CANVA_TOKEN_RELATIVE_PATH] = stale_canva_secret
     return written
 
 

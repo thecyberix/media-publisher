@@ -451,9 +451,13 @@ def load_token(path: Path) -> CanvaToken:
     )
 
 
-def token_from_response(payload: dict[str, Any]) -> CanvaToken:
+def token_from_response(
+    payload: dict[str, Any],
+    *,
+    fallback_refresh_token: str | None = None,
+) -> CanvaToken:
     access_token = payload.get("access_token")
-    refresh_token = payload.get("refresh_token")
+    refresh_token = payload.get("refresh_token") or fallback_refresh_token
     expires_in = payload.get("expires_in")
     if not isinstance(access_token, str) or not access_token:
         raise CanvaError("Canva token response is missing access_token")
@@ -570,7 +574,8 @@ class CanvaClient:
 
         if not isinstance(payload, dict):
             raise CanvaError("Canva token response is not a JSON object")
-        return token_from_response(payload)
+        fallback = form.get("refresh_token") if form.get("grant_type") == "refresh_token" else None
+        return token_from_response(payload, fallback_refresh_token=fallback)
 
     def exchange_authorization_code(
         self,
