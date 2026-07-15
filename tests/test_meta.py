@@ -618,9 +618,33 @@ class PublisherWrapperTests(unittest.TestCase):
                 "upload_phase": "finish",
                 "video_id": "4025341661101246",
                 "video_state": "PUBLISHED",
+                "share_to_feed": "true",
                 "title": "Launch",
             },
         )
+
+    def test_schedule_facebook_reel_share_to_feed(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        with (
+            patch.object(
+                client,
+                "_request",
+                side_effect=[
+                    {"video_id": "vid_1", "upload_url": "https://upload.example"},
+                    {},
+                ],
+            ) as request_mock,
+            patch.object(client, "_upload_facebook_reel_video"),
+        ):
+            client.schedule_facebook_reel(
+                page_id="page123",
+                title="Launch",
+                description="Details",
+                video_path=Path("quote.mp4"),
+            )
+
+        finish_body = request_mock.call_args_list[1].kwargs["body"]
+        self.assertEqual(finish_body["share_to_feed"], "true")
 
     def test_schedule_facebook_reel_schedules_as_public(self) -> None:
         client = MetaClient("token-test", app_id="app123")

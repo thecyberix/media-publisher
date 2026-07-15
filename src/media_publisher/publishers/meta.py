@@ -1261,6 +1261,11 @@ class MetaClient:
             "video_id": video_id,
             "title": title,
             "description": description,
+            # Without this, API Reels stay off the Page feed and show 0 Reach in
+            # Business Suite while still accumulating Reels-tab plays. Manual
+            # publishing defaults to sharing to feed; share_to_feed=false can
+            # hide the Reel entirely (Meta developer forum reports).
+            "share_to_feed": "true",
         }
         if video_url:
             finish["file_url"] = video_url
@@ -1301,6 +1306,7 @@ class MetaClient:
             "upload_phase": "finish",
             "video_id": video_id,
             "video_state": "PUBLISHED",
+            "share_to_feed": "true",
         }
         if title is not None and title.strip():
             finish["title"] = title.strip()
