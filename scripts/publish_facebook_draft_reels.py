@@ -27,6 +27,20 @@ def _configure_stdio() -> None:
             stream.reconfigure(encoding="utf-8")
 
 
+def _resolve_facebook_redirect(url: str) -> str:
+    """Follow fb.watch / share redirects to a canonical facebook.com URL."""
+    import requests
+
+    text = url.strip()
+    if "fb.watch" not in text.lower() and "facebook.com/share" not in text.lower():
+        return text
+    try:
+        response = requests.get(text, allow_redirects=True, timeout=30)
+        return response.url or text
+    except requests.RequestException:
+        return text
+
+
 def _parse_airtable_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -131,7 +145,8 @@ def main() -> int:
             fb_date = _parse_airtable_datetime(fields.get(FIELD_SG_FB_DATE))
             if fb_date is not None and fb_date < cutoff:
                 continue
-            video_id = extract_facebook_video_id(published)
+            resolved = _resolve_facebook_redirect(published)
+            video_id = extract_facebook_video_id(resolved)
             if video_id is None:
                 print(
                     f"SKIP {record.id}: no Facebook video id in {published!r} "
