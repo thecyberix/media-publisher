@@ -14,6 +14,7 @@ from media_publisher.publishers.meta import (
     FacebookHostingAsset,
     MetaClient,
     MetaError,
+    extract_facebook_video_id,
     normalize_facebook_page_username,
     normalize_facebook_permalink,
     normalize_instagram_username,
@@ -150,6 +151,20 @@ class MetaTokenSetupTests(unittest.TestCase):
         self.assertEqual(credentials.access_token, "permanent-page-token")
         self.assertEqual(credentials.page_id, "page_123")
         self.assertEqual(credentials.instagram_account_id, "ig_456")
+
+
+class FacebookVideoIdExtractionTests(unittest.TestCase):
+    def test_extract_facebook_video_id_from_reel_url(self) -> None:
+        self.assertEqual(
+            extract_facebook_video_id("https://www.facebook.com/reel/4025341661101246/"),
+            "4025341661101246",
+        )
+
+    def test_extract_facebook_video_id_from_numeric(self) -> None:
+        self.assertEqual(extract_facebook_video_id("4025341661101246"), "4025341661101246")
+
+    def test_extract_facebook_video_id_rejects_garbage(self) -> None:
+        self.assertIsNone(extract_facebook_video_id("not-a-video"))
 
 
 class UsernameNormalizationTests(unittest.TestCase):
@@ -568,6 +583,77 @@ class PublisherWrapperTests(unittest.TestCase):
 
         self.assertEqual(post_id, "fb_reel_1")
         client_cls.return_value.schedule_facebook_reel.assert_called_once()
+
+    def test_publish_to_facebook_never_uses_draft_for_private_privacy_status(self) -> None:
+        """YouTube-style privacy_status=private must not make Facebook Reels DRAFT."""
+        publish_at = datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc)
+        job = PublishJob(
+            title="Launch",
+            video_url="https://cdn.example.com/video.mp4",
+            video_format="short_form",
+            privacy_status="private",
+            publish_at=publish_at,
+        )
+        with patch("media_publisher.publishers.facebook.MetaClient") as client_cls:
+            client_cls.return_value.schedule_facebook_reel.return_value = "fb_reel_1"
+            publish_to_facebook(job, page_id="page123", access_token="token")
+
+        reel_call = client_cls.return_value.schedule_facebook_reel.call_args
+        self.assertEqual(reel_call.kwargs["publish_at"], publish_at)
+        self.assertFalse(reel_call.kwargs["unpublished"])
+
+    def test_publish_existing_facebook_reel_sets_published(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        with patch.object(client, "_request", return_value={"success": True}) as request_mock:
+            client.publish_existing_facebook_reel(
+                page_id="page123",
+                video_id="4025341661101246",
+                title="Launch",
+            )
+
+        request_mock.assert_called_once_with(
+            "POST",
+            "page123/video_reels",
+            body={
+                "upload_phase": "finish",
+                "video_id": "4025341661101246",
+                "video_state": "PUBLISHED",
+                "title": "Launch",
+            },
+        )
+
+    def test_schedule_facebook_reel_schedules_as_public(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        now = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
+        publish_at = now + timedelta(hours=2)
+        with (
+            patch.object(
+                client,
+                "_request",
+                side_effect=[
+                    {"video_id": "vid_1", "upload_url": "https://upload.example"},
+                    {},
+                ],
+            ) as request_mock,
+            patch.object(client, "_upload_facebook_reel_video"),
+            patch(
+                "media_publisher.publishers.meta.validate_publish_at",
+                side_effect=lambda value, **kwargs: validate_publish_at(value, now=now),
+            ),
+        ):
+            video_id = client.schedule_facebook_reel(
+                page_id="page123",
+                title="Launch",
+                description="Details",
+                video_path=Path("quote.mp4"),
+                publish_at=publish_at,
+                unpublished=True,  # ignored when publish_at is set
+            )
+
+        self.assertEqual(video_id, "vid_1")
+        finish_body = request_mock.call_args_list[1].kwargs["body"]
+        self.assertEqual(finish_body["video_state"], "SCHEDULED")
+        self.assertIn("scheduled_publish_time", finish_body)
 
     def test_publish_to_instagram_publishes_long_form_video_with_url(self) -> None:
         job = PublishJob(

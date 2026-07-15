@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 import secrets
 import time
 import urllib.error
@@ -110,6 +111,36 @@ def normalize_facebook_permalink(value: str) -> str:
     if text.startswith("/"):
         return f"https://www.facebook.com{text}"
     return f"https://www.facebook.com/{text}"
+
+
+_FACEBOOK_VIDEO_ID_RE = re.compile(
+    r"(?:(?:facebook\.com)/(?:reel|watch|video(?:s)?\.php)|(?:fb\.watch)/)"
+    r"(?:.*?[?&]v=)?/?(\d{5,})",
+    re.IGNORECASE,
+)
+_FACEBOOK_NUMERIC_ID_RE = re.compile(r"^\d{5,}$")
+
+
+def extract_facebook_video_id(value: str) -> str | None:
+    """Extract a Facebook video/reel id from a permalink, Graph id, or numeric string."""
+    text = value.strip()
+    if not text:
+        return None
+    if _FACEBOOK_NUMERIC_ID_RE.fullmatch(text):
+        return text
+    match = _FACEBOOK_VIDEO_ID_RE.search(text)
+    if match:
+        return match.group(1)
+    # Common Page video path shapes: /PageName/videos/123.../ or /reel/123...
+    for pattern in (
+        r"/reel/(\d{5,})",
+        r"/videos/(\d{5,})",
+        r"[?&]v=(\d{5,})",
+    ):
+        found = re.search(pattern, text, re.IGNORECASE)
+        if found:
+            return found.group(1)
+    return None
 
 
 def normalize_instagram_username(value: str) -> str:
@@ -1246,6 +1277,39 @@ class MetaClient:
         if thumbnail_path is not None:
             self.set_facebook_video_thumbnail(video_id, thumbnail_path)
         return video_id
+
+    def publish_existing_facebook_reel(
+        self,
+        *,
+        page_id: str,
+        video_id: str,
+        title: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        """Mark an already-uploaded Facebook Reel as publicly published.
+
+        Used to recover drafts created when privacy_status was incorrectly mapped
+        to video_state=DRAFT. Calls finish with PUBLISHED on the existing video_id.
+        """
+        video_id = video_id.strip()
+        if not video_id:
+            raise MetaError("video_id is required to publish an existing Facebook Reel")
+
+        finish: dict[str, str] = {
+            "upload_phase": "finish",
+            "video_id": video_id,
+            "video_state": "PUBLISHED",
+        }
+        if title is not None and title.strip():
+            finish["title"] = title.strip()
+        if description is not None and description.strip():
+            finish["description"] = description.strip()
+
+        response = self._request("POST", f"{page_id}/video_reels", body=finish)
+        if isinstance(response, dict) and response.get("success") is False:
+            raise MetaError(
+                f"Meta refused to publish Facebook Reel {video_id!r}: {response}"
+            )
 
     def upload_unpublished_video_url(
         self, page_id: str, video_path: Path
