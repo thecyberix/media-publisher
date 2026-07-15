@@ -1,0 +1,54 @@
+name: Setup Python environment
+description: Python 3.12 with pip cache, optional Playwright Chromium cache, optional ffmpeg
+
+inputs:
+  install-playwright:
+    description: Install Playwright Chromium (uses browser cache when possible)
+    required: false
+    default: "false"
+  install-ffmpeg:
+    description: Install ffmpeg via apt
+    required: false
+    default: "false"
+  extras:
+    description: Optional pip extras from pyproject.toml (e.g. thumbnails, sheets)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install ffmpeg
+      if: inputs.install-ffmpeg == 'true'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+    - name: Cache Playwright browsers
+      if: inputs.install-playwright == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+
+    - name: Install Python package
+      shell: bash
+      env:
+        PIP_EXTRAS: ${{ inputs.extras }}
+      run: |
+        python -m pip install --upgrade pip
+        if [ -n "$PIP_EXTRAS" ]; then
+          pip install -e ".[$PIP_EXTRAS]"
+        else
+          pip install -e .
+        fi
+
+    - name: Install Playwright Chromium
+      if: inputs.install-playwright == 'true'
+      shell: bash
+      run: playwright install chromium

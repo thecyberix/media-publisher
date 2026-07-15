@@ -57,15 +57,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.12"
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Install package
-        run: pip install -e ".[thumbnails]"
+          install-ffmpeg: "true"
+          extras: thumbnails
 
       - name: Verify configuration
         run: python -m media_publisher --check-config
@@ -89,15 +85,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.12"
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Install package
-        run: pip install -e ".[thumbnails]"
+          install-ffmpeg: "true"
+          extras: thumbnails
 
       - name: Verify configuration
         run: python -m media_publisher --check-config

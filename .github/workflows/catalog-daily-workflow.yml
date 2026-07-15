@@ -18,20 +18,16 @@ env:
   NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
 
 jobs:
-  check-authorization:
+  workflow:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.12"
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-          playwright install chromium
+          install-playwright: "true"
+          install-ffmpeg: "true"
 
       - name: Restore Smartcat session
         env:
@@ -93,39 +89,8 @@ jobs:
           EOF
           )"
 
-  workflow:
-    runs-on: ubuntu-latest
-    needs: check-authorization
-    if: >-
-      always() &&
-      (needs.check-authorization.result == 'success' || needs.check-authorization.result == 'skipped')
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-          playwright install chromium
-
-      - name: Restore Smartcat session
-        env:
-          SMARTCAT_STORAGE_STATE_JSON: ${{ secrets.SMARTCAT_STORAGE_STATE_JSON }}
-        run: |
-          if [ -z "$SMARTCAT_STORAGE_STATE_JSON" ]; then
-            echo "No SMARTCAT_STORAGE_STATE_JSON secret configured"
-            exit 0
-          fi
-          printf '%s' "$SMARTCAT_STORAGE_STATE_JSON" > smartcat-state.json
-
       - name: Restore workflow state from previous run
+        if: steps.auth_check.outcome == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -146,11 +111,13 @@ jobs:
           fi
 
       - name: Show Drive service account email
+        if: steps.auth_check.outcome == 'success'
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python scripts/catalog/print_google_service_account_email.py
 
       - name: Run workflow orchestrator
+        if: steps.auth_check.outcome == 'success'
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
@@ -172,7 +139,7 @@ jobs:
           fi
 
       - name: Upload Airtable backup artifact
-        if: always()
+        if: always() && steps.auth_check.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: airtable-backup-${{ github.run_number }}
@@ -181,7 +148,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload workflow state artifact
-        if: always()
+        if: always() && steps.auth_check.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: workflow-state
@@ -193,7 +160,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Send workflow failure email
-        if: failure()
+        if: failure() && steps.auth_check.outcome == 'success'
         env:
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
           GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}

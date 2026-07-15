@@ -225,7 +225,7 @@ python -m media_publisher --canva-auth-code <authorization-code>
 
 ### Authorization checks (Smartcat and Canva)
 
-Before each run, job `check-authorization` validates configured credentials:
+Before each run, the **Check authorization** step validates configured credentials:
 
 - **Smartcat** — `SMARTCAT_STORAGE_STATE_JSON` (Playwright session for sheet ingest)
 - **Canva** — `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, and `CANVA_TOKEN_JSON` (token refresh via the same path as `python -m media_publisher --test-canva`)
@@ -233,7 +233,9 @@ Before each run, job `check-authorization` validates configured credentials:
 If either configured check fails:
 
 1. An email is sent via Gmail SMTP with renewal instructions.
-2. The main workflow job is skipped.
+2. Later workflow steps are skipped (single job; no duplicate Playwright install).
+
+Python dependencies and Playwright Chromium are cached between runs via `.github/actions/setup-python-env` (pip cache + browser cache keyed on `pyproject.toml`).
 
 Renew Smartcat locally:
 

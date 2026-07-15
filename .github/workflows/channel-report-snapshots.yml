@@ -28,12 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.12"
-
-      - name: Install package
-        run: pip install -e ".[sheets]"
+          extras: sheets
 
       - name: Capture follower snapshots
         run: python -m media_publisher --channel-report-snapshot
