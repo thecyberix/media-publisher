@@ -15,6 +15,7 @@ from media_publisher.quotes_pipeline import (
     resolve_quote_month,
     run_quotes_pipeline,
 )
+from media_publisher.quotes_render_pipeline import resolve_quote_days_to_prepare
 from media_publisher.sources.quote_pdf import extract_pdf_page_text, normalize_extracted_text
 from media_publisher.sources.quotes import (
     discover_monthly_quotes,
@@ -58,6 +59,26 @@ class QuoteDateParsingTests(unittest.TestCase):
         self.assertEqual(local.month, 7)
         self.assertEqual(local.year, 2026)
         self.assertEqual(local.hour, 8)
+
+
+class QuoteRenderPlanningTests(unittest.TestCase):
+    def test_resolve_quote_days_to_prepare_staggered(self) -> None:
+        days = resolve_quote_days_to_prepare(
+            year=2026,
+            month=7,
+            publish_mode="staggered",
+            reference_date=date(2026, 7, 15),
+        )
+        self.assertEqual(days, {15, 16})
+
+    def test_resolve_quote_days_to_prepare_single_day(self) -> None:
+        days = resolve_quote_days_to_prepare(
+            year=2026,
+            month=7,
+            publish_mode="immediate",
+            reference_date=date(2026, 7, 15),
+        )
+        self.assertEqual(days, {15})
 
 
 class QuoteCanvaTitleTests(unittest.TestCase):
@@ -162,6 +183,9 @@ class QuotesPipelineTests(unittest.TestCase):
     def _settings(self, work_dir: Path, **kwargs) -> QuotesPipelineSettings:
         defaults = {
             "work_dir": work_dir,
+            "project_root": work_dir,
+            "quotes_sources_config": work_dir / "quotes_sources.json",
+            "google_service_account": work_dir / "service-account.json",
             "publish_timezone": "Europe/Sofia",
             "publish_hour": 8,
             "template_urls": {},
@@ -179,20 +203,46 @@ class QuotesPipelineTests(unittest.TestCase):
         defaults.update(kwargs)
         return QuotesPipelineSettings(**defaults)
 
+    def _sample_posts(
+        self,
+        work_dir: Path,
+        *,
+        stem: str = "2026-07-05",
+        caption: str = "Кармата на този момент е твоята отговорност.",
+    ) -> tuple:
+        from media_publisher.sources.quotes import LocalQuotePost
+
+        year, month, day = (int(part) for part in stem.split("-"))
+        image = work_dir / f"{stem}.jpg"
+        image.write_bytes(b"jpg")
+        ig_image = work_dir / f"{stem}-ig.jpg"
+        ig_image.write_bytes(b"jpg")
+        post = LocalQuotePost(
+            stem=stem,
+            image_path=image,
+            caption=caption,
+            publish_at=datetime(
+                year,
+                month,
+                day,
+                8,
+                0,
+                tzinfo=ZoneInfo("Europe/Sofia"),
+            ),
+            source_path=image,
+        )
+        return post, ig_image
+
     def test_resolve_quote_month_from_publish_date(self) -> None:
         self.assertEqual(
             resolve_quote_month(date(2026, 7, 5), publish_timezone="Europe/Sofia"),
             (2026, 7),
         )
 
-    def test_run_quotes_pipeline_uses_monthly_pdf(self) -> None:
-        if not MONTHLY_PDF.is_file():
-            self.skipTest("monthly Canva PDF sample not present")
-
+    def test_run_quotes_pipeline_uses_rendered_posts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = Path(tmpdir)
-            cached_pdf = work_dir / "quotes-2026-07.pdf"
-            shutil.copy2(MONTHLY_PDF, cached_pdf)
+            post, ig_image = self._sample_posts(work_dir, stem="2026-12-31")
             settings = self._settings(
                 work_dir,
                 publish_mode="scheduled",
@@ -203,8 +253,11 @@ class QuotesPipelineTests(unittest.TestCase):
                 "media_publisher.quotes_pipeline.facebook_can_schedule",
                 return_value=True,
             ), patch(
-                "media_publisher.quotes_pipeline.ensure_monthly_quotes_pdf",
-                return_value=cached_pdf,
+                "media_publisher.quotes_pipeline.quote_is_due",
+                return_value=True,
+            ), patch(
+                "media_publisher.quotes_pipeline.prepare_quote_posts_for_publish",
+                return_value=([post], {post.stem: ig_image}),
             ), patch(
                 "media_publisher.quotes_pipeline.publish_local_quote",
                 side_effect=[
@@ -215,7 +268,9 @@ class QuotesPipelineTests(unittest.TestCase):
                 exit_code, results = run_quotes_pipeline(
                     settings,
                     meta_client=unittest.mock.Mock(),
-                    canva_client=unittest.mock.Mock(),
+                    sheets_client=unittest.mock.Mock(),
+                    drive_client=unittest.mock.Mock(),
+                    quotes_config=unittest.mock.Mock(),
                     print_line=lambda _: None,
                 )
 
@@ -223,18 +278,18 @@ class QuotesPipelineTests(unittest.TestCase):
             self.assertEqual(len(results), 2)
             self.assertTrue(all(result.success for result in results))
             self.assertEqual(publish_mock.call_count, 2)
+            self.assertEqual(
+                publish_mock.call_args_list[0].kwargs["caption"],
+                "Кармата на този момент е твоята отговорност.",
+            )
 
             state = load_quote_state(work_dir)
             self.assertIn("2026-12-31", state)
 
     def test_run_quotes_pipeline_publish_today_only(self) -> None:
-        if not MONTHLY_PDF.is_file():
-            self.skipTest("monthly Canva PDF sample not present")
-
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = Path(tmpdir)
-            cached_pdf = work_dir / "quotes-2026-07.pdf"
-            shutil.copy2(MONTHLY_PDF, cached_pdf)
+            post, ig_image = self._sample_posts(work_dir)
             settings = self._settings(
                 work_dir,
                 publish_mode="scheduled",
@@ -243,8 +298,14 @@ class QuotesPipelineTests(unittest.TestCase):
             )
 
             with patch(
-                "media_publisher.quotes_pipeline.ensure_monthly_quotes_pdf",
-                return_value=cached_pdf,
+                "media_publisher.quotes_pipeline.prepare_quote_posts_for_publish",
+                return_value=([post], {post.stem: ig_image}),
+            ), patch(
+                "media_publisher.quotes_pipeline.facebook_can_schedule",
+                return_value=True,
+            ), patch(
+                "media_publisher.quotes_pipeline.quote_is_due",
+                return_value=True,
             ), patch(
                 "media_publisher.quotes_pipeline.publish_local_quote",
                 side_effect=[
@@ -255,7 +316,9 @@ class QuotesPipelineTests(unittest.TestCase):
                 exit_code, results = run_quotes_pipeline(
                     settings,
                     meta_client=unittest.mock.Mock(),
-                    canva_client=unittest.mock.Mock(),
+                    sheets_client=unittest.mock.Mock(),
+                    drive_client=unittest.mock.Mock(),
+                    quotes_config=unittest.mock.Mock(),
                     print_line=lambda _: None,
                 )
 
@@ -279,17 +342,7 @@ class QuotesPipelineTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = Path(tmpdir)
-            cached_pdf = work_dir / "quotes-2026-07.pdf"
-            cached_pdf.write_bytes(b"%PDF-1.4")
-            image = work_dir / "2026-07-05.png"
-            image.write_bytes(b"png")
-            post = LocalQuotePost(
-                stem="2026-07-05",
-                image_path=image,
-                caption="Caption",
-                publish_at=datetime(2026, 7, 5, 8, 0, tzinfo=ZoneInfo("Europe/Sofia")),
-                source_path=cached_pdf,
-            )
+            post, ig_image = self._sample_posts(work_dir)
             settings = self._settings(
                 work_dir,
                 publish_mode="immediate",
@@ -298,11 +351,8 @@ class QuotesPipelineTests(unittest.TestCase):
             )
 
             with patch(
-                "media_publisher.quotes_pipeline.ensure_monthly_quotes_pdf",
-                return_value=cached_pdf,
-            ), patch(
-                "media_publisher.quotes_pipeline.discover_monthly_quotes",
-                return_value=[post],
+                "media_publisher.quotes_pipeline.prepare_quote_posts_for_publish",
+                return_value=([post], {post.stem: ig_image}),
             ), patch(
                 "media_publisher.quotes_pipeline.publish_local_quote",
                 return_value="https://www.instagram.com/p/abc123/",
@@ -310,7 +360,9 @@ class QuotesPipelineTests(unittest.TestCase):
                 exit_code, results = run_quotes_pipeline(
                     settings,
                     meta_client=unittest.mock.Mock(),
-                    canva_client=unittest.mock.Mock(),
+                    sheets_client=unittest.mock.Mock(),
+                    drive_client=unittest.mock.Mock(),
+                    quotes_config=unittest.mock.Mock(),
                     print_line=lambda _: None,
                 )
 
@@ -319,6 +371,10 @@ class QuotesPipelineTests(unittest.TestCase):
             self.assertEqual(results[0].platform, "instagram")
             publish_mock.assert_called_once()
             self.assertEqual(publish_mock.call_args.kwargs["platform"], "instagram")
+            self.assertEqual(
+                publish_mock.call_args.kwargs["caption"],
+                "Кармата на този момент е твоята отговорност.",
+            )
 
     def test_filter_quotes_for_local_date(self) -> None:
         if not MONTHLY_PDF.is_file():

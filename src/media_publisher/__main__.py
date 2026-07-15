@@ -32,6 +32,7 @@ from media_publisher.sources.publish_media import (
 from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
 from media_publisher.sources.tn_publish import TnPublishError, TnPublishSettings
 from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_pipeline
+from media_publisher.quotes_render_pipeline import QuotesRenderPipelineError
 from media_publisher.sources.quote_pdf import QuotePdfError
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import InstagramPublishError, publish_to_instagram
@@ -1103,7 +1104,10 @@ def build_quotes_pipeline_settings(
     platforms: tuple[PlatformName, ...] | None = None,
 ) -> QuotesPipelineSettings:
     return QuotesPipelineSettings(
-        work_dir=canva_download_dir_from_settings(settings),
+        work_dir=PROJECT_ROOT / settings.quotes_work_dir,
+        project_root=PROJECT_ROOT,
+        quotes_sources_config=PROJECT_ROOT / settings.quotes_sources_config,
+        google_service_account=PROJECT_ROOT / settings.google_sheets_service_account,
         publish_timezone=settings.quotes_publish_timezone,
         publish_hour=settings.quotes_publish_hour,
         template_urls=template_urls_from_settings(settings),
@@ -1117,8 +1121,6 @@ def build_quotes_pipeline_settings(
         youtube_playlist_title=settings.youtube_playlist_title,
         youtube_playlist_id=settings.youtube_playlist_id,
         ffmpeg_path=settings.happyscribe_ffmpeg,
-        canva_quotes_design_id=settings.canva_quotes_design_id,
-        canva_quotes_folder_id=resolve_canva_quotes_folder_id(settings),
         publish_mode=publish_mode,
         private_test=private_test,
         reference_date=reference_date,
@@ -1206,9 +1208,14 @@ def print_publish_run_mode(
 
 
 def validate_quotes_pipeline_settings(settings) -> list[str]:
-    missing = canva_settings_missing(settings)
-    missing.extend(meta_settings_missing(settings))
+    missing = meta_settings_missing(settings)
     missing.extend(youtube_settings_missing(settings))
+    if not (PROJECT_ROOT / settings.google_sheets_service_account).exists():
+        missing.append(
+            f"Google Sheets service account ({settings.google_sheets_service_account})"
+        )
+    if not (PROJECT_ROOT / settings.quotes_sources_config).exists():
+        missing.append(f"Quotes sources config ({settings.quotes_sources_config})")
     return missing
 
 
@@ -1245,6 +1252,10 @@ def run_quotes_publish(settings, args) -> int:
     try:
         page_id, instagram_account_id, _ = resolve_meta_targets(settings)
         meta_client = meta_client_from_settings(settings)
+        sheets_client = google_sheets_client_from_settings(settings)
+        drive_client = GoogleDriveClient.from_service_account(
+            PROJECT_ROOT / settings.google_sheets_service_account
+        )
         exit_code, _ = run_quotes_pipeline(
             build_quotes_pipeline_settings(
                 settings,
@@ -1256,10 +1267,11 @@ def run_quotes_publish(settings, args) -> int:
                 platforms=platforms,
             ),
             meta_client=meta_client,
-            canva_client=canva_client_from_settings(settings),
+            sheets_client=sheets_client,
+            drive_client=drive_client,
             print_line=print_console,
         )
-    except (MetaError, RuntimeError, QuotePdfError, CanvaError) as exc:
+    except (MetaError, RuntimeError, QuotesRenderPipelineError, GoogleDriveError, GoogleSheetsError) as exc:
         print(f"Quotes pipeline failed: {exc}")
         return 1
     return exit_code

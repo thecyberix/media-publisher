@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from media_publisher.sources.google_drive import GoogleDriveClient
@@ -13,6 +15,7 @@ from media_publisher.sources.quote_renderer import (
     save_quote_image,
     select_render_plan,
 )
+from media_publisher.sources.quotes import LocalQuotePost, _publish_datetime
 from media_publisher.sources.quotes_config import QuotesSourcesConfig
 from media_publisher.sources.quotes_sheet import DailyQuoteText, load_monthly_quote_texts
 
@@ -168,3 +171,120 @@ def render_monthly_quotes(
             )
 
     return rendered
+
+
+def resolve_quote_days_to_prepare(
+    *,
+    year: int,
+    month: int,
+    publish_mode: str,
+    reference_date: date | None,
+) -> set[int]:
+    """Return calendar days that need rendered images for this publish run."""
+    days_in_month = calendar.monthrange(year, month)[1]
+    all_days = set(range(1, days_in_month + 1))
+
+    if publish_mode == "staggered":
+        if reference_date is None:
+            raise QuotesRenderPipelineError(
+                "reference_date is required for staggered quote publish"
+            )
+        days = {reference_date.day}
+        tomorrow = reference_date + timedelta(days=1)
+        if tomorrow.year == year and tomorrow.month == month:
+            days.add(tomorrow.day)
+        return days & all_days
+
+    if reference_date is not None:
+        if reference_date.year != year or reference_date.month != month:
+            return set()
+        return {reference_date.day}
+
+    return all_days
+
+
+def build_local_quote_posts(
+    fbyt_renders: list[RenderedQuoteImage],
+    *,
+    publish_timezone: str,
+    publish_hour: int,
+) -> list[LocalQuotePost]:
+    posts: list[LocalQuotePost] = []
+    for item in sorted(fbyt_renders, key=lambda render: render.day):
+        year, month, day = (int(part) for part in item.stem.split("-"))
+        posts.append(
+            LocalQuotePost(
+                source_path=item.image_path,
+                image_path=item.image_path,
+                publish_at=_publish_datetime(
+                    year,
+                    month,
+                    day,
+                    publish_timezone=publish_timezone,
+                    publish_hour=publish_hour,
+                ),
+                caption=item.caption,
+                stem=item.stem,
+            )
+        )
+    return posts
+
+
+def prepare_quote_posts_for_publish(
+    *,
+    config: QuotesSourcesConfig,
+    sheets_client: GoogleSheetsClient,
+    drive_client: GoogleDriveClient,
+    year: int,
+    month: int,
+    publish_timezone: str,
+    publish_hour: int,
+    publish_mode: str,
+    reference_date: date | None,
+    overwrite: bool = False,
+) -> tuple[list[LocalQuotePost], dict[str, Path]]:
+    """Render quote images from Sheet text + Drive backgrounds and build publish posts."""
+    days = resolve_quote_days_to_prepare(
+        year=year,
+        month=month,
+        publish_mode=publish_mode,
+        reference_date=reference_date,
+    )
+    if not days:
+        return [], {}
+
+    fbyt_renders: list[RenderedQuoteImage] = []
+    ig_renders: list[RenderedQuoteImage] = []
+    for day in sorted(days):
+        fbyt_renders.extend(
+            render_monthly_quotes(
+                config=config,
+                sheets_client=sheets_client,
+                drive_client=drive_client,
+                year=year,
+                month=month,
+                variants=("fbyt",),
+                overwrite=overwrite,
+                day=day,
+            )
+        )
+        ig_renders.extend(
+            render_monthly_quotes(
+                config=config,
+                sheets_client=sheets_client,
+                drive_client=drive_client,
+                year=year,
+                month=month,
+                variants=("ig",),
+                overwrite=overwrite,
+                day=day,
+            )
+        )
+
+    posts = build_local_quote_posts(
+        fbyt_renders,
+        publish_timezone=publish_timezone,
+        publish_hour=publish_hour,
+    )
+    ig_images_by_stem = {item.stem: item.image_path for item in ig_renders}
+    return posts, ig_images_by_stem

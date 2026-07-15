@@ -40,6 +40,8 @@ class Settings:
     canva_quotes_folder_id: str = ""
     quotes_publish_timezone: str = "Europe/Sofia"
     quotes_publish_hour: int = 8
+    quotes_sources_config: str = "config/quotes_sources.json"
+    quotes_work_dir: str = "downloads/quotes"
     publish_timezone: str = "Europe/Sofia"
     publish_hour: int = 18
     youtube_client_secrets: str = "credentials/youtube-client.json"
@@ -185,6 +187,12 @@ def load_settings(project_root: Path | None = None) -> Settings:
         quotes_publish_timezone=os.getenv("QUOTES_PUBLISH_TIMEZONE", "Europe/Sofia").strip()
         or "Europe/Sofia",
         quotes_publish_hour=int(os.getenv("QUOTES_PUBLISH_HOUR", "8").strip() or "8"),
+        quotes_sources_config=os.getenv(
+            "QUOTES_SOURCES_CONFIG", "config/quotes_sources.json"
+        ).strip()
+        or "config/quotes_sources.json",
+        quotes_work_dir=os.getenv("QUOTES_WORK_DIR", "downloads/quotes").strip()
+        or "downloads/quotes",
         publish_timezone=os.getenv("PUBLISH_TIMEZONE", "Europe/Sofia").strip()
         or "Europe/Sofia",
         publish_hour=int(os.getenv("PUBLISH_HOUR", "18").strip() or "18"),

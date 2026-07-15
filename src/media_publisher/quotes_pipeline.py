@@ -12,20 +12,21 @@ from media_publisher.publishers.instagram import InstagramPublishError
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.publishers.quotes import publish_local_quote
 from media_publisher.publishers.youtube import YouTubePublishError
-from media_publisher.sources.canva import CanvaClient, CanvaError, ensure_monthly_quotes_pdf
-from media_publisher.sources.quote_pdf import QuotePdfError
+from media_publisher.quotes_render_pipeline import (
+    QuotesRenderPipelineError,
+    prepare_quote_posts_for_publish,
+)
+from media_publisher.sources.google_drive import GoogleDriveClient
+from media_publisher.sources.google_sheets import GoogleSheetsClient
 from media_publisher.sources.quotes import (
     LocalQuotePost,
-    QUOTE_IG_RENDER_DIRNAME,
     QUOTE_VIDEO_DIRNAME,
-    discover_monthly_quotes,
     load_quote_state,
     mark_platform_scheduled_in_state,
     platform_permalink,
-    quote_canva_design_title,
-    quote_canva_ig_design_title,
     save_quote_state,
 )
+from media_publisher.sources.quotes_config import QuotesSourcesConfig, load_quotes_sources_config
 
 from media_publisher.scheduling import (
     MIN_SCHEDULE_LEAD_SECONDS,
@@ -43,6 +44,9 @@ QUOTE_PLATFORMS: tuple[PlatformName, ...] = ("youtube", "facebook", "instagram")
 @dataclass(frozen=True)
 class QuotesPipelineSettings:
     work_dir: Path
+    project_root: Path
+    quotes_sources_config: Path
+    google_service_account: Path
     publish_timezone: str
     publish_hour: int
     template_urls: dict[str, str]
@@ -56,8 +60,6 @@ class QuotesPipelineSettings:
     youtube_playlist_title: str
     youtube_playlist_id: str | None
     ffmpeg_path: str | None
-    canva_quotes_design_id: str | None = None
-    canva_quotes_folder_id: str | None = None
     publish_mode: PublishMode = "staggered"
     private_test: bool = False
     reference_date: date | None = None
@@ -160,9 +162,7 @@ def quote_work_items(
     return [(post, platforms, immediate) for post in filtered]
 
 
-def quotes_need_instagram_design(
-    settings: QuotesPipelineSettings,
-) -> bool:
+def quotes_need_instagram_images(settings: QuotesPipelineSettings) -> bool:
     if settings.private_test:
         return False
     if settings.platforms is not None and "instagram" not in settings.platforms:
@@ -170,105 +170,51 @@ def quotes_need_instagram_design(
     return True
 
 
-def load_instagram_quote_images_by_stem(
-    *,
-    canva_client: CanvaClient,
-    settings: QuotesPipelineSettings,
-    year: int,
-    month: int,
-    print_line: Callable[[str], None],
-) -> dict[str, Path]:
-    ig_design_title = quote_canva_ig_design_title(year, month)
-    try:
-        ig_pdf_path = ensure_monthly_quotes_pdf(
-            canva_client,
-            settings.work_dir,
-            year=year,
-            month=month,
-            design_title=ig_design_title,
-            quotes_folder_id=settings.canva_quotes_folder_id,
-            variant="ig",
-        )
-    except CanvaError as exc:
-        print_line(
-            f"Failed to download Instagram quotes PDF ({ig_design_title}): {exc}"
-        )
-        return {}
-
-    print_line(f"Using Instagram quotes PDF: {ig_pdf_path.name} ({ig_design_title})")
-    try:
-        ig_posts = discover_monthly_quotes(
-            ig_pdf_path,
-            year=year,
-            month=month,
-            work_dir=settings.work_dir,
-            publish_timezone=settings.publish_timezone,
-            publish_hour=settings.publish_hour,
-            render_dirname=QUOTE_IG_RENDER_DIRNAME,
-        )
-    except QuotePdfError as exc:
-        print_line(f"Failed to read Instagram quotes PDF: {exc}")
-        return {}
-
-    return {post.stem: post.image_path for post in ig_posts}
-
-
 def run_quotes_pipeline(
     settings: QuotesPipelineSettings,
     *,
     meta_client: MetaClient,
-    canva_client: CanvaClient,
+    sheets_client: GoogleSheetsClient | None = None,
+    drive_client: GoogleDriveClient | None = None,
+    quotes_config: QuotesSourcesConfig | None = None,
     print_line: Callable[[str], None] = print,
 ) -> tuple[int, list[PlatformPublishResult]]:
-    """Download the monthly Canva PDF and schedule/publish daily quotes."""
+    """Render quotes from Google Sheet + Drive backgrounds and schedule/publish them."""
     year, month = resolve_quote_month(
         settings.reference_date,
         publish_timezone=settings.publish_timezone,
     )
-    design_title = quote_canva_design_title(year, month)
+
+    config = quotes_config or load_quotes_sources_config(settings.quotes_sources_config)
+    if sheets_client is None:
+        sheets_client = GoogleSheetsClient.from_service_account(settings.google_service_account)
+    if drive_client is None:
+        drive_client = GoogleDriveClient.from_service_account(settings.google_service_account)
 
     try:
-        pdf_path = ensure_monthly_quotes_pdf(
-            canva_client,
-            settings.work_dir,
+        posts, ig_images_by_stem = prepare_quote_posts_for_publish(
+            config=config,
+            sheets_client=sheets_client,
+            drive_client=drive_client,
             year=year,
             month=month,
-            design_title=design_title,
-            design_id=settings.canva_quotes_design_id,
-            quotes_folder_id=settings.canva_quotes_folder_id,
-        )
-    except CanvaError as exc:
-        print_line(f"Failed to download monthly quotes PDF ({design_title}): {exc}")
-        return 1, []
-
-    print_line(f"Using monthly quotes PDF: {pdf_path.name} ({design_title})")
-
-    try:
-        posts = discover_monthly_quotes(
-            pdf_path,
-            year=year,
-            month=month,
-            work_dir=settings.work_dir,
             publish_timezone=settings.publish_timezone,
             publish_hour=settings.publish_hour,
+            publish_mode=settings.publish_mode,
+            reference_date=settings.reference_date,
         )
-    except QuotePdfError as exc:
-        print_line(f"Failed to read monthly quotes PDF: {exc}")
+    except QuotesRenderPipelineError as exc:
+        print_line(f"Failed to prepare quote images: {exc}")
         return 1, []
 
     if not posts:
-        print_line(f"No quote pages found in {pdf_path.name}.")
+        print_line(f"No quote posts found for {year}-{month:02d}.")
         return 0, []
 
-    ig_images_by_stem: dict[str, Path] = {}
-    if quotes_need_instagram_design(settings):
-        ig_images_by_stem = load_instagram_quote_images_by_stem(
-            canva_client=canva_client,
-            settings=settings,
-            year=year,
-            month=month,
-            print_line=print_line,
-        )
+    print_line(
+        f"Using rendered quotes from Google Sheet + Drive backgrounds "
+        f"({len(posts)} day(s) prepared for {year}-{month:02d})."
+    )
 
     if settings.private_test:
         print_line(
@@ -282,13 +228,13 @@ def run_quotes_pipeline(
         )
     elif settings.publish_mode == "immediate":
         print_line(
-            "Daily quote pages are converted to short videos for YouTube. "
-            "Facebook and Instagram use the rendered page image. Publishing immediately."
+            "Daily quote images are converted to short videos for YouTube. "
+            "Facebook and Instagram use the rendered image. Publishing immediately."
         )
     else:
         print_line(
-            "Daily quote pages are converted to short videos for YouTube (scheduled via API). "
-            "Facebook and Instagram use the rendered page image (Instagram is published "
+            "Daily quote images are converted to short videos for YouTube (scheduled via API). "
+            "Facebook and Instagram use the rendered image (Instagram is published "
             "automatically near the scheduled time)."
         )
 
@@ -313,6 +259,9 @@ def run_quotes_pipeline(
         else:
             print_line("No quote posts ready to publish.")
         return 0, []
+
+    if quotes_need_instagram_images(settings) and not ig_images_by_stem:
+        print_line("Warning: no Instagram quote renders were prepared.")
 
     state = load_quote_state(settings.work_dir)
     results: list[PlatformPublishResult] = []
@@ -366,8 +315,7 @@ def run_quotes_pipeline(
                 image_path = ig_images_by_stem.get(post.stem)
                 if image_path is None:
                     print_line(
-                        f"  instagram: skipped — no page found in "
-                        f"{quote_canva_ig_design_title(year, month)!r} for {post.stem}"
+                        f"  instagram: skipped — no rendered IG image for {post.stem}"
                     )
                     continue
             else:
@@ -402,7 +350,7 @@ def run_quotes_pipeline(
                     platform=platform,
                     permalink=permalink,
                     publish_at=post.publish_at,
-                    source_pdf=post.source_path.name,
+                    source_pdf=post.image_path.name,
                 )
                 save_quote_state(settings.work_dir, state)
                 when = "now" if publish_immediately else post.publish_at.isoformat()
@@ -415,7 +363,7 @@ def run_quotes_pipeline(
                     PlatformPublishResult(
                         record_id=post.stem,
                         platform=platform,
-                        title=post.stem,
+                        title=post.caption or post.stem,
                         permalink=permalink,
                     )
                 )
@@ -424,7 +372,7 @@ def run_quotes_pipeline(
                 FacebookPublishError,
                 InstagramPublishError,
                 MetaError,
-                QuotePdfError,
+                QuotesRenderPipelineError,
             ) as exc:
                 message = str(exc)
                 print_line(f"  {platform}: failed — {message}")
@@ -432,7 +380,7 @@ def run_quotes_pipeline(
                     PlatformPublishResult(
                         record_id=post.stem,
                         platform=platform,
-                        title=post.stem,
+                        title=post.caption or post.stem,
                         error=message,
                     )
                 )
