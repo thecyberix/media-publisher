@@ -100,18 +100,20 @@ def existing_review_names(drive: GoogleDriveClient, review_folder_id: str) -> se
     return names
 
 
-def status_matches(value: object, status_key: str) -> bool:
+def status_matches_any(value: object, status_keys: list[str]) -> bool:
     if value is None:
         return False
-    return status_key.casefold() in str(value).casefold()
+    text = str(value).casefold()
+    return any(key.casefold() in text for key in status_keys)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--status",
-        default="Synchronization done",
-        help='Catalog status bucket to process (default: "Synchronization done")',
+        action="append",
+        default=[],
+        help='Catalog status bucket to process (repeatable; default: "Synchronization done")',
     )
     parser.add_argument(
         "--apply",
@@ -119,7 +121,9 @@ def main() -> int:
         help="Upload review thumbnails and process approved ones (default dry-run)",
     )
     args = parser.parse_args()
-    status_key = args.status.strip()
+    status_keys = [part.strip() for item in args.status for part in item.split(",") if part.strip()]
+    if not status_keys:
+        status_keys = ["Synchronization done"]
 
     settings = load_settings(PROJECT_ROOT)
     airtable = AirtableClient(
@@ -154,7 +158,7 @@ def main() -> int:
 
     for record in records:
         fields = record.fields
-        if not status_matches(fields.get(FIELD_STATUS), status_key):
+        if not status_matches_any(fields.get(FIELD_STATUS), status_keys):
             continue
         if has_original_video_thumbnail(fields):
             continue
@@ -228,7 +232,8 @@ def main() -> int:
         )
 
     mode = "APPLY" if args.apply else "DRY-RUN"
-    print(f"=== Queue {status_key} thumbnails for review ({mode}) ===")
+    status_label = ", ".join(status_keys)
+    print(f"=== Queue {status_label} thumbnails for review ({mode}) ===")
     print(f"Review folder: {DEFAULT_REVIEW_FOLDER_URL}\n")
 
     if approved_results:

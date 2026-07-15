@@ -21,8 +21,18 @@ from media_publisher.sources.airtable import (
 from media_publisher.sources.tn_docx import caption_lines_for_render
 from media_publisher.sources.tn_publish import render_destination
 from media_publisher.sources.tn_reference import (
+    cover_label_box_reference_text,
     cover_reference_text,
+    cover_split_reference_text,
+    cover_top_only_reference_text,
+    extract_label_box_reference_line_styles,
     extract_line_styles_from_reference_thumbnail,
+    extract_reordered_mystic_musings_reference_styles,
+    extract_top_only_reference_line_styles,
+    extract_top_reference_line_styles,
+    has_label_box_reference_layout,
+    has_split_top_bottom_reference_layout,
+    has_top_only_reference_layout,
 )
 from media_publisher.sources.tn_renderer import TnRenderError, render_tn_thumbnail
 
@@ -119,19 +129,59 @@ def main() -> int:
         print(f"  caption:  {' / '.join(caption_lines)}")
 
         reference = template.copy()
-        line_styles = extract_line_styles_from_reference_thumbnail(
-            reference,
-            template.size,
-            caption_line_count=len(caption_lines),
-        )
+        if has_split_top_bottom_reference_layout(reference, template.size):
+            line_styles = extract_top_reference_line_styles(
+                reference,
+                template.size,
+                caption_line_count=len(caption_lines),
+            )
+            cover_mode = "split top/bottom"
+        elif has_top_only_reference_layout(reference, template.size):
+            line_styles = extract_top_only_reference_line_styles(
+                reference,
+                template.size,
+                caption_line_count=len(caption_lines),
+            )
+            cover_mode = "top"
+        elif has_label_box_reference_layout(reference, template.size):
+            line_styles = extract_label_box_reference_line_styles(
+                reference,
+                template.size,
+                caption_line_count=len(caption_lines),
+            )
+            cover_mode = "label box"
+        elif "solar flares" in title.casefold() and len(caption_lines) in (3, 4):
+            line_styles = extract_reordered_mystic_musings_reference_styles(
+                reference,
+                template.size,
+                caption_line_count=len(caption_lines),
+            )
+            cover_mode = "bottom"
+        else:
+            line_styles = extract_line_styles_from_reference_thumbnail(
+                reference,
+                template.size,
+                caption_line_count=len(caption_lines),
+            )
+            cover_mode = "bottom"
         if not line_styles:
             failures.append((title, "could not derive line styles from original English text"))
             print("  FAIL could not derive line styles from original English text")
             print()
             continue
 
-        template = cover_reference_text(reference)
-        print(f"  styles:   {len(line_styles)} reference line(s) from original English layout")
+        if cover_mode == "top":
+            template = cover_top_only_reference_text(reference)
+        elif cover_mode == "label box":
+            template = cover_label_box_reference_text(reference)
+        elif cover_mode == "split top/bottom":
+            template = cover_split_reference_text(reference)
+        else:
+            template = cover_reference_text(reference)
+        print(
+            f"  styles:   {len(line_styles)} reference line(s) "
+            f"from original English layout ({cover_mode})"
+        )
 
         try:
             result = render_tn_thumbnail(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from media_publisher.sources.quote_renderer import (
@@ -726,7 +726,49 @@ def _draw_block_lines(image: Image.Image, style: TnLineStyle, lines: list[str]) 
         y += line_height + gap
 
 
-def _draw_line(image: Image.Image, style: TnLineStyle) -> None:
+def _line_render_width(style: TnLineStyle) -> int:
+    segment_fonts = _fit_line_fonts(style)
+    if not segment_fonts:
+        return 0
+    return sum(_measure_text(font, segment.text)[0] for segment, font in segment_fonts)
+
+
+def _draw_flanking_lines(
+    draw: ImageDraw.ImageDraw,
+    *,
+    center_y: int,
+    text_left: int,
+    text_right: int,
+    span_width: int,
+    color: str,
+    gap_px: int = 10,
+    thickness: int = 2,
+) -> None:
+    text_width = text_right - text_left
+    if span_width <= text_width + gap_px * 2:
+        return
+    center_x = (text_left + text_right) // 2
+    span_left = center_x - span_width // 2
+    span_right = span_left + span_width
+    draw.line(
+        [(span_left, center_y), (text_left - gap_px, center_y)],
+        fill=color,
+        width=thickness,
+    )
+    draw.line(
+        [(text_right + gap_px, center_y), (span_right, center_y)],
+        fill=color,
+        width=thickness,
+    )
+
+
+def _draw_line(
+    image: Image.Image,
+    style: TnLineStyle,
+    *,
+    peer_widths: dict[int, int] | None = None,
+    style_index: int | None = None,
+) -> None:
     if style.block_line_parts:
         _draw_stacked_lines(image, style, list(style.block_line_parts))
         return
@@ -749,7 +791,14 @@ def _draw_line(image: Image.Image, style: TnLineStyle) -> None:
     left, top, right, bottom = style.bbox
     box_width = right - left
     box_height = bottom - top
-    y = top + box_height // 2
+    font_sizes = {segment.font_size_px for segment, _ in segment_fonts}
+    use_baseline = len(segment_fonts) > 1 and len(font_sizes) > 1
+    if use_baseline:
+        y = bottom - max(6, int(box_height * 0.12))
+        anchor = "ls"
+    else:
+        y = top + box_height // 2
+        anchor = "lm"
 
     total_width = sum(
         _measure_text(font, segment.text)[0] for segment, font in segment_fonts
@@ -762,15 +811,34 @@ def _draw_line(image: Image.Image, style: TnLineStyle) -> None:
     else:
         x = left + max(0, (box_width - total_width) // 2)
 
+    text_left = x
     for segment, font in segment_fonts:
         draw.text(
             (x, y),
             segment.text,
             font=font,
             fill=segment.color_hex,
-            anchor="lm",
+            anchor=anchor,
         )
         x += _measure_text(font, segment.text)[0]
+    text_right = x
+
+    span_index = style.flanking_line_span_style_index
+    if span_index is not None and peer_widths is not None:
+        span_width = peer_widths.get(span_index, 0)
+        if span_width <= 0 and span_index < len(peer_widths):
+            span_width = peer_widths[span_index]
+        if span_width > 0:
+            _draw_flanking_lines(
+                draw,
+                center_y=y,
+                text_left=text_left,
+                text_right=text_right,
+                span_width=span_width,
+                color=segment_fonts[0][0].color_hex,
+                gap_px=max(8, int(round(image.width * 0.012))),
+                thickness=max(3, int(round(image.height * 0.0035))),
+            )
 
 
 def fallback_line_styles(width: int, height: int, english_text: str) -> list[TnLineStyle]:
@@ -1027,6 +1095,20 @@ def _consciousness_uniform_font_sizes(styles: list[TnLineStyle]) -> list[TnLineS
     return result
 
 
+def _apply_matched_font_sizes(styles: list[TnLineStyle]) -> list[TnLineStyle]:
+    result = list(styles)
+    for index, style in enumerate(styles):
+        source_index = style.matched_font_size_style_index
+        if source_index is None or source_index >= len(styles):
+            continue
+        source_fonts = _fit_line_fonts(styles[source_index])
+        if not source_fonts:
+            continue
+        shared_size = float(source_fonts[0][1].size)
+        result[index] = replace(style, fixed_font_size_px=shared_size)
+    return result
+
+
 def render_tn_thumbnail(
     *,
     template: Image.Image,
@@ -1079,14 +1161,37 @@ def render_tn_thumbnail(
     if not assigned:
         raise TnRenderError("English TN text is empty")
 
+    flanking_map = {
+        index: style.flanking_line_span_style_index
+        for index, style in enumerate(line_styles)
+        if style.flanking_line_span_style_index is not None
+    }
+    matched_font_map = {
+        index: style.matched_font_size_style_index
+        for index, style in enumerate(line_styles)
+        if style.matched_font_size_style_index is not None
+    }
+    if flanking_map or matched_font_map:
+        assigned = [
+            replace(
+                style,
+                flanking_line_span_style_index=flanking_map.get(index),
+                matched_font_size_style_index=matched_font_map.get(index),
+            )
+            for index, style in enumerate(assigned)
+        ]
+
+    assigned = _apply_matched_font_sizes(assigned)
+
     result = template.copy()
+    peer_widths = {index: _line_render_width(style) for index, style in enumerate(assigned)}
     rendered_lines = 0
-    for style in assigned:
+    for index, style in enumerate(assigned):
         if not style.rendered_text.strip() and not any(
             segment.text for segment in style.segments
         ):
             continue
-        _draw_line(result, style)
+        _draw_line(result, style, peer_widths=peer_widths, style_index=index)
         rendered_lines += 1
 
     destination.parent.mkdir(parents=True, exist_ok=True)

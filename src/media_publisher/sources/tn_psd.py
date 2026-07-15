@@ -68,6 +68,8 @@ class TnLineStyle:
     stacked_line_backgrounds: tuple[str | None, ...] = ()
     stacked_line_match_widths: bool = False
     stacked_line_font_sizes: tuple[int, ...] = ()
+    flanking_line_span_style_index: int | None = None
+    matched_font_size_style_index: int | None = None
 
 
 @dataclass(frozen=True)
