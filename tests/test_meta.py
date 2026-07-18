@@ -435,6 +435,78 @@ class MetaClientTests(unittest.TestCase):
             upload_uri="https://rupload.facebook.com/ig-api-upload/v21.0/ctr_1",
         )
 
+    def test_schedule_instagram_reel_falls_back_to_hosting_on_processing_failed(
+        self,
+    ) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "video.mp4"
+            video_path.write_bytes(b"x" * 100)
+            with (
+                patch.object(
+                    client,
+                    "create_instagram_resumable_reel_container",
+                    return_value=(
+                        "ctr_1",
+                        "https://rupload.facebook.com/ig-api-upload/v21.0/ctr_1",
+                    ),
+                ),
+                patch.object(
+                    client,
+                    "upload_instagram_resumable_video",
+                    side_effect=MetaError(
+                        'Meta Instagram resumable upload failed with HTTP 400: '
+                        '{"debug_info":{"retriable":false,"type":"ProcessingFailedError",'
+                        '"message":"Request processing failed"}}'
+                    ),
+                ),
+                patch.object(
+                    client,
+                    "upload_unpublished_video_url",
+                    return_value=type(
+                        "Asset",
+                        (),
+                        {
+                            "asset_id": "fb_video_1",
+                            "url": "https://cdn.example.com/hosted.mp4",
+                            "kind": "video",
+                        },
+                    )(),
+                ) as host_mock,
+                patch.object(
+                    client,
+                    "create_instagram_media_container",
+                    return_value="ctr_2",
+                ) as container_mock,
+                patch.object(
+                    client,
+                    "wait_for_container",
+                    return_value=type(
+                        "Status",
+                        (),
+                        {"id": "ctr_2", "status_code": "FINISHED", "status": None},
+                    )(),
+                ),
+                patch.object(
+                    client, "publish_instagram_container", return_value="ig_media_1"
+                ),
+                patch.object(client, "cleanup_hosting_assets"),
+            ):
+                media_id = client.schedule_instagram_reel(
+                    instagram_account_id="ig123",
+                    caption="Caption",
+                    video_path=video_path,
+                    page_id="page123",
+                    prefer_resumable_upload=True,
+                )
+
+        self.assertEqual(media_id, "ig_media_1")
+        host_mock.assert_called_once_with("page123", video_path)
+        self.assertEqual(
+            container_mock.call_args.kwargs["video_url"],
+            "https://cdn.example.com/hosted.mp4",
+        )
+
     def test_schedule_instagram_reel_hosts_large_local_video(self) -> None:
         from media_publisher.video_duration import INSTAGRAM_SINGLE_UPLOAD_MAX_BYTES
 
@@ -703,13 +775,18 @@ class PublisherWrapperTests(unittest.TestCase):
             description="Caption text",
             video_path="downloads/happyscribe/sample.mp4",
             video_format="post",
+            metadata={"Duration": 658},
         )
         with (
             patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
             patch(
+                "media_publisher.publishers.instagram.reencode_instagram_upload_video",
+                side_effect=self._passthrough_instagram_video,
+            ) as reencode_mock,
+            patch(
                 "media_publisher.publishers.instagram.ensure_instagram_upload_video",
                 side_effect=self._passthrough_instagram_video,
-            ),
+            ) as remux_mock,
         ):
             client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
             media_id = publish_to_instagram(
@@ -721,6 +798,8 @@ class PublisherWrapperTests(unittest.TestCase):
             )
 
         self.assertEqual(media_id, "ig_media_1")
+        reencode_mock.assert_called_once()
+        remux_mock.assert_not_called()
         client_cls.return_value.schedule_instagram_reel.assert_called_once()
 
     def test_publish_to_instagram_long_form_local_video_calls_meta_client(self) -> None:

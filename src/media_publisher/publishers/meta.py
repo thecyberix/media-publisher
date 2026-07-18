@@ -1395,6 +1395,7 @@ class MetaClient:
             )
 
         if use_resumable_local:
+            assert video_path is not None
             try:
                 container_id, upload_uri = self.create_instagram_resumable_reel_container(
                     instagram_account_id=instagram_account_id,
@@ -1409,12 +1410,24 @@ class MetaClient:
                     upload_uri=upload_uri,
                 )
                 self.wait_for_container(container_id)
-                return self.publish_instagram_container(
+                media_id = self.publish_instagram_container(
                     instagram_account_id=instagram_account_id,
                     container_id=container_id,
                 )
-            finally:
+            except MetaError as exc:
+                # Long-form HappyScribe burns often fail IG rupload with opaque
+                # ProcessingFailedError; fall back to Page-hosted video_url when possible.
+                can_host = (
+                    page_id is not None
+                    and video_url is None
+                    and "ProcessingFailedError" in str(exc)
+                )
+                if not can_host:
+                    self.cleanup_hosting_assets(cover_asset)
+                    raise
+            else:
                 self.cleanup_hosting_assets(cover_asset)
+                return media_id
 
         video_asset: FacebookHostingAsset | None = None
         hosted_url = video_url
@@ -1422,6 +1435,7 @@ class MetaClient:
             video_asset = self.upload_unpublished_video_url(page_id, video_path)
             hosted_url = video_asset.url
         if hosted_url is None:
+            self.cleanup_hosting_assets(cover_asset)
             raise MetaError(
                 "A public video URL, resumable local upload, or page_id for hosting "
                 "is required to publish an Instagram Reel"

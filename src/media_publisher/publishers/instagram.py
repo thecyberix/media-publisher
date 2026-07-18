@@ -10,6 +10,8 @@ from media_publisher.video_duration import (
     instagram_duration_skip_message,
     instagram_exceeds_api_limit,
     InstagramVideoPrepError,
+    INSTAGRAM_SINGLE_UPLOAD_MAX_BYTES,
+    reencode_instagram_upload_video,
     resolve_video_duration_seconds,
 )
 
@@ -75,10 +77,24 @@ def publish_to_instagram(
         client = MetaClient(access_token, app_id=app_id)
         if video_path is not None:
             try:
-                video_path = ensure_instagram_upload_video(
-                    video_path,
-                    ffmpeg_path=ffmpeg_path,
+                # Long-form / large HappyScribe burns often violate IG rupload codec
+                # constraints (closed GOP, no edit lists). Re-encode those; remux only
+                # for small short-form files.
+                file_size = video_path.stat().st_size if video_path.is_file() else 0
+                needs_reencode = (
+                    (duration_seconds is not None and duration_seconds > 90)
+                    or file_size > INSTAGRAM_SINGLE_UPLOAD_MAX_BYTES
                 )
+                if needs_reencode:
+                    video_path = reencode_instagram_upload_video(
+                        video_path,
+                        ffmpeg_path=ffmpeg_path,
+                    )
+                else:
+                    video_path = ensure_instagram_upload_video(
+                        video_path,
+                        ffmpeg_path=ffmpeg_path,
+                    )
             except InstagramVideoPrepError as exc:
                 raise InstagramPublishError(str(exc)) from exc
             return client.schedule_instagram_reel(
