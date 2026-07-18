@@ -165,5 +165,6 @@ class PublishScheduleTests(unittest.TestCase):
         self.assertEqual(clear_call.args[1], {FIELD_COMBINED_MEDIA_FILE: ""})
 
     def test_instagram_schedule_excluded(self) -> None:
-        self.assertTrue(instagram_schedule_excluded({"Duration": 16 * 60}))
-        self.assertFalse(instagram_schedule_excluded({"Duration": 10 * 60}))
+        self.assertTrue(instagram_schedule_excluded({FIELD_TYPE: TYPE_VIDEO}))
+        self.assertFalse(instagram_schedule_excluded({FIELD_TYPE: TYPE_REEL}))
+        self.assertFalse(instagram_schedule_excluded({"Duration": 16 * 60}))

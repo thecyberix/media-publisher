@@ -233,21 +233,15 @@ def is_quote_record(fields: dict[str, Any]) -> bool:
 
 
 def catalog_instagram_schedule_excluded(fields: dict[str, Any]) -> bool:
-    """True when Instagram should not be scheduled (Graph API limit is 15 minutes)."""
-    from media_publisher.video_duration import (
-        instagram_exceeds_api_limit,
-        parse_duration_seconds,
-    )
-
-    duration = parse_duration_seconds(fields.get(FIELD_DURATION))
-    return instagram_exceeds_api_limit(duration)
+    """True when Instagram should not be scheduled (Type=Video / long-form)."""
+    return _field_text(fields.get(FIELD_TYPE)) == TYPE_VIDEO
 
 
 def catalog_instagram_publish_required(fields: dict[str, Any]) -> bool:
     """True when a catalog row still needs an Instagram publish."""
-    if _field_text(fields.get(FIELD_SG_IG_DATE)):
-        return True
-    return not catalog_instagram_schedule_excluded(fields)
+    if catalog_instagram_schedule_excluded(fields):
+        return False
+    return True
 
 
 def record_to_quote_job(record: AirtableRecord) -> PublishJob:
@@ -336,7 +330,9 @@ def record_publish_platforms_complete(
     excluded_platforms: frozenset[PlatformName] | None = None,
 ) -> bool:
     """Return True when every scheduled platform has a published permalink."""
-    excluded = excluded_platforms or frozenset()
+    excluded = set(excluded_platforms or frozenset())
+    if catalog_instagram_schedule_excluded(record_fields):
+        excluded.add("instagram")
     scheduled_any = False
     for config in PLATFORM_FIELD_CONFIGS:
         if config.platform in excluded:
@@ -351,7 +347,7 @@ def record_publish_platforms_complete(
         return False
 
     # Catalog videos scheduled on YouTube or Facebook also require Instagram
-    # unless the video exceeds Instagram's 15-minute API limit.
+    # unless Type is Video (long-form skips Instagram).
     if "instagram" not in excluded and not is_quote_record(record_fields):
         yt_or_fb_scheduled = any(
             _field_text(record_fields.get(config.date_field))

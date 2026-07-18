@@ -27,7 +27,6 @@ from media_publisher.sources.airtable import (
     FIELD_TITLE,
     record_schedule_tasks,
 )
-from media_publisher.sources.google_drive import DriveHostedFile
 
 
 class PublishAtValidationTests(unittest.TestCase):
@@ -680,157 +679,37 @@ class PublisherWrapperTests(unittest.TestCase):
         self.assertEqual(finish_body["video_state"], "SCHEDULED")
         self.assertIn("scheduled_publish_time", finish_body)
 
-    def test_publish_to_instagram_publishes_long_form_video_with_url(self) -> None:
+    def test_publish_to_instagram_skips_long_form_video_with_url(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_url="https://cdn.example.com/video.mp4",
             video_format="post",
         )
-        with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
-            client_cls.return_value.schedule_instagram_feed_video.return_value = "ig_media_1"
-            media_id = publish_to_instagram(
+        with self.assertRaises(InstagramPublishError) as raised:
+            publish_to_instagram(
                 job,
                 instagram_account_id="ig123",
                 access_token="token",
             )
+        self.assertIn("Type is Video", str(raised.exception))
 
-        self.assertEqual(media_id, "ig_media_1")
-        client_cls.return_value.schedule_instagram_feed_video.assert_called_once()
-
-    def test_publish_to_instagram_hosts_large_local_video_on_drive(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            video_path = Path(tmpdir) / "large.mp4"
-            video_path.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
-            job = PublishJob(
-                title="Launch",
-                description="Caption text",
-                video_path=str(video_path),
-                video_format="post",
-            )
-            drive = MagicMock()
-            drive.host_public_video.return_value = DriveHostedFile(
-                file_id="abc",
-                url="https://drive.usercontent.google.com/download?id=abc&export=download",
-            )
-            drive.remove_file.return_value = "deleted"
-            with (
-                patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
-                patch(
-                    "media_publisher.publishers.instagram.ensure_instagram_upload_video",
-                    side_effect=self._passthrough_instagram_video,
-                ),
-            ):
-                client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
-                media_id = publish_to_instagram(
-                    job,
-                    instagram_account_id="ig123",
-                    access_token="token",
-                    app_id="app123",
-                    page_id="page123",
-                    drive_client=drive,
-                    drive_host_folder_id="folder123",
-                )
-
-        self.assertEqual(media_id, "ig_media_1")
-        drive.host_public_video.assert_called_once()
-        drive.remove_file.assert_called_once_with("abc")
-        client_cls.return_value.schedule_instagram_reel.assert_called_once()
-        kwargs = client_cls.return_value.schedule_instagram_reel.call_args.kwargs
-        self.assertEqual(
-            kwargs["video_url"],
-            "https://drive.usercontent.google.com/download?id=abc&export=download",
-        )
-        self.assertNotIn("video_path", kwargs)
-        self.assertNotIn("prefer_resumable_upload", kwargs)
-
-    def test_publish_to_instagram_keeps_drive_host_when_publish_fails(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            video_path = Path(tmpdir) / "large.mp4"
-            video_path.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
-            job = PublishJob(
-                title="Launch",
-                description="Caption text",
-                video_path=str(video_path),
-                video_format="post",
-            )
-            drive = MagicMock()
-            drive.host_public_video.return_value = DriveHostedFile(
-                file_id="abc",
-                url="https://drive.usercontent.google.com/download?id=abc&export=download",
-            )
-            with (
-                patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
-                patch(
-                    "media_publisher.publishers.instagram.ensure_instagram_upload_video",
-                    side_effect=self._passthrough_instagram_video,
-                ),
-            ):
-                client_cls.return_value.schedule_instagram_reel.side_effect = MetaError(
-                    "container failed"
-                )
-                with self.assertRaises(InstagramPublishError):
-                    publish_to_instagram(
-                        job,
-                        instagram_account_id="ig123",
-                        access_token="token",
-                        app_id="app123",
-                        page_id="page123",
-                        drive_client=drive,
-                        drive_host_folder_id="folder123",
-                    )
-
-        drive.remove_file.assert_not_called()
-
-    def test_publish_to_instagram_publishes_long_form_local_video(self) -> None:
+    def test_publish_to_instagram_skips_long_form_local_video(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_path="downloads/happyscribe/sample.mp4",
             video_format="post",
         )
-        with (
-            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
-            patch(
-                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
-                side_effect=self._passthrough_instagram_video,
-            ),
-        ):
-            client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
-            media_id = publish_to_instagram(
+        with self.assertRaises(InstagramPublishError) as raised:
+            publish_to_instagram(
                 job,
                 instagram_account_id="ig123",
                 access_token="token",
                 app_id="app123",
                 page_id="page123",
             )
-
-        self.assertEqual(media_id, "ig_media_1")
-        client_cls.return_value.schedule_instagram_reel.assert_called_once()
-
-    def test_publish_to_instagram_long_form_local_video_calls_meta_client(self) -> None:
-        job = PublishJob(
-            title="Launch",
-            description="Caption text",
-            video_path="downloads/happyscribe/sample.mp4",
-            video_format="post",
-        )
-        with (
-            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
-            patch(
-                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
-                side_effect=self._passthrough_instagram_video,
-            ),
-        ):
-            client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
-            publish_to_instagram(
-                job,
-                instagram_account_id="ig123",
-                access_token="token",
-                page_id="page123",
-            )
-
-        client_cls.assert_called_once_with("token", app_id=None)
+        self.assertIn("Type is Video", str(raised.exception))
 
     def test_publish_to_instagram_uses_local_file_with_app_id(self) -> None:
         job = PublishJob(

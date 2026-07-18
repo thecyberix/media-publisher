@@ -31,7 +31,8 @@ def _task(record_id: str, platform: str, title: str = "Translated title") -> Pla
     publish_at = datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc)
     job = PublishJob(
         title=title,
-        metadata={FIELD_TITLE: "Original catalog name"},
+        video_format="short_form",
+        metadata={FIELD_TITLE: "Original catalog name", "Type": "Reel"},
         airtable_record_id=record_id,
     )
     return PlatformScheduleTask(
@@ -41,6 +42,7 @@ def _task(record_id: str, platform: str, title: str = "Translated title") -> Pla
         record_id=record_id,
         record_fields={
             FIELD_TITLE: "Original catalog name",
+            "Type": "Reel",
             "SG-YT-Date published": "2026-07-04",
             "SG-FB-Date published": "2026-07-04",
             "SG-IG-Date published": "2026-07-04",
@@ -262,7 +264,11 @@ class PublishPipelineTests(unittest.TestCase):
         from datetime import datetime, timezone
         from media_publisher.models import PlatformScheduleTask, PublishJob
 
-        job = PublishJob(title="Demo", metadata={FIELD_TITLE: "Launch video"})
+        job = PublishJob(
+            title="Demo",
+            video_format="short_form",
+            metadata={FIELD_TITLE: "Launch video"},
+        )
         tasks = [
             PlatformScheduleTask(
                 platform="youtube",
@@ -276,7 +282,6 @@ class PublishPipelineTests(unittest.TestCase):
             patch("media_publisher.pipeline.fetch_pending_schedule_tasks", return_value=tasks),
             patch("media_publisher.pipeline.fetch_missing_translation_reports", return_value=[]),
             patch("media_publisher.pipeline.ensure_catalog_video_downloaded", return_value=Path("video.mp4")),
-            patch("media_publisher.pipeline.resolve_video_duration_seconds", return_value=10.0),
             patch("media_publisher.pipeline.publish_to_youtube", return_value="yt"),
             patch("media_publisher.pipeline.mark_platform_scheduled"),
             patch("media_publisher.pipeline.resolve_publish_thumbnail") as thumb_mock,
@@ -301,6 +306,7 @@ class PublishPipelineTests(unittest.TestCase):
             fields={
                 "Status": "5. Synchronization done",
                 FIELD_TITLE: "Launch video",
+                "Type": "Reel",
                 "Video name translated": "Видео",
                 "SG-YT-Date published": "2026-07-04",
             },
@@ -369,6 +375,7 @@ class PublishPipelineTests(unittest.TestCase):
             fields={
                 "Status": "5. Synchronization done",
                 FIELD_TITLE: "Launch video",
+                "Type": "Reel",
                 "Video name translated": "Видео",
                 "SG-YT-Date published": "2026-07-04",
                 "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
@@ -472,13 +479,14 @@ class PublishPipelineTests(unittest.TestCase):
         for call in update_mock.call_args_list:
             self.assertNotIn("Status", call.args[1])
 
-    def test_run_publish_pipeline_skips_instagram_when_video_too_long(self) -> None:
+    def test_run_publish_pipeline_skips_instagram_for_video_type(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")
         location = HappyScribeLibraryLocation("1", "2")
         long_job = PublishJob(
             title="Translated title",
-            metadata={FIELD_TITLE: "Original catalog name", "Duration": "1487"},
+            video_format="post",
+            metadata={FIELD_TITLE: "Original catalog name", "Type": "Video"},
             airtable_record_id="recABC",
         )
         publish_at = datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc)
@@ -542,15 +550,16 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertEqual(results[0].platform, "youtube")
         self.assertEqual(publish_mock.call_count, 1)
         self.assertTrue(any("instagram: skipped" in message for message in messages))
+        self.assertTrue(any("Type is Video" in message for message in messages))
 
-    def test_run_publish_pipeline_publishes_instagram_for_long_form_video(self) -> None:
+    def test_run_publish_pipeline_publishes_instagram_for_reel(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")
         location = HappyScribeLibraryLocation("1", "2")
-        long_form_job = PublishJob(
+        reel_job = PublishJob(
             title="Translated title",
-            video_format="post",
-            metadata={FIELD_TITLE: "Original catalog name"},
+            video_format="short_form",
+            metadata={FIELD_TITLE: "Original catalog name", "Type": "Reel"},
             airtable_record_id="recABC",
         )
         publish_at = datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc)
@@ -558,13 +567,13 @@ class PublishPipelineTests(unittest.TestCase):
             PlatformScheduleTask(
                 platform="youtube",
                 publish_at=publish_at,
-                job=long_form_job,
+                job=reel_job,
                 record_id="recABC",
             ),
             PlatformScheduleTask(
                 platform="instagram",
                 publish_at=publish_at,
-                job=long_form_job,
+                job=reel_job,
                 record_id="recABC",
             ),
         ]

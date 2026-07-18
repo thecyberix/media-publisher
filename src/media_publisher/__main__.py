@@ -16,11 +16,6 @@ from media_publisher.scheduling import (
     next_catalog_publish_at,
     publish_local_date,
 )
-from media_publisher.video_duration import (
-    instagram_duration_skip_message,
-    instagram_exceeds_api_limit,
-    resolve_video_duration_seconds,
-)
 from media_publisher.pipeline import PublishPipelineSettings, run_publish_pipeline
 from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
@@ -35,7 +30,12 @@ from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_p
 from media_publisher.quotes_render_pipeline import QuotesRenderPipelineError
 from media_publisher.sources.quote_pdf import QuotePdfError
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
-from media_publisher.publishers.instagram import InstagramPublishError, publish_to_instagram
+from media_publisher.publishers.instagram import (
+    INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE,
+    InstagramPublishError,
+    instagram_skips_video_type,
+    publish_to_instagram,
+)
 from media_publisher.publishers.meta import (
     MetaClient,
     MetaError,
@@ -312,7 +312,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Schedule public YouTube and Facebook posts for the next publish slot "
             "(today or tomorrow depending on time). Skips the Instagram upload only; "
             "publish dates and status are unchanged. Instagram uploads happen on a "
-            "normal run when due (or are skipped automatically above 15 minutes)."
+            "normal run when due (or are skipped automatically for Type=Video)."
         ),
     )
     parser.add_argument(
@@ -2178,13 +2178,8 @@ def main() -> int:
             if not instagram_is_due(task.publish_at):
                 print(instagram_wait_message(task.publish_at))
                 return 0
-            duration_seconds = resolve_video_duration_seconds(
-                video_path=task.job.video_path,
-                metadata=task.job.metadata,
-            )
-            if instagram_exceeds_api_limit(duration_seconds):
-                assert duration_seconds is not None
-                print(instagram_duration_skip_message(duration_seconds))
+            if instagram_skips_video_type(task.job):
+                print(INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE)
                 return 0
             if (
                 task.job.video_path
@@ -2196,13 +2191,6 @@ def main() -> int:
                     "to Instagram."
                 )
                 return 1
-            drive_client = None
-            service_account = PROJECT_ROOT / settings.google_sheets_service_account
-            if service_account.exists():
-                try:
-                    drive_client = GoogleDriveClient.from_service_account(service_account)
-                except GoogleDriveError:
-                    drive_client = None
             meta_client = meta_client_from_settings(settings)
             media_id = publish_to_instagram(
                 task.job,
@@ -2211,8 +2199,6 @@ def main() -> int:
                 app_id=settings.meta_app_id,
                 page_id=page_id,
                 ffmpeg_path=settings.happyscribe_ffmpeg,
-                drive_client=drive_client,
-                drive_host_folder_id=settings.publish_override_drive_folder_id or None,
                 **template_urls_from_settings(settings),
             )
             permalink = meta_client.get_instagram_media_permalink(media_id)

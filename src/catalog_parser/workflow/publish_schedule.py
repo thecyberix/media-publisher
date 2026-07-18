@@ -10,7 +10,6 @@ from googleapiclient.errors import HttpError
 from catalog_parser.airtable import (
     AirtableClient,
     FIELD_COMBINED_MEDIA_FILE,
-    FIELD_DURATION,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_STATUS,
     FIELD_TITLE,
@@ -19,11 +18,10 @@ from catalog_parser.airtable import (
     STATUS_SYNC_DONE,
 )
 from catalog_parser.drive_docs import extract_drive_file_id
-from catalog_parser.parser import TYPE_REEL, TYPE_SHORT, TYPE_VIDEO, parse_duration
+from catalog_parser.parser import TYPE_REEL, TYPE_SHORT, TYPE_VIDEO
 
 DEFAULT_PUBLISH_TIMEZONE = "Europe/Sofia"
 DEFAULT_PUBLISH_HOUR = 18
-MAX_INSTAGRAM_VIDEO_SECONDS = 15 * 60
 
 FIELD_SG_YT_DATE = "SG-YT-Date published"
 FIELD_SG_FB_DATE = "SG-FB-Date published"
@@ -128,8 +126,8 @@ def video_format_from_type(type_value: Any) -> str:
 
 
 def instagram_schedule_excluded(fields: dict[str, Any]) -> bool:
-    duration = parse_duration(fields.get(FIELD_DURATION))
-    return duration is not None and duration > MAX_INSTAGRAM_VIDEO_SECONDS
+    """True when Instagram should not receive a schedule date (Type=Video)."""
+    return is_video_type(fields)
 
 
 def _record_has_any_publish_date(fields: dict[str, Any]) -> bool:

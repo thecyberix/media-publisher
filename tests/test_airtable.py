@@ -120,10 +120,13 @@ class AirtableMappingTests(unittest.TestCase):
 class CatalogScheduleTests(unittest.TestCase):
     def test_catalog_instagram_schedule_excluded(self) -> None:
         self.assertTrue(
-            catalog_instagram_schedule_excluded({"Duration": 16 * 60})
+            catalog_instagram_schedule_excluded({"Type": TYPE_VIDEO})
         )
         self.assertFalse(
-            catalog_instagram_schedule_excluded({"Duration": 10 * 60})
+            catalog_instagram_schedule_excluded({"Type": TYPE_REEL})
+        )
+        self.assertFalse(
+            catalog_instagram_schedule_excluded({"Duration": 16 * 60})
         )
 
     def test_record_schedule_tasks_for_sync_done_row(self) -> None:
@@ -260,9 +263,16 @@ class CatalogScheduleTests(unittest.TestCase):
 
         long_form_fields = {
             **yt_fb_only_fields,
-            "Duration": 16 * 60,
+            "Type": TYPE_VIDEO,
         }
         self.assertTrue(record_publish_platforms_complete(long_form_fields))
+
+        # Stale IG date on a Video must not keep requiring Instagram.
+        long_form_with_ig_date = {
+            **long_form_fields,
+            FIELD_SG_IG_DATE: "2026-07-05",
+        }
+        self.assertTrue(record_publish_platforms_complete(long_form_with_ig_date))
 
     def test_mark_record_done_and_published_if_complete(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

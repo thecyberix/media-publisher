@@ -8,7 +8,12 @@ from typing import Callable
 
 from media_publisher.models import PlatformName, PlatformScheduleTask
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
-from media_publisher.publishers.instagram import InstagramPublishError, publish_to_instagram
+from media_publisher.publishers.instagram import (
+    INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE,
+    InstagramPublishError,
+    instagram_skips_video_type,
+    publish_to_instagram,
+)
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.publishers.youtube import YouTubePublishError, publish_to_youtube, youtube_video_url
 from media_publisher.sources.airtable import (
@@ -47,11 +52,6 @@ from media_publisher.scheduling import (
     task_uses_immediate_publish,
 )
 from media_publisher.sources.happyscribe_web import HappyScribeWebError
-from media_publisher.video_duration import (
-    instagram_duration_skip_message,
-    instagram_exceeds_api_limit,
-    resolve_video_duration_seconds,
-)
 
 
 @dataclass(frozen=True)
@@ -174,8 +174,6 @@ def publish_platform_task(
             app_id=settings.meta_app_id,
             page_id=settings.meta_page_id,
             ffmpeg_path=settings.ffmpeg_path,
-            drive_client=drive_client,
-            drive_host_folder_id=settings.publish_override_drive_folder_id or None,
             **settings.template_urls,
         )
         return meta_client.get_instagram_media_permalink(media_id)
@@ -392,17 +390,12 @@ def run_publish_pipeline(
                     )
                 continue
 
-        duration_seconds = resolve_video_duration_seconds(
-            video_path=video_path,
-            metadata=record_tasks[0].job.metadata,
-        )
-        if instagram_exceeds_api_limit(duration_seconds):
+        if any(instagram_skips_video_type(task.job) for task in ready_tasks):
             skipped_instagram = [
                 task for task in ready_tasks if task.platform == "instagram"
             ]
             if skipped_instagram:
-                assert duration_seconds is not None
-                print_line(f"  {instagram_duration_skip_message(duration_seconds)}")
+                print_line(f"  {INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE}")
                 skipped_count += len(skipped_instagram)
             ready_tasks = [
                 task for task in ready_tasks if task.platform != "instagram"

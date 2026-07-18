@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 
 from media_publisher.sources.google_drive import (
-    GoogleDriveClient,
     format_month_folder_name,
     format_year_folder_name,
     parse_day_from_background_filename,
@@ -33,12 +32,6 @@ class GoogleDriveQuoteBackgroundTests(unittest.TestCase):
             15,
         )
         self.assertIsNone(parse_day_from_background_filename("README.txt"))
-
-    def test_public_usercontent_download_url(self) -> None:
-        self.assertEqual(
-            GoogleDriveClient.public_usercontent_download_url("file123"),
-            "https://drive.usercontent.google.com/download?id=file123&export=download",
-        )
 
 
 if __name__ == "__main__":
