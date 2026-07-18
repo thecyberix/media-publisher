@@ -28,6 +28,14 @@ jobs:
         with:
           install-playwright: "true"
           install-ffmpeg: "true"
+          extras: thumbnails
+
+      - name: Restore translation corpus
+        run: |
+          mkdir -p data/corpus
+          tar -xzf data/translation-corpus.tar.gz -C data/corpus
+          ls -lh data/corpus/subtitle_pairs.jsonl data/corpus/metadata_pairs.jsonl \
+            data/corpus/bm25_index.json data/corpus/holdout_titles.json
 
       - name: Restore Smartcat session
         env:
