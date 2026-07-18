@@ -1256,6 +1256,40 @@ def run_quotes_publish(settings, args) -> int:
         drive_client = GoogleDriveClient.from_service_account(
             PROJECT_ROOT / settings.google_sheets_service_account
         )
+
+        # Keep Drive in sync with rendered FB/YT quotes for current + next month.
+        from datetime import datetime
+
+        from media_publisher.quotes_drive_sync import sync_generated_quotes_for_months
+        from media_publisher.sources.quotes_config import load_quotes_sources_config
+        from media_publisher.timezones import get_timezone
+
+        quotes_config = load_quotes_sources_config(
+            PROJECT_ROOT / settings.quotes_sources_config
+        )
+        sync_reference = reference_date or datetime.now(
+            get_timezone(settings.quotes_publish_timezone)
+        ).date()
+
+        sync_result = sync_generated_quotes_for_months(
+            config=quotes_config,
+            sheets_client=sheets_client,
+            drive_client=drive_client,
+            project_root=PROJECT_ROOT,
+            reference_date=sync_reference,
+            print_line=print_console,
+            send_email=True,
+        )
+        for warning in sync_result.warnings:
+            print_console(f"Warning: {warning}")
+        if sync_result.changes:
+            print_console(
+                "Generated quotes Drive sync: "
+                f"{sync_result.added_count} added, {sync_result.updated_count} updated"
+            )
+        else:
+            print_console("Generated quotes Drive sync: no changes")
+
         exit_code, _ = run_quotes_pipeline(
             build_quotes_pipeline_settings(
                 settings,

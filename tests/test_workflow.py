@@ -7,7 +7,9 @@ from unittest.mock import MagicMock
 from catalog_parser.airtable import (
     FIELD_EDITOR,
     FIELD_STATUS,
+    FIELD_TIMING_EDITOR,
     FIELD_TITLE,
+    FIELD_TRANSLATOR,
     FIELD_TYPE,
     STATUS_EDITING_DONE,
     STATUS_TODO,
@@ -28,6 +30,7 @@ from catalog_parser.workflow.rules import (
     plan_ingest_actions,
     plan_record_actions,
     resolve_assign_editor_actions,
+    resolve_assign_timing_editor_actions,
 )
 
 
@@ -139,11 +142,40 @@ class WorkflowRuleTests(unittest.TestCase):
                 "Type": "Reel",
                 "Status": STATUS_EDITING_DONE,
                 "Combined Media File": None,
+                FIELD_TIMING_EDITOR: "Already Assigned",
             },
         }
         actions = plan_record_actions(record)
         action_types = [action.action_type.value for action in actions]
         self.assertEqual(action_types, ["combine_media"])
+
+    def test_assign_timing_editor_when_editing_done_without_timing_editor(self) -> None:
+        record = {
+            "id": "rec1b",
+            "fields": {
+                FIELD_TITLE: "Test Video",
+                "Type": "Video",
+                "Status": STATUS_EDITING_DONE,
+                "Combined Media File": "https://drive.google.com/file/d/abc/view",
+            },
+        }
+        actions = plan_record_actions(record)
+        action_types = [action.action_type.value for action in actions]
+        self.assertEqual(action_types, ["assign_timing_editor"])
+
+    def test_assign_timing_editor_and_combine_when_editing_done(self) -> None:
+        record = {
+            "id": "rec1c",
+            "fields": {
+                FIELD_TITLE: "Test Video",
+                "Type": "Reel",
+                "Status": STATUS_EDITING_DONE,
+                "Combined Media File": None,
+            },
+        }
+        actions = plan_record_actions(record)
+        action_types = [action.action_type.value for action in actions]
+        self.assertEqual(action_types, ["assign_timing_editor", "combine_media"])
 
     def test_assign_editor_when_translation_done_without_editor(self) -> None:
         record = {
@@ -405,6 +437,116 @@ class IngestPlanningTests(unittest.TestCase):
         )
         self.assertTrue(ingest_actions)
 
+    def test_preferred_editor_assigned_before_general_picks(self) -> None:
+        records = [
+            {
+                "id": "rec_general",
+                "fields": {
+                    FIELD_TITLE: "General reel",
+                    "Type": "Reel",
+                    "Status": STATUS_TRANSLATION_DONE,
+                    FIELD_TRANSLATOR: "Genka Petrova",
+                    "Duration": 60,
+                },
+            },
+            {
+                "id": "rec_preferred",
+                "fields": {
+                    FIELD_TITLE: "Preferred video",
+                    "Type": "Video",
+                    "Status": STATUS_TRANSLATION_DONE,
+                    FIELD_TRANSLATOR: "Tsvetelina Topuzova",
+                    "Duration": 600,
+                },
+            },
+        ]
+        record_actions = []
+        for record in records:
+            record_actions.extend(plan_record_actions(record))
+
+        editors = [
+            ("Dilyana Hayes", 10, "Video"),
+            ("Nina Rueva", 4, "Reel"),
+        ]
+        resolved = resolve_assign_editor_actions(
+            records,
+            record_actions,
+            editors=editors,
+            preferred_editors_by_translator={
+                "Tsvetelina Topuzova": "Dilyana Hayes",
+            },
+        )
+        editor_actions = [
+            action
+            for action in resolved
+            if action.action_type == WorkflowActionType.ASSIGN_EDITOR
+        ]
+        self.assertEqual(
+            [action.record_id for action in editor_actions],
+            ["rec_preferred", "rec_general"],
+        )
+        self.assertEqual(editor_actions[0].editor_name, "Dilyana Hayes")
+        self.assertIn("preferred editor", editor_actions[0].reason)
+        self.assertEqual(editor_actions[1].editor_name, "Nina Rueva")
+        self.assertEqual(records[1]["fields"][FIELD_EDITOR], "Dilyana Hayes")
+        self.assertEqual(records[0]["fields"][FIELD_EDITOR], "Nina Rueva")
+
+    def test_same_run_timing_editor_respects_capacity_and_type(self) -> None:
+        records = [
+            {
+                "id": "rec_full",
+                "fields": {
+                    FIELD_TITLE: "Existing video",
+                    "Type": "Video",
+                    "Status": STATUS_EDITING_DONE,
+                    FIELD_TIMING_EDITOR: "Timing A",
+                },
+            },
+            {
+                "id": "rec_needs_timing",
+                "fields": {
+                    FIELD_TITLE: "Ready for timing",
+                    "Type": "Video",
+                    "Status": STATUS_EDITING_DONE,
+                    "Combined Media File": "https://drive.google.com/file/d/abc/view",
+                },
+            },
+            {
+                "id": "rec_reel",
+                "fields": {
+                    FIELD_TITLE: "Reel ready for timing",
+                    "Type": "Reel",
+                    "Status": STATUS_EDITING_DONE,
+                    "Combined Media File": "https://drive.google.com/file/d/def/view",
+                },
+            },
+        ]
+        record_actions = []
+        for record in records[1:]:
+            record_actions.extend(plan_record_actions(record))
+        self.assertEqual(
+            [action.action_type for action in record_actions],
+            [
+                WorkflowActionType.ASSIGN_TIMING_EDITOR,
+                WorkflowActionType.ASSIGN_TIMING_EDITOR,
+            ],
+        )
+
+        timing_editors = [
+            ("Timing A", 10, "Video"),  # already at capacity with one video
+            ("Timing B", 20, "Reel"),
+            ("Timing C", 20, None),
+        ]
+        resolved = resolve_assign_timing_editor_actions(
+            records,
+            record_actions,
+            timing_editors=timing_editors,
+        )
+        self.assertEqual(resolved[0].timing_editor_name, "Timing C")
+        self.assertEqual(records[1]["fields"][FIELD_TIMING_EDITOR], "Timing C")
+        self.assertEqual(resolved[1].timing_editor_name, "Timing B")
+        self.assertEqual(records[2]["fields"][FIELD_TIMING_EDITOR], "Timing B")
+
 
 class WorkflowActionTests(unittest.TestCase):
     def test_assign_editor_reuses_table_cache_without_extra_reads(self) -> None:
@@ -469,6 +611,72 @@ class WorkflowActionTests(unittest.TestCase):
             {FIELD_EDITOR: "Dilyana Hayes"},
         )
         self.assertEqual(table_cache.get("rec1")["fields"][FIELD_EDITOR], "Dilyana Hayes")
+
+    def test_assign_timing_editor_reuses_table_cache_without_extra_reads(self) -> None:
+        table_cache = TableCache(
+            [
+                {
+                    "id": "rec1",
+                    "fields": {
+                        FIELD_TITLE: "Video A",
+                        "Type": "Video",
+                        "Status": STATUS_EDITING_DONE,
+                    },
+                },
+                {
+                    "id": "rec2",
+                    "fields": {
+                        FIELD_TITLE: "Video B",
+                        "Type": "Video",
+                        "Status": STATUS_EDITING_DONE,
+                        FIELD_TIMING_EDITOR: "Timing Full",
+                    },
+                },
+            ]
+        )
+        airtable = MagicMock()
+        config = MagicMock()
+        config.timing_editors = [
+            SimpleNamespace(
+                name="Timing Full",
+                weekly_capacity_reels=10,
+                preferred_timing_type="Video",
+            ),
+            SimpleNamespace(
+                name="Timing Free",
+                weekly_capacity_reels=20,
+                preferred_timing_type="Video",
+            ),
+        ]
+
+        action = WorkflowAction(
+            action_type=WorkflowActionType.ASSIGN_TIMING_EDITOR,
+            record_id="rec1",
+            title="Video A",
+        )
+        result = execute_action(
+            action,
+            airtable=airtable,
+            config=config,
+            drive_service=None,
+            docs_service=None,
+            credentials_path=MagicMock(),
+            token_path=MagicMock(),
+            dry_run=False,
+            table_cache=table_cache,
+        )
+
+        self.assertTrue(result.success)
+        airtable.list_records.assert_not_called()
+        airtable.get_record.assert_not_called()
+        airtable.update_record_fields.assert_called_once_with(
+            "rec1",
+            {FIELD_TIMING_EDITOR: "Timing Free"},
+        )
+        self.assertEqual(
+            table_cache.get("rec1")["fields"][FIELD_TIMING_EDITOR],
+            "Timing Free",
+        )
 
 
 if __name__ == "__main__":

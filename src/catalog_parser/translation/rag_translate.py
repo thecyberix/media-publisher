@@ -35,6 +35,21 @@ SYSTEM_PROMPT = (
     "do not add explanations. Return only the requested output format."
 )
 
+SUBTITLE_FORMAT_RULES = (
+    "Formatting rules:\n"
+    "- Do not insert line breaks unless the English text itself contains a "
+    "line break.\n"
+    "- Use Bulgarian quotation marks „…“ (not ASCII \"). "
+    "If this cue opens a quotation, include „. "
+    "If this cue closes a quotation that began earlier, end with “.\n"
+    "- When previous/next subtitle context is provided, keep the wording "
+    "continuous with that dialogue; translate only the English marked for "
+    "translation."
+)
+
+BG_QUOTE_OPEN = "„"
+BG_QUOTE_CLOSE = "“"
+
 METADATA_TITLE_SYSTEM_PROMPT = (
     "You are a professional YouTube metadata translator for Sadhguru / Isha "
     "content. Translate English video titles into natural Bulgarian that matches "
@@ -165,6 +180,106 @@ def chat_config_from_env() -> ChatConfig:
     )
 
 
+def match_source_newlines(source: str, translation: str) -> str:
+    """Keep translation line breaks aligned with the English source."""
+    src = (source or "").replace("\r\n", "\n").replace("\r", "\n")
+    tr = (translation or "").replace("\r\n", "\n").replace("\r", "\n")
+    if "\n" not in src.strip():
+        return " ".join(tr.split())
+    # Drop blank lines the model invents between subtitle rows.
+    lines = [line.strip() for line in tr.split("\n")]
+    return "\n".join(line for line in lines if line)
+
+
+def _ensure_bg_opening_quote(text: str) -> str:
+    if BG_QUOTE_OPEN in text:
+        return text
+    cleaned = text.replace('"', "").replace("“", "").replace("„", "")
+    for marker in (": ", ", "):
+        idx = cleaned.find(marker)
+        if idx >= 0:
+            at = idx + len(marker)
+            return cleaned[:at] + BG_QUOTE_OPEN + cleaned[at:]
+    return BG_QUOTE_OPEN + cleaned
+
+
+def _ensure_bg_closing_quote(text: str) -> str:
+    cleaned = text.replace('"', "").rstrip()
+    cleaned = normalize_bg_quote_punctuation(cleaned)
+    if BG_QUOTE_CLOSE in cleaned:
+        return cleaned
+    if cleaned.endswith(BG_QUOTE_OPEN):
+        return cleaned + BG_QUOTE_CLOSE
+    # Bulgarian style: „…?“ / „…!“ — closing quote after sentence punctuation.
+    return cleaned + BG_QUOTE_CLOSE
+
+
+def normalize_bg_quote_punctuation(text: str) -> str:
+    """Move sentence punctuation inside closing quotes: „…“? → „…?“."""
+    if not text:
+        return text
+    # Also handle ASCII " left before punctuation.
+    fixed = re.sub(r'"([?!….])', rf"\1{BG_QUOTE_CLOSE}", text)
+    return re.sub(
+        rf"{re.escape(BG_QUOTE_CLOSE)}([?!….])",
+        rf"\1{BG_QUOTE_CLOSE}",
+        fixed,
+    )
+
+
+def _english_quote_count(text: str) -> int:
+    return sum((text or "").count(ch) for ch in '"“„”')
+
+
+def repair_bulgarian_quotes(
+    sources: list[str],
+    translations: list[str],
+) -> list[str]:
+    """
+    Pair Bulgarian „…“ across subtitle fragments split by Smartcat.
+
+    English ASR often splits one quoted utterance across segments
+    (opens with \" in segment N, closes in N+1).
+    """
+    if len(sources) != len(translations):
+        raise ValueError("sources and translations must be the same length")
+    quote_open = False
+    out: list[str] = []
+    for source, translation in zip(sources, translations):
+        quote_count = _english_quote_count(source)
+        ends_open = quote_open ^ (quote_count % 2 == 1)
+        bg = (translation or "").replace('"', "")
+        started_open = quote_open
+        if not started_open and ends_open:
+            bg = _ensure_bg_opening_quote(bg)
+        if started_open and not ends_open:
+            bg = _ensure_bg_closing_quote(bg)
+        if not started_open and not ends_open and quote_count >= 2:
+            # Opens and closes within the same fragment.
+            bg = _ensure_bg_opening_quote(bg)
+            bg = _ensure_bg_closing_quote(bg)
+        quote_open = ends_open
+        out.append(normalize_bg_quote_punctuation(bg))
+    if quote_open and out:
+        out[-1] = _ensure_bg_closing_quote(out[-1])
+        out[-1] = normalize_bg_quote_punctuation(out[-1])
+    return out
+
+
+def polish_subtitle_translations(
+    sources: list[str],
+    translations: list[str],
+) -> list[str]:
+    """Apply newline + quote fixes after model translation."""
+    if len(sources) != len(translations):
+        raise ValueError("sources and translations must be the same length")
+    lined = [
+        match_source_newlines(source, text)
+        for source, text in zip(sources, translations)
+    ]
+    return repair_bulgarian_quotes(sources, lined)
+
+
 def format_examples(examples: list[CorpusHit]) -> str:
     if not examples:
         return "(no examples retrieved)"
@@ -180,13 +295,27 @@ def build_single_cue_messages(
     examples: list[CorpusHit],
     *,
     record_type: str | None = None,
+    previous_en: str | None = None,
+    next_en: str | None = None,
 ) -> list[dict[str, str]]:
     casing = _casing_instruction(record_type)
     casing_block = f"\n{casing}\n" if casing else "\n"
+    context_parts: list[str] = []
+    if previous_en and previous_en.strip():
+        context_parts.append(
+            f"Previous subtitle (context only):\n{previous_en.strip()}"
+        )
+    if next_en and next_en.strip():
+        context_parts.append(
+            f"Next subtitle (context only):\n{next_en.strip()}"
+        )
+    context_block = ("\n\n".join(context_parts) + "\n\n") if context_parts else ""
     user = (
         "Translate the English subtitle cue into Bulgarian.\n\n"
+        f"{SUBTITLE_FORMAT_RULES}\n\n"
         f"Examples from prior Sadhguru translations:\n{format_examples(examples)}\n\n"
-        f"English cue:\n{cue_en}\n"
+        f"{context_block}"
+        f"English to translate:\n{cue_en}\n"
         f"{casing_block}"
         "Respond with Bulgarian translation text only."
     )
@@ -201,23 +330,55 @@ def build_batch_messages(
     examples_per_cue: list[list[CorpusHit]],
     *,
     record_type: str | None = None,
+    previous_en: str | None = None,
+    next_en: str | None = None,
+    all_document_cues: list[str] | None = None,
+    batch_start: int = 0,
 ) -> list[dict[str, str]]:
     blocks: list[str] = []
-    for index, (cue_en, examples) in enumerate(zip(cues, examples_per_cue), start=1):
+    doc = all_document_cues or cues
+    for offset, (cue_en, examples) in enumerate(zip(cues, examples_per_cue)):
+        absolute = batch_start + offset
+        prev = (
+            doc[absolute - 1]
+            if absolute > 0
+            else previous_en
+        )
+        nxt = (
+            doc[absolute + 1]
+            if absolute + 1 < len(doc)
+            else next_en
+        )
+        context_parts: list[str] = []
+        if prev and str(prev).strip():
+            context_parts.append(
+                f"Previous subtitle (context only):\n{str(prev).strip()}"
+            )
+        if nxt and str(nxt).strip():
+            context_parts.append(
+                f"Next subtitle (context only):\n{str(nxt).strip()}"
+            )
+        context_block = (
+            ("\n".join(context_parts) + "\n") if context_parts else ""
+        )
         blocks.append(
-            f"### Cue {index}\n"
+            f"### Cue {offset + 1}\n"
+            f"{context_block}"
             f"Examples:\n{format_examples(examples)}\n"
-            f"English:\n{cue_en}"
+            f"English to translate:\n{cue_en}"
         )
     casing = _casing_instruction(record_type)
     casing_block = f"\n{casing}\n" if casing else "\n"
     user = (
         "Translate each English subtitle cue into Bulgarian.\n"
         "Use the examples for that cue when choosing wording and register.\n\n"
+        f"{SUBTITLE_FORMAT_RULES}\n\n"
         + "\n\n".join(blocks)
         + casing_block
         + "Respond with a JSON array of strings, one Bulgarian translation per cue, "
-        "in the same order. No markdown fences."
+        "in the same order. No markdown fences. "
+        "If a translation contains double quotes, escape them as \\\". "
+        "Prefer Bulgarian quotation marks „…“ and avoid ASCII \" inside strings."
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -354,19 +515,53 @@ def _strip_code_fence(text: str) -> str:
     return stripped.strip()
 
 
-def parse_batch_translations(raw: str, expected: int) -> list[str]:
-    cleaned = _strip_code_fence(raw)
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError:
-        # Fallback: one translation per non-empty line
-        lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
-        if len(lines) == expected:
-            return lines
-        raise RuntimeError(
-            f"Could not parse batch translations as JSON (expected {expected}): {raw[:300]!r}"
-        )
-    if not isinstance(parsed, list) or len(parsed) != expected:
+def _repair_llm_json_string_array(text: str) -> str:
+    """Fix common LLM mistakes: unescaped \" ending as \"\", before , or ]."""
+    # "…?"",  /  "…."",  → close the string with a single "
+    return re.sub(r'""(\s*[,]])', r'"\1', text)
+
+
+def _extract_json_string_array(text: str) -> list[str] | None:
+    """
+    Lenient scan for a JSON-looking array of strings.
+
+    Treats the end of each element as a quote followed by comma/] (or the
+    broken LLM form \"\", / \"\"] ), so internal ASCII quotes from dialogue
+    do not have to be escaped.
+    """
+    cleaned = text.strip()
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start < 0 or end <= start:
+        return None
+    body = cleaned[start + 1 : end]
+    items: list[str] = []
+    i = 0
+    n = len(body)
+    while i < n:
+        while i < n and body[i] in " \t\r\n,":
+            i += 1
+        if i >= n:
+            break
+        if body[i] != '"':
+            return None
+        i += 1
+        chunk_start = i
+        match = re.search(r'""?\s*(,|$)', body[i:])
+        if match is None:
+            return None
+        chunk = body[chunk_start : i + match.start()]
+        # If the model used "", keep content before the extra quote.
+        items.append(chunk)
+        i = i + match.end()
+    return items
+
+
+def _normalize_batch_translation_list(
+    parsed: list[Any],
+    expected: int,
+) -> list[str]:
+    if len(parsed) != expected:
         raise RuntimeError(
             f"Batch translation JSON must be a list of length {expected}, got {parsed!r}"
         )
@@ -379,6 +574,30 @@ def parse_batch_translations(raw: str, expected: int) -> list[str]:
             raise RuntimeError("Batch translation contains an empty string")
         out.append(text)
     return out
+
+
+def parse_batch_translations(raw: str, expected: int) -> list[str]:
+    cleaned = _strip_code_fence(raw)
+    candidates = [cleaned, _repair_llm_json_string_array(cleaned)]
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, list):
+            return _normalize_batch_translation_list(parsed, expected)
+
+    extracted = _extract_json_string_array(cleaned)
+    if extracted is not None:
+        return _normalize_batch_translation_list(extracted, expected)
+
+    # Fallback: one translation per non-empty line (no JSON wrapper).
+    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    if len(lines) == expected and not lines[0].startswith("["):
+        return lines
+    raise RuntimeError(
+        f"Could not parse batch translations as JSON (expected {expected}): {raw[:300]!r}"
+    )
 
 
 def translate_cue_texts(
@@ -402,10 +621,17 @@ def translate_cue_texts(
         batch = cue_texts[start : start + batch_size]
         examples_per_cue = [index.retrieve(text, k=top_k) for text in batch]
         if len(batch) == 1:
+            absolute = start
+            previous_en = cue_texts[absolute - 1] if absolute > 0 else None
+            next_en = (
+                cue_texts[absolute + 1] if absolute + 1 < len(cue_texts) else None
+            )
             messages = build_single_cue_messages(
                 batch[0],
                 examples_per_cue[0],
                 record_type=record_type,
+                previous_en=previous_en,
+                next_en=next_en,
             )
             translations.append(chat_completion(messages, config, session=http))
             continue
@@ -413,11 +639,35 @@ def translate_cue_texts(
             batch,
             examples_per_cue,
             record_type=record_type,
+            all_document_cues=cue_texts,
+            batch_start=start,
         )
         raw = chat_completion(messages, config, session=http)
-        translations.extend(parse_batch_translations(raw, len(batch)))
+        try:
+            translations.extend(parse_batch_translations(raw, len(batch)))
+        except RuntimeError:
+            # Batch JSON still unusable — translate cues one at a time.
+            for offset, (cue_en, examples) in enumerate(zip(batch, examples_per_cue)):
+                absolute = start + offset
+                previous_en = cue_texts[absolute - 1] if absolute > 0 else None
+                next_en = (
+                    cue_texts[absolute + 1]
+                    if absolute + 1 < len(cue_texts)
+                    else None
+                )
+                single_messages = build_single_cue_messages(
+                    cue_en,
+                    examples,
+                    record_type=record_type,
+                    previous_en=previous_en,
+                    next_en=next_en,
+                )
+                translations.append(
+                    chat_completion(single_messages, config, session=http)
+                )
+    polished = polish_subtitle_translations(cue_texts, translations)
     return [
-        apply_translation_casing(text, record_type) for text in translations
+        apply_translation_casing(text, record_type) for text in polished
     ]
 
 

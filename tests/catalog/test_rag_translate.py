@@ -213,6 +213,9 @@ class RagTranslateTests(unittest.TestCase):
         self.assertIn("Cue 2", batch[1]["content"])
         self.assertIn("JSON array", batch[1]["content"])
         self.assertIn("ALL CAPS", batch[1]["content"])
+        self.assertIn("English to translate", batch[1]["content"])
+        self.assertIn("line break", batch[1]["content"])
+        self.assertIn("Previous subtitle", batch[1]["content"])
 
     def test_parse_batch_translations(self) -> None:
         self.assertEqual(
@@ -223,6 +226,153 @@ class RagTranslateTests(unittest.TestCase):
             parse_batch_translations("```json\n[\"А\", \"Б\"]\n```", 2),
             ["А", "Б"],
         )
+
+    def test_match_source_newlines_and_quote_repair(self) -> None:
+        from catalog_parser.translation.rag_translate import (
+            match_source_newlines,
+            polish_subtitle_translations,
+            repair_bulgarian_quotes,
+        )
+
+        self.assertEqual(
+            match_source_newlines("I SAID, MA'AM", "КАЗАХ:\n\nГОСПОЖО"),
+            "КАЗАХ: ГОСПОЖО",
+        )
+        self.assertEqual(
+            match_source_newlines("LINE ONE\nLINE TWO", "РЕД ЕДИН\n\nРЕД ДВА"),
+            "РЕД ЕДИН\nРЕД ДВА",
+        )
+
+        sources = [
+            'I said, "ma\'am, i am well!',
+            'How are you?"',
+        ]
+        translations = [
+            "КАЗАХ: „ГОСПОЖО, АЗ\nДОБРЕ СЪМ!",
+            "КАК СИ?",
+        ]
+        polished = polish_subtitle_translations(sources, translations)
+        self.assertEqual(polished[0], "КАЗАХ: „ГОСПОЖО, АЗ ДОБРЕ СЪМ!")
+        self.assertEqual(polished[1], "КАК СИ?“")
+
+        paired = repair_bulgarian_quotes(
+            ['She asked, "How are you?"'],
+            ["Тя попита: КАК СИ?"],
+        )
+        self.assertIn("„", paired[0])
+        self.assertIn("“", paired[0])
+
+        from catalog_parser.translation.rag_translate import (
+            normalize_bg_quote_punctuation,
+        )
+
+        self.assertEqual(
+            normalize_bg_quote_punctuation("ПОПИТА: „КАК СТЕ“?"),
+            "ПОПИТА: „КАК СТЕ?“",
+        )
+
+    def test_parse_batch_translations_repairs_bulgarian_dialogue_quotes(self) -> None:
+        samples = [
+            (
+                '["МОЖЕ БИ ТЯ Е НАД 75.", "ТЯ ДОЙДЕ ПРИ МЕН С УСМИВКА И", '
+                '"МИЛО И ПРОСТО МЕ ПОПИТА:", "„КАК СИ?"", "КАЗАХ: „ГОСПОЖО, АЗ"]',
+                [
+                    "МОЖЕ БИ ТЯ Е НАД 75.",
+                    "ТЯ ДОЙДЕ ПРИ МЕН С УСМИВКА И",
+                    "МИЛО И ПРОСТО МЕ ПОПИТА:",
+                    "„КАК СИ?",
+                    "КАЗАХ: „ГОСПОЖО, АЗ",
+                ],
+            ),
+            (
+                '[\n  "НЕ ВИ КАЗВАМ,",\n  "„ЯЖТЕ МНОГО СЛАДКО."",\n  '
+                '"ВСИЧКО, КОЕТО ВИ КАЗВАМ, Е",\n  "НЕ СЕ БОРЕТЕ С НЕГО.",\n  '
+                '"АКО СЕ СЪСРЕДОТОЧИТЕ ВЪРХУ ТОВА КАК"\n]',
+                [
+                    "НЕ ВИ КАЗВАМ,",
+                    "„ЯЖТЕ МНОГО СЛАДКО.",
+                    "ВСИЧКО, КОЕТО ВИ КАЗВАМ, Е",
+                    "НЕ СЕ БОРЕТЕ С НЕГО.",
+                    "АКО СЕ СЪСРЕДОТОЧИТЕ ВЪРХУ ТОВА КАК",
+                ],
+            ),
+            (
+                '["ГРЕШНО В ЖИВОТА ВИ,", "ПЪРВОТО НЕЩО Е ДА ВИДИТЕ,", '
+                '"„МОЖЕ БИ АЗ СЪМ ПРИЧИНАТА ЗА ТОВА."", "ПОГЛЕДНЕТЕ ВНИМАТЕЛНО.", '
+                '"АКО НЕ СТЕ ВИЕ,"]',
+                [
+                    "ГРЕШНО В ЖИВОТА ВИ,",
+                    "ПЪРВОТО НЕЩО Е ДА ВИДИТЕ,",
+                    "„МОЖЕ БИ АЗ СЪМ ПРИЧИНАТА ЗА ТОВА.",
+                    "ПОГЛЕДНЕТЕ ВНИМАТЕЛНО.",
+                    "АКО НЕ СТЕ ВИЕ,",
+                ],
+            ),
+            (
+                '["„ТОВА Е ЛУД ЧОВЕК."", "ЗАЩОТО", "ЗА ПОВЕЧЕТО ХОРА,", '
+                '"УМЪТ ИМ НЕ МОЖЕ ДА ОСТАНЕ", "НА КАКВОТО И ДА Е ЕДНО НЕЩО"]',
+                [
+                    "„ТОВА Е ЛУД ЧОВЕК.",
+                    "ЗАЩОТО",
+                    "ЗА ПОВЕЧЕТО ХОРА,",
+                    "УМЪТ ИМ НЕ МОЖЕ ДА ОСТАНЕ",
+                    "НА КАКВОТО И ДА Е ЕДНО НЕЩО",
+                ],
+            ),
+        ]
+        for raw, expected in samples:
+            with self.subTest(raw=raw[:40]):
+                self.assertEqual(parse_batch_translations(raw, 5), expected)
+
+    def test_translate_cue_texts_retries_singles_when_batch_json_broken(self) -> None:
+        from catalog_parser.translation.index import CorpusHit
+
+        class FakeIndex:
+            def retrieve(self, query_en: str, k: int = 8) -> list[CorpusHit]:
+                return [
+                    CorpusHit(
+                        en="similar " + query_en,
+                        bg="подобно",
+                        video_title="T",
+                        score=1.0,
+                    )
+                ]
+
+        config = OpenAIChatConfig(api_key="test-key", model="gpt-4o-mini")
+        broken = MagicMock()
+        broken.status_code = 200
+        broken.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": '["not", "valid", json]',
+                    }
+                }
+            ]
+        }
+        single_a = MagicMock()
+        single_a.status_code = 200
+        single_a.json.return_value = {
+            "choices": [{"message": {"content": "Първо"}}]
+        }
+        single_b = MagicMock()
+        single_b.status_code = 200
+        single_b.json.return_value = {
+            "choices": [{"message": {"content": "Второ"}}]
+        }
+        fake_session = MagicMock()
+        fake_session.post.side_effect = [broken, single_a, single_b]
+
+        out = translate_cue_texts(
+            ["First", "Second"],
+            FakeIndex(),
+            config,
+            top_k=2,
+            batch_size=5,
+            session=fake_session,
+        )
+        self.assertEqual(out, ["Първо", "Второ"])
+        self.assertEqual(fake_session.post.call_count, 3)
 
     def test_token_jaccard(self) -> None:
         self.assertEqual(token_jaccard("а б в", "а б в"), 1.0)

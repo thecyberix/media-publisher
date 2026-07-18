@@ -10,7 +10,9 @@ from catalog_parser.airtable import (
     AirtableClient,
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_EDITOR,
+    FIELD_TIMING_EDITOR,
     FIELD_TITLE,
+    FIELD_TRANSLATOR,
 )
 from catalog_parser.auth import get_drive_service_noninteractive
 from catalog_parser.drive_docs import extract_drive_folder_id
@@ -25,6 +27,8 @@ from catalog_parser.workflow.rules import (
     WorkflowAction,
     WorkflowActionType,
     choose_editor,
+    choose_timing_editor,
+    record_reel_units,
 )
 from catalog_parser.workflow.table_cache import TableCache
 
@@ -48,6 +52,7 @@ def execute_action(
     dry_run: bool,
     use_console: bool = False,
     table_cache: TableCache | None = None,
+    project_root: Path | None = None,
 ) -> ActionResult:
     if action.action_type == WorkflowActionType.COMBINE_MEDIA:
         return _combine_media(
@@ -75,6 +80,17 @@ def execute_action(
             config=config,
             table_cache=table_cache,
             dry_run=dry_run,
+        )
+    if action.action_type == WorkflowActionType.ASSIGN_TIMING_EDITOR:
+        return _assign_timing_editor(
+            action,
+            airtable=airtable,
+            config=config,
+            table_cache=table_cache,
+            dry_run=dry_run,
+            drive_service=drive_service,
+            docs_service=docs_service,
+            project_root=project_root,
         )
     return ActionResult(action=action, success=False, message=f"Unknown action: {action.action_type}")
 
@@ -225,6 +241,15 @@ def _assign_editor(
             (editor.name, editor.weekly_capacity_reels, editor.preferred_editing_type)
             for editor in config.editors
         ]
+        preferred_editors_by_translator = {
+            translator.name: translator.preferred_editor
+            for translator in config.translators
+            if translator.preferred_editor
+        }
+        translator = fields.get(FIELD_TRANSLATOR)
+        preferred_editor = None
+        if isinstance(translator, str) and translator.strip():
+            preferred_editor = preferred_editors_by_translator.get(translator.strip())
         records_for_utilization = (
             table_cache.records if table_cache is not None else airtable.list_records()
         )
@@ -232,6 +257,7 @@ def _assign_editor(
             records_for_utilization,
             record_type=record_type,
             editors=editor_slots,
+            preferred_editor=preferred_editor,
         )
         if chosen_name is None:
             return ActionResult(
@@ -250,3 +276,84 @@ def _assign_editor(
     if table_cache is not None:
         table_cache.update_fields(action.record_id, {FIELD_EDITOR: chosen_name})
     return ActionResult(action=action, success=True, message=f"Assigned editor {chosen_name!r}")
+
+
+def _assign_timing_editor(
+    action: WorkflowAction,
+    *,
+    airtable: AirtableClient,
+    config: WorkflowConfig,
+    table_cache: TableCache | None,
+    dry_run: bool,
+    drive_service: Resource | None = None,
+    docs_service: Resource | None = None,
+    project_root: Path | None = None,
+) -> ActionResult:
+    if not action.record_id:
+        return ActionResult(action=action, success=False, message="Missing record_id")
+
+    record = table_cache.get(action.record_id) if table_cache is not None else None
+    if record is None:
+        record = airtable.get_record(action.record_id)
+    fields = record.get("fields", {})
+    if not isinstance(fields, dict):
+        return ActionResult(action=action, success=False, message="Record has no fields")
+
+    if action.timing_editor_name:
+        chosen_name = action.timing_editor_name
+    else:
+        record_type = fields.get("Type")
+        timing_editor_slots = [
+            (
+                timing_editor.name,
+                timing_editor.weekly_capacity_reels,
+                timing_editor.preferred_timing_type,
+            )
+            for timing_editor in config.timing_editors
+        ]
+        records_for_utilization = (
+            table_cache.records if table_cache is not None else airtable.list_records()
+        )
+        chosen_name = choose_timing_editor(
+            records_for_utilization,
+            record_type=record_type,
+            record_units=record_reel_units(fields),
+            timing_editors=timing_editor_slots,
+        )
+        if chosen_name is None:
+            return ActionResult(
+                action=action,
+                success=True,
+                message="Skipped: no eligible timing editors with remaining capacity for this type",
+            )
+
+    if dry_run:
+        return ActionResult(
+            action=action,
+            success=True,
+            message=f"Would assign timing editor {chosen_name!r}",
+        )
+    airtable.update_record_fields(action.record_id, {FIELD_TIMING_EDITOR: chosen_name})
+    if table_cache is not None:
+        table_cache.update_fields(action.record_id, {FIELD_TIMING_EDITOR: chosen_name})
+
+    message = f"Assigned timing editor {chosen_name!r}"
+    root = project_root
+    if root is None and config.work_dir.is_absolute():
+        root = config.work_dir.parent
+    if root is not None:
+        try:
+            from catalog_parser.translation.corpus_append import append_record_to_corpus
+
+            corpus_result = append_record_to_corpus(
+                record,
+                airtable=airtable,
+                project_root=root,
+                drive_service=drive_service,
+                docs_service=docs_service,
+            )
+            message = f"{message}; corpus: {corpus_result.summary}"
+        except Exception as exc:  # noqa: BLE001 — assignment already succeeded
+            message = f"{message}; corpus skipped: {exc}"
+
+    return ActionResult(action=action, success=True, message=message)

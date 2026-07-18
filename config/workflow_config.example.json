@@ -5,7 +5,8 @@
       {
         "name": "Translator Name",
         "weekly_capacity_reels": 30,
-        "preferred_translation_type": "Reel"
+        "preferred_translation_type": "Reel",
+        "preferred_editor": "Editor Name"
       }
     ],
     "editors": [
@@ -13,6 +14,13 @@
         "name": "Editor Name",
         "weekly_capacity_reels": 30,
         "preferred_editing_type": "Video"
+      }
+    ],
+    "timing_editors": [
+      {
+        "name": "Timing Editor Name",
+        "weekly_capacity_reels": 30,
+        "preferred_timing_type": "Video"
       }
     ]
   },

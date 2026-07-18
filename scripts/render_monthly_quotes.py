@@ -1,9 +1,10 @@
-"""Render daily quote images for a month."""
+"""Render daily quote images for a month (optionally sync to Drive)."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -20,14 +21,16 @@ def _configure_stdio() -> None:
 def main() -> int:
     _configure_stdio()
 
+    from media_publisher.quotes_drive_sync import sync_generated_quotes_for_months
     from media_publisher.quotes_render_pipeline import QuotesRenderPipelineError, render_monthly_quotes
     from media_publisher.sources.google_drive import GoogleDriveClient
     from media_publisher.sources.google_sheets import GoogleSheetsClient
     from media_publisher.sources.quotes_config import load_quotes_sources_config
+    from media_publisher.timezones import get_timezone
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--year", type=int, required=True)
-    parser.add_argument("--month", type=int, required=True)
+    parser.add_argument("--year", type=int, help="Year to render (required unless --sync-drive)")
+    parser.add_argument("--month", type=int, help="Month to render (required unless --sync-drive)")
     parser.add_argument(
         "--config",
         default="config/quotes_sources.json",
@@ -37,7 +40,7 @@ def main() -> int:
         "--variant",
         choices=("fbyt", "ig", "all"),
         default="all",
-        help="Which output variant to render",
+        help="Which output variant to render (ignored with --sync-drive; sync is fbyt only)",
     )
     parser.add_argument(
         "--day",
@@ -54,12 +57,59 @@ def main() -> int:
         type=Path,
         help="Optional path to a TTF/OTF serif font",
     )
+    parser.add_argument(
+        "--sync-drive",
+        action="store_true",
+        help=(
+            "Pre-generate FB/YT quotes for the current and next month, upload to the "
+            "generated-quotes Drive folder, and email on adds/updates"
+        ),
+    )
+    parser.add_argument(
+        "--timezone",
+        default="Europe/Sofia",
+        help="Timezone used to pick current/next month for --sync-drive",
+    )
+    parser.add_argument(
+        "--no-email",
+        action="store_true",
+        help="With --sync-drive, skip the change-summary email",
+    )
     args = parser.parse_args()
 
     config = load_quotes_sources_config(PROJECT_ROOT / args.config)
     sa_path = PROJECT_ROOT / "credentials" / "google-sheets-service-account.json"
     sheets = GoogleSheetsClient.from_service_account(sa_path)
     drive = GoogleDriveClient.from_service_account(sa_path)
+
+    if args.sync_drive:
+        today = datetime.now(get_timezone(args.timezone)).date()
+        if args.year is not None and args.month is not None:
+            reference = date(args.year, args.month, min(today.day, 28))
+            if today.year == args.year and today.month == args.month:
+                reference = today
+        else:
+            reference = today
+        result = sync_generated_quotes_for_months(
+            config=config,
+            sheets_client=sheets,
+            drive_client=drive,
+            project_root=PROJECT_ROOT,
+            reference_date=reference,
+            font_path=args.quote_font,
+            print_line=print,
+            send_email=not args.no_email,
+        )
+        for warning in result.warnings:
+            print(f"Warning: {warning}")
+        print(
+            f"Drive sync complete: {result.added_count} added, "
+            f"{result.updated_count} updated."
+        )
+        return 0
+
+    if args.year is None or args.month is None:
+        parser.error("--year and --month are required unless --sync-drive is set")
 
     variants = ("fbyt", "ig") if args.variant == "all" else (args.variant,)
     try:

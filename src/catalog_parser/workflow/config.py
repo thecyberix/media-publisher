@@ -12,6 +12,8 @@ class PersonProfile:
     weekly_capacity_reels: int
     preferred_translation_type: str | None = None
     preferred_editing_type: str | None = None
+    preferred_timing_type: str | None = None
+    preferred_editor: str | None = None
 
 
 @dataclass(frozen=True)
@@ -19,6 +21,7 @@ class WorkflowConfig:
     output_drive_folder: str
     translators: list[PersonProfile]
     editors: list[PersonProfile]
+    timing_editors: list[PersonProfile]
     work_dir: Path = Path("_tmp_drive_mix")
     target_reel_to_video_ratio: int = 6
     max_video_seconds: int = 15 * 60
@@ -39,11 +42,22 @@ def _parse_person(item: object) -> PersonProfile | None:
     preferred_editing_type = item.get("preferred_editing_type")
     if preferred_editing_type is not None:
         preferred_editing_type = str(preferred_editing_type).strip() or None
+    preferred_timing_type = item.get("preferred_timing_type")
+    if preferred_timing_type is not None:
+        preferred_timing_type = str(preferred_timing_type).strip() or None
+    # Allow timing_editors profiles to reuse preferred_editing_type as an alias.
+    if preferred_timing_type is None and preferred_editing_type is not None:
+        preferred_timing_type = preferred_editing_type
+    preferred_editor = item.get("preferred_editor")
+    if preferred_editor is not None:
+        preferred_editor = str(preferred_editor).strip() or None
     return PersonProfile(
         name=name,
         weekly_capacity_reels=weekly_capacity_reels,
         preferred_translation_type=preferred_translation_type,
         preferred_editing_type=preferred_editing_type,
+        preferred_timing_type=preferred_timing_type,
+        preferred_editor=preferred_editor,
     )
 
 
@@ -78,11 +92,21 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
     profiles = _load_profiles_json(project_root)
     translators_data = profiles.get("translators", [])
     editors_data = profiles.get("editors", [])
-    if not isinstance(translators_data, list) or not isinstance(editors_data, list):
-        raise RuntimeError("WORKFLOW_PROFILES_JSON must contain translators[] and editors[]")
+    timing_editors_data = profiles.get("timing_editors", [])
+    if (
+        not isinstance(translators_data, list)
+        or not isinstance(editors_data, list)
+        or not isinstance(timing_editors_data, list)
+    ):
+        raise RuntimeError(
+            "WORKFLOW_PROFILES_JSON must contain translators[], editors[], and timing_editors[]"
+        )
 
     translators = [p for p in (_parse_person(item) for item in translators_data) if p is not None]
     editors = [p for p in (_parse_person(item) for item in editors_data) if p is not None]
+    timing_editors = [
+        p for p in (_parse_person(item) for item in timing_editors_data) if p is not None
+    ]
     if not translators:
         raise RuntimeError(
             "Configure translators via WORKFLOW_PROFILES_JSON or workflow_config.json profiles.translators"
@@ -90,6 +114,11 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
     if not editors:
         raise RuntimeError(
             "Configure editors via WORKFLOW_PROFILES_JSON or workflow_config.json profiles.editors"
+        )
+    if not timing_editors:
+        raise RuntimeError(
+            "Configure timing_editors via WORKFLOW_PROFILES_JSON or "
+            "workflow_config.json profiles.timing_editors"
         )
 
     work_dir = Path(
@@ -103,6 +132,7 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
         output_drive_folder=output_drive_folder,
         translators=translators,
         editors=editors,
+        timing_editors=timing_editors,
         work_dir=work_dir,
         target_reel_to_video_ratio=int(
             os.getenv("WORKFLOW_REEL_TO_VIDEO_RATIO", "").strip()

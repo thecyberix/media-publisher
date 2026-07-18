@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import calendar
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 IMAGE_MIME_PREFIX = "image/"
 VIDEO_MIME_PREFIX = "video/"
+
+UploadAction = Literal["added", "updated", "unchanged"]
 
 
 class GoogleDriveError(RuntimeError):
@@ -21,6 +24,8 @@ class DriveFile:
     id: str
     name: str
     mime_type: str
+    md5_checksum: str | None = None
+    modified_time: str | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +34,14 @@ class QuoteBackgroundImage:
     file_id: str
     name: str
     variant: str
+    md5_checksum: str | None = None
+    modified_time: str | None = None
+
+
+@dataclass(frozen=True)
+class DriveUploadResult:
+    action: UploadAction
+    file: DriveFile
 
 
 DAY_FILENAME_RE = re.compile(
@@ -63,6 +76,14 @@ def parse_day_from_background_filename(name: str) -> int | None:
     return int(match.group("day"))
 
 
+def local_file_md5(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class GoogleDriveClient:
     def __init__(self, drive_service: Any) -> None:
         self._drive = drive_service
@@ -94,7 +115,7 @@ class GoogleDriveClient:
             self._drive.files()
             .list(
                 q=f"'{folder_id}' in parents and trashed=false",
-                fields="files(id,name,mimeType)",
+                fields="files(id,name,mimeType,md5Checksum,modifiedTime)",
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
                 pageSize=1000,
@@ -112,8 +133,25 @@ class GoogleDriveClient:
             name = item.get("name")
             mime_type = item.get("mimeType")
             if isinstance(file_id, str) and isinstance(name, str) and isinstance(mime_type, str):
-                results.append(DriveFile(id=file_id, name=name, mime_type=mime_type))
+                md5 = item.get("md5Checksum")
+                modified = item.get("modifiedTime")
+                results.append(
+                    DriveFile(
+                        id=file_id,
+                        name=name,
+                        mime_type=mime_type,
+                        md5_checksum=md5 if isinstance(md5, str) else None,
+                        modified_time=modified if isinstance(modified, str) else None,
+                    )
+                )
         return results
+
+    def find_child_by_name(self, parent_id: str, name: str) -> DriveFile | None:
+        target = name.casefold().strip()
+        for item in self.list_children(parent_id):
+            if item.name.casefold().strip() == target:
+                return item
+        return None
 
     def find_child_folder(self, parent_id: str, folder_name: str) -> DriveFile | None:
         target = folder_name.casefold()
@@ -121,6 +159,37 @@ class GoogleDriveClient:
             if item.mime_type == FOLDER_MIME_TYPE and item.name.casefold() == target:
                 return item
         return None
+
+    def ensure_folder(self, parent_id: str, folder_name: str) -> DriveFile:
+        existing = self.find_child_folder(parent_id, folder_name)
+        if existing is not None:
+            return existing
+        try:
+            created = (
+                self._drive.files()
+                .create(
+                    body={
+                        "name": folder_name,
+                        "mimeType": FOLDER_MIME_TYPE,
+                        "parents": [parent_id],
+                    },
+                    fields="id,name,mimeType",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to create Drive folder {folder_name!r} under {parent_id}: {exc}"
+            ) from exc
+        file_id = created.get("id")
+        name = created.get("name")
+        mime_type = created.get("mimeType")
+        if not isinstance(file_id, str) or not isinstance(name, str) or not isinstance(mime_type, str):
+            raise GoogleDriveError(
+                f"Drive folder create for {folder_name!r} returned an invalid response"
+            )
+        return DriveFile(id=file_id, name=name, mime_type=mime_type)
 
     def resolve_month_background_folder(
         self,
@@ -184,9 +253,104 @@ class GoogleDriveClient:
                     file_id=item.id,
                     name=item.name,
                     variant=variant,
+                    md5_checksum=item.md5_checksum,
+                    modified_time=item.modified_time,
                 )
             )
         return sorted(backgrounds, key=lambda image: image.day)
+
+    def upload_or_update_file(
+        self,
+        parent_id: str,
+        source_path: Path,
+        *,
+        name: str,
+        mime_type: str = "image/jpeg",
+    ) -> DriveUploadResult:
+        if not source_path.is_file():
+            raise GoogleDriveError(f"Local file not found for Drive upload: {source_path}")
+
+        local_md5 = local_file_md5(source_path)
+        existing = self.find_child_by_name(parent_id, name)
+        if existing is not None:
+            if existing.md5_checksum and existing.md5_checksum.casefold() == local_md5.casefold():
+                return DriveUploadResult(action="unchanged", file=existing)
+
+        from googleapiclient.http import MediaFileUpload
+
+        media = MediaFileUpload(str(source_path), mimetype=mime_type, resumable=True)
+
+        if existing is not None:
+            try:
+                updated = (
+                    self._drive.files()
+                    .update(
+                        fileId=existing.id,
+                        media_body=media,
+                        fields="id,name,mimeType,md5Checksum,modifiedTime",
+                        supportsAllDrives=True,
+                    )
+                    .execute()
+                )
+            except Exception as exc:
+                raise GoogleDriveError(
+                    f"Failed to update Drive file {name!r} ({existing.id}): {exc}"
+                ) from exc
+            return DriveUploadResult(
+                action="updated",
+                file=DriveFile(
+                    id=str(updated.get("id") or existing.id),
+                    name=str(updated.get("name") or name),
+                    mime_type=str(updated.get("mimeType") or mime_type),
+                    md5_checksum=(
+                        updated.get("md5Checksum")
+                        if isinstance(updated.get("md5Checksum"), str)
+                        else local_md5
+                    ),
+                    modified_time=(
+                        updated.get("modifiedTime")
+                        if isinstance(updated.get("modifiedTime"), str)
+                        else None
+                    ),
+                ),
+            )
+
+        try:
+            created = (
+                self._drive.files()
+                .create(
+                    body={"name": name, "parents": [parent_id]},
+                    media_body=media,
+                    fields="id,name,mimeType,md5Checksum,modifiedTime",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to upload Drive file {name!r} under {parent_id}: {exc}"
+            ) from exc
+        file_id = created.get("id")
+        if not isinstance(file_id, str) or not file_id:
+            raise GoogleDriveError(f"Drive upload of {name!r} did not return a file id")
+        return DriveUploadResult(
+            action="added",
+            file=DriveFile(
+                id=file_id,
+                name=str(created.get("name") or name),
+                mime_type=str(created.get("mimeType") or mime_type),
+                md5_checksum=(
+                    created.get("md5Checksum")
+                    if isinstance(created.get("md5Checksum"), str)
+                    else local_md5
+                ),
+                modified_time=(
+                    created.get("modifiedTime")
+                    if isinstance(created.get("modifiedTime"), str)
+                    else None
+                ),
+            ),
+        )
 
     def download_file(self, file_id: str, destination: Path) -> Path:
         from googleapiclient.http import MediaIoBaseDownload

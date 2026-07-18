@@ -176,7 +176,7 @@ These can live under **Settings → Secrets and variables → Actions → Variab
 
 | Variable | Description |
 |----------|-------------|
-| `WORKFLOW_PROFILES_JSON` | JSON object with `translators` and `editors` arrays (see below). |
+| `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
 | `OUTPUT_DRIVE_FOLDER` | Google Drive folder URL (or id) where combined media is uploaded, e.g. `https://drive.google.com/drive/folders/1sE-DZV2lrRJxEK7Fnjw7uU8y0KXg7imd`. |
 
 The workflow checks **Variables first**, then **Secrets** for these two names.
@@ -311,7 +311,8 @@ Paste as one secret value (minified JSON):
     {
       "name": "Translator Name",
       "weekly_capacity_reels": 30,
-      "preferred_translation_type": "Reel"
+      "preferred_translation_type": "Reel",
+      "preferred_editor": "Editor Name"
     }
   ],
   "editors": [
@@ -320,11 +321,18 @@ Paste as one secret value (minified JSON):
       "weekly_capacity_reels": 30,
       "preferred_editing_type": "Video"
     }
+  ],
+  "timing_editors": [
+    {
+      "name": "Timing Editor Name",
+      "weekly_capacity_reels": 30,
+      "preferred_timing_type": "Video"
+    }
   ]
 }
 ```
 
-Field names must match Airtable **Translator** / **Editor** single-select values.
+Field names must match Airtable **Translator** / **Editor** / **Timing Editor** single-select values. Optional translator `preferred_editor` routes that translator's videos to a specific editor (type preference ignored) and those assignments run first in a workflow pass.
 
 ## Repository variables (optional)
 

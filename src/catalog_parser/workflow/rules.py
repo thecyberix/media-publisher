@@ -10,6 +10,7 @@ from catalog_parser.airtable import (
     FIELD_DURATION,
     FIELD_TRANSLATOR,
     FIELD_EDITOR,
+    FIELD_TIMING_EDITOR,
     FIELD_TITLE,
     STATUS_EDITING_DONE,
     STATUS_TODO,
@@ -24,6 +25,7 @@ class WorkflowActionType(str, Enum):
     COMBINE_MEDIA = "combine_media"
     INGEST_FOR_TRANSLATOR = "ingest_for_translator"
     ASSIGN_EDITOR = "assign_editor"
+    ASSIGN_TIMING_EDITOR = "assign_timing_editor"
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,7 @@ class WorkflowAction:
     target_status: str | None = None
     translator_name: str | None = None
     editor_name: str | None = None
+    timing_editor_name: str | None = None
     ingest_type: str | None = None
     ingest_count: int | None = None
     reason: str = ""
@@ -70,6 +73,7 @@ def plan_record_actions(
     record_type = fields.get("Type")
     combined_media = fields.get(FIELD_COMBINED_MEDIA_FILE)
     editor = fields.get(FIELD_EDITOR)
+    timing_editor = fields.get(FIELD_TIMING_EDITOR)
 
     if not is_workflow_type(record_type):
         return []
@@ -84,6 +88,16 @@ def plan_record_actions(
                 record_id=record_id,
                 title=title_text,
                 reason="Translation done; needs editor assignment",
+            )
+        )
+
+    if status == STATUS_EDITING_DONE and not timing_editor:
+        actions.append(
+            WorkflowAction(
+                action_type=WorkflowActionType.ASSIGN_TIMING_EDITOR,
+                record_id=record_id,
+                title=title_text,
+                reason="Editing done; needs timing editor assignment",
             )
         )
 
@@ -144,7 +158,7 @@ def count_active_translation_seconds(
     return total
 
 
-def _record_reel_units(fields: dict[str, Any]) -> int:
+def record_reel_units(fields: dict[str, Any]) -> int:
     record_type = fields.get("Type")
     if record_type == TYPE_VIDEO:
         return VIDEO_REEL_EQUIVALENT
@@ -166,7 +180,7 @@ def count_active_translation_reel_units(
             continue
         status = fields.get(FIELD_STATUS)
         if status == STATUS_TODO:
-            total += _record_reel_units(fields)
+            total += record_reel_units(fields)
     return total
 
 
@@ -200,7 +214,7 @@ def count_active_editing_reel_units(
             continue
         status = fields.get(FIELD_STATUS)
         if status == STATUS_TRANSLATION_DONE:
-            total += _record_reel_units(fields)
+            total += record_reel_units(fields)
     return total
 
 
@@ -209,11 +223,17 @@ def choose_editor(
     *,
     record_type: Any,
     editors: list[tuple[str, int, str | None]],
+    preferred_editor: str | None = None,
 ) -> str | None:
-    """Pick the least-utilized eligible editor for ``record_type``.
+    """Pick an editor for ``record_type``.
 
     Each editor is ``(name, weekly_capacity_reels, preferred_editing_type)``.
+    When ``preferred_editor`` is set, that person is chosen (type preference ignored).
+    Otherwise pick the least-utilized eligible editor by type preference.
     """
+    if preferred_editor:
+        return preferred_editor
+
     eligible: list[tuple[str, int]] = []
     for name, capacity, preferred in editors:
         if preferred and preferred != record_type:
@@ -234,11 +254,148 @@ def resolve_assign_editor_actions(
     actions: list[WorkflowAction],
     *,
     editors: list[tuple[str, int, str | None]],
+    preferred_editors_by_translator: dict[str, str] | None = None,
 ) -> list[WorkflowAction]:
     """Choose editors for assign_editor actions and stamp them onto ``records``.
 
     Mutates ``records`` so same-run translation ingest sees the new editing load.
-    Processes actions in order so utilization updates between assignments.
+    Preferred-editor assignments (from translator config) are resolved first so they
+    claim capacity/utilization before general least-utilized picks.
+    """
+    by_id = {
+        record_id: record
+        for record in records
+        if isinstance((record_id := record.get("id")), str)
+    }
+    preferred_map = preferred_editors_by_translator or {}
+
+    def translator_preferred_editor(action: WorkflowAction) -> str | None:
+        if not action.record_id:
+            return None
+        record = by_id.get(action.record_id)
+        if record is None:
+            return None
+        fields = record.get("fields")
+        if not isinstance(fields, dict):
+            return None
+        translator = fields.get(FIELD_TRANSLATOR)
+        if not isinstance(translator, str) or not translator.strip():
+            return None
+        return preferred_map.get(translator.strip())
+
+    editor_actions = [
+        action for action in actions if action.action_type == WorkflowActionType.ASSIGN_EDITOR
+    ]
+    other_actions = [
+        action for action in actions if action.action_type != WorkflowActionType.ASSIGN_EDITOR
+    ]
+    preferred_actions = [
+        action for action in editor_actions if translator_preferred_editor(action)
+    ]
+    general_actions = [
+        action for action in editor_actions if not translator_preferred_editor(action)
+    ]
+
+    resolved_editors: list[WorkflowAction] = []
+    for action in preferred_actions + general_actions:
+        if not action.record_id:
+            resolved_editors.append(action)
+            continue
+        record = by_id.get(action.record_id)
+        if record is None:
+            resolved_editors.append(action)
+            continue
+        fields = record.get("fields")
+        if not isinstance(fields, dict):
+            resolved_editors.append(action)
+            continue
+        preferred = action.editor_name or translator_preferred_editor(action)
+        chosen = preferred or choose_editor(
+            records,
+            record_type=fields.get("Type"),
+            editors=editors,
+            preferred_editor=None,
+        )
+        if chosen is None:
+            resolved_editors.append(action)
+            continue
+        fields[FIELD_EDITOR] = chosen
+        reason = action.reason
+        if preferred and preferred == chosen and not action.editor_name:
+            reason = f"{reason}; preferred editor {chosen}"
+        else:
+            reason = f"{reason}; assign {chosen}"
+        resolved_editors.append(
+            WorkflowAction(
+                action_type=action.action_type,
+                record_id=action.record_id,
+                title=action.title,
+                editor_name=chosen,
+                reason=reason,
+            )
+        )
+
+    # Preferred editor work runs first in the action list for this run.
+    return resolved_editors + other_actions
+
+
+def count_active_timing_reel_units(
+    records: list[dict[str, Any]],
+    timing_editor_name: str,
+) -> int:
+    total = 0
+    for record in records:
+        fields = record.get("fields", {})
+        if not isinstance(fields, dict):
+            continue
+        if fields.get(FIELD_TIMING_EDITOR) != timing_editor_name:
+            continue
+        status = fields.get(FIELD_STATUS)
+        if status == STATUS_EDITING_DONE:
+            total += record_reel_units(fields)
+    return total
+
+
+def choose_timing_editor(
+    records: list[dict[str, Any]],
+    *,
+    record_type: Any,
+    record_units: int,
+    timing_editors: list[tuple[str, int, str | None]],
+) -> str | None:
+    """Pick the least-utilized eligible timing editor that has remaining capacity.
+
+    Each timing editor is ``(name, weekly_capacity_reels, preferred_timing_type)``.
+    Skips people whose preference does not match ``record_type``, and skips anyone
+    who cannot take ``record_units`` without exceeding capacity.
+    """
+    eligible: list[tuple[str, int]] = []
+    for name, capacity, preferred in timing_editors:
+        if preferred and preferred != record_type:
+            continue
+        active = count_active_timing_reel_units(records, name)
+        if active + record_units > capacity:
+            continue
+        eligible.append((name, capacity))
+    if not eligible:
+        return None
+
+    def utilization(item: tuple[str, int]) -> float:
+        name, capacity = item
+        return count_active_timing_reel_units(records, name) / max(1, capacity)
+
+    return sorted(eligible, key=utilization)[0][0]
+
+
+def resolve_assign_timing_editor_actions(
+    records: list[dict[str, Any]],
+    actions: list[WorkflowAction],
+    *,
+    timing_editors: list[tuple[str, int, str | None]],
+) -> list[WorkflowAction]:
+    """Choose timing editors for assign_timing_editor actions and stamp them onto ``records``.
+
+    Mutates ``records`` so utilization updates between assignments in the same run.
     """
     by_id = {
         record_id: record
@@ -247,7 +404,7 @@ def resolve_assign_editor_actions(
     }
     resolved: list[WorkflowAction] = []
     for action in actions:
-        if action.action_type != WorkflowActionType.ASSIGN_EDITOR:
+        if action.action_type != WorkflowActionType.ASSIGN_TIMING_EDITOR:
             resolved.append(action)
             continue
         if not action.record_id:
@@ -261,21 +418,22 @@ def resolve_assign_editor_actions(
         if not isinstance(fields, dict):
             resolved.append(action)
             continue
-        chosen = action.editor_name or choose_editor(
+        chosen = action.timing_editor_name or choose_timing_editor(
             records,
             record_type=fields.get("Type"),
-            editors=editors,
+            record_units=record_reel_units(fields),
+            timing_editors=timing_editors,
         )
         if chosen is None:
             resolved.append(action)
             continue
-        fields[FIELD_EDITOR] = chosen
+        fields[FIELD_TIMING_EDITOR] = chosen
         resolved.append(
             WorkflowAction(
                 action_type=action.action_type,
                 record_id=action.record_id,
                 title=action.title,
-                editor_name=chosen,
+                timing_editor_name=chosen,
                 reason=f"{action.reason}; assign {chosen}",
             )
         )

@@ -72,6 +72,7 @@ def load_monthly_quote_texts(
     *,
     year: int,
     month: int,
+    require_ready: bool = False,
 ) -> list[DailyQuoteText]:
     sheet_config = config.quotes_sheet
     tab = client.resolve_sheet_tab_for_month(
@@ -118,7 +119,11 @@ def load_monthly_quote_texts(
 
         ready_text = _cell(row, ready_index)
         translation_text = _cell(row, translation_index)
-        if prefer_ready and ready_text:
+        if require_ready:
+            if not ready_text:
+                continue
+            text_bg = ready_text
+        elif prefer_ready and ready_text:
             text_bg = ready_text
         else:
             text_bg = translation_text

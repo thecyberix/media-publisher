@@ -20,6 +20,7 @@ from catalog_parser.workflow.rules import (
     plan_ingest_actions,
     plan_record_actions,
     resolve_assign_editor_actions,
+    resolve_assign_timing_editor_actions,
 )
 from catalog_parser.workflow.approved_thumbnails import (
     process_approved_review_thumbnails_in_workflow,
@@ -92,6 +93,15 @@ def run_workflow(
         (profile.name, profile.weekly_capacity_reels, profile.preferred_editing_type)
         for profile in config.editors
     ]
+    preferred_editors_by_translator = {
+        profile.name: profile.preferred_editor
+        for profile in config.translators
+        if profile.preferred_editor
+    }
+    timing_editor_slots = [
+        (profile.name, profile.weekly_capacity_reels, profile.preferred_timing_type)
+        for profile in config.timing_editors
+    ]
     editor_names = frozenset(profile.name for profile in config.editors)
     # Snapshot for ingest planning: stamp same-run editor picks so dual-role
     # translators are blocked from new translation work in this run.
@@ -106,6 +116,12 @@ def run_workflow(
         ingest_records,
         planned_actions,
         editors=editor_slots,
+        preferred_editors_by_translator=preferred_editors_by_translator,
+    )
+    planned_actions = resolve_assign_timing_editor_actions(
+        ingest_records,
+        planned_actions,
+        timing_editors=timing_editor_slots,
     )
     planned_actions.extend(
         plan_ingest_actions(
@@ -153,6 +169,7 @@ def run_workflow(
                 dry_run=dry_run,
                 use_console=use_console,
                 table_cache=table_cache,
+                project_root=project_root,
             )
             results.append(result)
             status = "OK" if result.success else "FAIL"
