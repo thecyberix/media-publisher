@@ -5,13 +5,14 @@ import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from catalog_parser.canva import CanvaClient, CanvaError, build_canva_client_from_env
-from catalog_parser.runtime_env import maybe_persist_canva_token, note_canva_token_baseline
+from catalog_parser.canva import CanvaClient, build_canva_client_from_env
 from catalog_parser.smartcat import DEFAULT_UI_BASE
 from catalog_parser.smartcat_web import _looks_like_login_url
 
@@ -110,19 +111,57 @@ def check_smartcat_session(
             browser.close()
 
 
-def check_canva_authorization(*, client: CanvaClient) -> None:
+def check_canva_authorization(*, client: CanvaClient) -> str:
+    """Validate Canva credentials without refreshing.
+
+    Canva refresh tokens are single-use. Refreshing here and again in the
+    orchestrator (or another concurrent job) revokes the whole token lineage.
+    """
     if not client.token_path.exists():
         raise FileNotFoundError(
             f"Canva token file not found: {client.token_path}. "
             "Run locally: python scripts/_canva_auth_interactive.py"
         )
-    try:
-        client.get_access_token()
-    except CanvaError as exc:
+    token = client._load_token()
+    if token is None:
         raise RuntimeError(
-            f"Canva authorization failed: {exc}. "
+            f"Canva token file is missing or invalid: {client.token_path}. "
             "Run locally: python scripts/_canva_auth_interactive.py"
+        )
+    if not token.access_token:
+        raise RuntimeError(
+            "Canva token file is missing access_token. "
+            "Run locally: python scripts/_canva_auth_interactive.py"
+        )
+    if not token.refresh_token:
+        raise RuntimeError(
+            "Canva token file is missing refresh_token. "
+            "Run locally: python scripts/_canva_auth_interactive.py"
+        )
+    if token.is_expired():
+        # Access token expired is fine — the workflow will refresh once later.
+        return "access_expired"
+
+    # Probe with the current access token only (never call the refresh endpoint).
+    url = f"{client.api_base.rstrip('/')}/users/me"
+    request = urllib.request.Request(url, method="GET")
+    request.add_header("Authorization", f"Bearer {token.access_token}")
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        if exc.code in {401, 403}:
+            raise RuntimeError(
+                "Canva access token was rejected by the API. "
+                "Run locally: python scripts/_canva_auth_interactive.py"
+            ) from exc
+        raise RuntimeError(
+            f"Canva authorization probe failed with HTTP {exc.code}: {detail}"
         ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Canva authorization probe failed: {exc.reason}") from exc
+    return "ok"
 
 
 def _resolve_path(path: Path) -> Path:
@@ -205,9 +244,8 @@ def main() -> int:
     if _canva_is_configured(project_root=REPO_ROOT):
         client = build_canva_client_from_env(project_root=REPO_ROOT)
         assert client is not None
-        note_canva_token_baseline(REPO_ROOT)
         try:
-            check_canva_authorization(client=client)
+            status = check_canva_authorization(client=client)
         except FileNotFoundError as exc:
             print(exc, file=sys.stderr)
             exit_code = max(exit_code, EXIT_MISSING)
@@ -215,13 +253,13 @@ def main() -> int:
             print(exc, file=sys.stderr)
             exit_code = max(exit_code, _classify_runtime_error(str(exc)))
         else:
-            print("OK: Canva authorization is valid")
-            try:
-                message = maybe_persist_canva_token(REPO_ROOT)
-                if message:
-                    print(message)
-            except RuntimeError as exc:
-                print(f"Warning: {exc}", file=sys.stderr)
+            if status == "access_expired":
+                print(
+                    "OK: Canva refresh token present "
+                    "(access token expired; will refresh once during workflow)"
+                )
+            else:
+                print("OK: Canva authorization is valid")
     elif args.skip_canva_if_missing:
         print("SKIP: Canva credentials or token file not configured")
     else:

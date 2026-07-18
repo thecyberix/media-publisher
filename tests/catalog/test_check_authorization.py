@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +14,7 @@ SCRIPTS_CATALOG = REPO_ROOT / "scripts" / "catalog"
 sys.path.insert(0, str(SCRIPTS_CATALOG))
 
 import check_authorization  # noqa: E402
+from catalog_parser.canva import CanvaToken  # noqa: E402
 
 
 class CheckAuthorizationTests(unittest.TestCase):
@@ -40,29 +43,84 @@ class CheckAuthorizationTests(unittest.TestCase):
             ):
                 self.assertFalse(check_authorization._canva_is_configured(project_root=root))
 
-    def test_check_canva_authorization_refreshes_token(self) -> None:
+    def test_check_canva_authorization_skips_refresh_when_access_expired(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             token_path = Path(tmp) / "canva-token.json"
             token_path.write_text("{}", encoding="utf-8")
             client = MagicMock()
             client.token_path = token_path
+            client._load_token.return_value = CanvaToken(
+                access_token="access",
+                refresh_token="refresh",
+                token_type="Bearer",
+                expires_at=time.time() - 100,
+            )
 
-            check_authorization.check_canva_authorization(client=client)
+            status = check_authorization.check_canva_authorization(client=client)
 
-            client.get_access_token.assert_called_once()
+            self.assertEqual(status, "access_expired")
+            client.get_access_token.assert_not_called()
 
-    def test_check_canva_authorization_wraps_canva_error(self) -> None:
-        from catalog_parser.canva import CanvaError
-
+    def test_check_canva_authorization_probes_without_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             token_path = Path(tmp) / "canva-token.json"
             token_path.write_text("{}", encoding="utf-8")
             client = MagicMock()
             client.token_path = token_path
-            client.get_access_token.side_effect = CanvaError("refresh token revoked")
+            client.api_base = "https://api.canva.com/rest/v1"
+            client._load_token.return_value = CanvaToken(
+                access_token="access",
+                refresh_token="refresh",
+                token_type="Bearer",
+                expires_at=time.time() + 3600,
+            )
 
-            with self.assertRaisesRegex(RuntimeError, "Canva authorization failed"):
-                check_authorization.check_canva_authorization(client=client)
+            with patch("check_authorization.urllib.request.urlopen") as urlopen:
+                response = MagicMock()
+                response.read.return_value = b"{}"
+                response.__enter__.return_value = response
+                response.__exit__.return_value = False
+                urlopen.return_value = response
+
+                status = check_authorization.check_canva_authorization(client=client)
+
+            self.assertEqual(status, "ok")
+            client.get_access_token.assert_not_called()
+            request = urlopen.call_args.args[0]
+            self.assertEqual(
+                request.get_header("Authorization"),
+                "Bearer access",
+            )
+
+    def test_check_canva_authorization_rejects_unauthorized_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            token_path = Path(tmp) / "canva-token.json"
+            token_path.write_text("{}", encoding="utf-8")
+            client = MagicMock()
+            client.token_path = token_path
+            client.api_base = "https://api.canva.com/rest/v1"
+            client._load_token.return_value = CanvaToken(
+                access_token="access",
+                refresh_token="refresh",
+                token_type="Bearer",
+                expires_at=time.time() + 3600,
+            )
+
+            error = urllib.error.HTTPError(
+                url="https://api.canva.com/rest/v1/users/me",
+                code=401,
+                msg="Unauthorized",
+                hdrs=None,
+                fp=None,
+            )
+            error.read = MagicMock(return_value=b"unauthorized")  # type: ignore[method-assign]
+
+            with patch(
+                "check_authorization.urllib.request.urlopen",
+                side_effect=error,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "rejected"):
+                    check_authorization.check_canva_authorization(client=client)
 
     @patch.object(check_authorization, "check_smartcat_session")
     @patch.object(check_authorization, "_canva_is_configured", return_value=False)
@@ -71,11 +129,14 @@ class CheckAuthorizationTests(unittest.TestCase):
         _canva_configured: MagicMock,
         _smartcat_check: MagicMock,
     ) -> None:
+        missing_state = Path(tempfile.mkdtemp()) / "missing-smartcat-state.json"
         with patch.object(
             sys,
             "argv",
             [
                 "check_authorization.py",
+                "--smartcat-storage-state",
+                str(missing_state),
                 "--skip-smartcat-if-missing",
                 "--skip-canva-if-missing",
             ],

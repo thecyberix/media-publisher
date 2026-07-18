@@ -213,9 +213,14 @@ If Canva secrets are missing, ingest still works for folders with a thumbnail im
 
 ### Approved review thumbnails
 
+When ingest finds **no Drive TN marker and no Canva link**, it does **not** write
+Original Video Thumbnail to Airtable. If the original-platform still matches the
+catalog video aspect ratio, the file is uploaded to the Drive review folder and
+one review email is sent for that ingest run.
+
 Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
 
-Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. Optional overrides: `THUMBNAIL_REVIEW_DRIVE_FOLDER_ID`, `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`.
+Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. Optional overrides: `THUMBNAIL_REVIEW_DRIVE_FOLDER_ID`, `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`. Review emails need `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, and `NOTIFY_EMAIL` on the orchestrator / ingest job.
 
 Renew locally (either CLI works — same token file):
 
@@ -254,7 +259,7 @@ python scripts/_canva_auth_interactive.py
 
 When `CANVA_TOKEN_SYNC_PAT` is set, the script updates the `CANVA_TOKEN_JSON` GitHub secret automatically.
 
-Canva refresh tokens are **single-use**. The daily workflow auth-check refreshes the token and syncs `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Later steps keep the on-disk rotated token even though the job still has the pre-refresh secret value in its environment (GitHub does not re-inject updated secrets mid-job). Avoid refreshing the same local `credentials/canva-token.json` from multiple machines without syncing the secret afterward.
+Canva refresh tokens are **single-use**. The authorization check validates the token file (and probes the API when the access token is still valid) **without refreshing**. The catalog orchestrator refreshes at most once and syncs `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Orchestrator steps do not rematerialize `CANVA_TOKEN_JSON` from the job-scoped secret after Restore, because that stale value would overwrite a rotated on-disk token. Avoid overlapping Canva-using workflows (catalog + publish) that could refresh the same secret concurrently.
 
 Test locally:
 

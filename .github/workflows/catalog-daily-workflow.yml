@@ -132,8 +132,15 @@ jobs:
           SMARTCAT_STORAGE_STATE: smartcat-state.json
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
-          CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
+          # Do not rematerialize CANVA_TOKEN_JSON here: the Restore step already
+          # wrote credentials/canva-token.json, and re-injecting the job-scoped
+          # (possibly stale) secret after a refresh revokes Canva's single-use
+          # refresh token lineage.
           CANVA_TOKEN_SYNC_PAT: ${{ secrets.CANVA_TOKEN_SYNC_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m catalog_parser --dry-run
