@@ -44,6 +44,12 @@ class DriveUploadResult:
     file: DriveFile
 
 
+@dataclass(frozen=True)
+class DriveHostedFile:
+    file_id: str
+    url: str
+
+
 DAY_FILENAME_RE = re.compile(
     r"^(?P<month>[A-Za-z]{3})-(?P<day>\d{1,2})-",
     re.IGNORECASE,
@@ -296,8 +302,8 @@ class GoogleDriveClient:
         *,
         name: str | None = None,
         temp_subfolder: str = "_ig_temp_host",
-    ) -> str:
-        """Upload a video under a temp Drive folder, share it, return a public URL."""
+    ) -> DriveHostedFile:
+        """Upload a video under a temp Drive folder, share it, return id + public URL."""
         if not source_path.is_file():
             raise GoogleDriveError(f"Local file not found for Drive host: {source_path}")
         temp_folder = self.ensure_folder(parent_folder_id, temp_subfolder)
@@ -309,7 +315,10 @@ class GoogleDriveClient:
             mime_type="video/mp4",
         )
         self.share_anyone_reader(result.file.id)
-        return self.public_usercontent_download_url(result.file.id)
+        return DriveHostedFile(
+            file_id=result.file.id,
+            url=self.public_usercontent_download_url(result.file.id),
+        )
 
     def upload_or_update_file(
         self,

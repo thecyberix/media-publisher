@@ -101,7 +101,7 @@ def publish_to_instagram(
                 and _should_host_on_drive(video_path)
             ):
                 try:
-                    video_url = drive_client.host_public_video(
+                    hosted = drive_client.host_public_video(
                         drive_host_folder_id,
                         video_path,
                     )
@@ -109,14 +109,20 @@ def publish_to_instagram(
                     raise InstagramPublishError(
                         f"Failed to host Instagram video on Drive: {exc}"
                     ) from exc
-                return client.schedule_instagram_reel(
+                media_id = client.schedule_instagram_reel(
                     instagram_account_id=instagram_account_id,
                     caption=caption,
-                    video_url=video_url,
+                    video_url=hosted.url,
                     page_id=page_id,
                     publish_at=None,
                     cover_path=cover_path,
                 )
+                try:
+                    drive_client.remove_file(hosted.file_id)
+                except GoogleDriveError:
+                    # Publish already succeeded; orphaned temp file is non-fatal.
+                    pass
+                return media_id
 
             return client.schedule_instagram_reel(
                 instagram_account_id=instagram_account_id,

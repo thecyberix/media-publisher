@@ -27,6 +27,7 @@ from media_publisher.sources.airtable import (
     FIELD_TITLE,
     record_schedule_tasks,
 )
+from media_publisher.sources.google_drive import DriveHostedFile
 
 
 class PublishAtValidationTests(unittest.TestCase):
@@ -708,9 +709,11 @@ class PublisherWrapperTests(unittest.TestCase):
                 video_format="post",
             )
             drive = MagicMock()
-            drive.host_public_video.return_value = (
-                "https://drive.usercontent.google.com/download?id=abc&export=download"
+            drive.host_public_video.return_value = DriveHostedFile(
+                file_id="abc",
+                url="https://drive.usercontent.google.com/download?id=abc&export=download",
             )
+            drive.remove_file.return_value = "deleted"
             with (
                 patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
                 patch(
@@ -731,6 +734,7 @@ class PublisherWrapperTests(unittest.TestCase):
 
         self.assertEqual(media_id, "ig_media_1")
         drive.host_public_video.assert_called_once()
+        drive.remove_file.assert_called_once_with("abc")
         client_cls.return_value.schedule_instagram_reel.assert_called_once()
         kwargs = client_cls.return_value.schedule_instagram_reel.call_args.kwargs
         self.assertEqual(
@@ -739,6 +743,44 @@ class PublisherWrapperTests(unittest.TestCase):
         )
         self.assertNotIn("video_path", kwargs)
         self.assertNotIn("prefer_resumable_upload", kwargs)
+
+    def test_publish_to_instagram_keeps_drive_host_when_publish_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "large.mp4"
+            video_path.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+            job = PublishJob(
+                title="Launch",
+                description="Caption text",
+                video_path=str(video_path),
+                video_format="post",
+            )
+            drive = MagicMock()
+            drive.host_public_video.return_value = DriveHostedFile(
+                file_id="abc",
+                url="https://drive.usercontent.google.com/download?id=abc&export=download",
+            )
+            with (
+                patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
+                patch(
+                    "media_publisher.publishers.instagram.ensure_instagram_upload_video",
+                    side_effect=self._passthrough_instagram_video,
+                ),
+            ):
+                client_cls.return_value.schedule_instagram_reel.side_effect = MetaError(
+                    "container failed"
+                )
+                with self.assertRaises(InstagramPublishError):
+                    publish_to_instagram(
+                        job,
+                        instagram_account_id="ig123",
+                        access_token="token",
+                        app_id="app123",
+                        page_id="page123",
+                        drive_client=drive,
+                        drive_host_folder_id="folder123",
+                    )
+
+        drive.remove_file.assert_not_called()
 
     def test_publish_to_instagram_publishes_long_form_local_video(self) -> None:
         job = PublishJob(
