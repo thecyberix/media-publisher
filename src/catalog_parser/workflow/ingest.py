@@ -13,6 +13,7 @@ from catalog_parser.airtable import (
     STATUS_NOT_ASSIGNED,
     STATUS_TODO,
     load_existing_titles_for_ingest,
+    load_existing_video_folder_ids_for_ingest,
 )
 from catalog_parser.auth import get_docs_service, get_drive_service, get_sheets_service
 from catalog_parser.parser import (
@@ -169,12 +170,17 @@ def ingest_batch(
         table_cache=table_cache,
         project_root=PROJECT_ROOT,
     )
+    existing_folder_ids = load_existing_video_folder_ids_for_ingest(
+        airtable,
+        table_cache=table_cache,
+    )
     staging_dir = PROJECT_ROOT / "output" / "ingest-thumbnails"
     staging_dir.mkdir(parents=True, exist_ok=True)
 
     enrich_kwargs = {
         "target_count": target_count,
         "existing_titles": existing_titles,
+        "existing_folder_ids": existing_folder_ids,
         "smartcat_enabled": True,
         "smartcat_api": smartcat_api,
         "smartcat_language": smartcat_language,
@@ -220,21 +226,69 @@ def ingest_batch(
         return []
 
     created_ids = airtable.create_records(eligible)
+    review_items: list[Any] = []
     for record, record_id in zip(eligible, created_ids, strict=True):
         title = record.get("ctTitle") or "Untitled"
         emit(f"  ingested: {record_id}\t{title}")
         thumbnail_path = record.get("_originalThumbnailPath")
-        if not isinstance(thumbnail_path, str) or not thumbnail_path.strip():
+        if isinstance(thumbnail_path, str) and thumbnail_path.strip():
+            path = Path(thumbnail_path)
+            if path.is_file():
+                airtable.upload_attachment(
+                    record_id,
+                    FIELD_ORIGINAL_VIDEO_THUMBNAIL,
+                    path,
+                )
+                path.unlink(missing_ok=True)
             continue
-        path = Path(thumbnail_path)
+
+        review_path = record.get("_thumbnailReviewPath")
+        if not isinstance(review_path, str) or not review_path.strip():
+            continue
+        path = Path(review_path)
         if not path.is_file():
             continue
-        airtable.upload_attachment(
-            record_id,
-            FIELD_ORIGINAL_VIDEO_THUMBNAIL,
-            path,
+        from media_publisher.config import load_settings
+        from media_publisher.sources.thumbnail_review import (
+            ReviewQueueItem,
+            upload_review_thumbnail,
         )
+
+        settings = load_settings(PROJECT_ROOT)
+        upload_review_thumbnail(
+            drive_service,
+            review_folder_id=settings.thumbnail_review_drive_folder_id,
+            local_path=path,
+            title=str(title),
+        )
+        review_items.append(
+            ReviewQueueItem(
+                record_id=record_id,
+                title=str(title),
+                local_path=path,
+                reason="no TN image or Canva link; original-platform aspect matches",
+            )
+        )
+        emit(f"  queued for thumbnail review: {title}")
         path.unlink(missing_ok=True)
+
+    if review_items:
+        from media_publisher.sources.thumbnail_review import (
+            DEFAULT_REVIEW_FOLDER_URL,
+            send_review_notification_email,
+        )
+
+        if send_review_notification_email(
+            review_items,
+            review_folder_url=DEFAULT_REVIEW_FOLDER_URL,
+        ):
+            emit(f"Thumbnail review email sent ({len(review_items)} video(s)).")
+        else:
+            emit(
+                "WARN: thumbnail review uploads succeeded but notification email "
+                "was not sent (check GMAIL_SMTP_* / NOTIFY_EMAIL)."
+            )
+
     if table_cache is not None and created_ids:
         table_cache.register_created_from_catalog(eligible, created_ids)
     emit(f"Created {len(created_ids)} Airtable row(s).")

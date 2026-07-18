@@ -20,6 +20,7 @@ from catalog_parser.smartcat import (
 DEFAULT_API_BASE = "https://ea.smartcat.ai"
 DEFAULT_EXPORT_MODE = "current"
 DEFAULT_EXPORT_TYPE = "target"
+EXPORT_TYPES = frozenset({"source", "target"})
 EXPORT_POLL_INTERVAL_SECONDS = 1.0
 EXPORT_MAX_WAIT_SECONDS = 120.0
 
@@ -90,10 +91,18 @@ class SmartcatApiClient:
             self._project_cache[project_id] = project
         return self._project_cache[project_id]
 
-    def request_document_export(self, composite_document_id: str) -> str:
+    def request_document_export(
+        self,
+        composite_document_id: str,
+        *,
+        export_type: str = DEFAULT_EXPORT_TYPE,
+    ) -> str:
+        if export_type not in EXPORT_TYPES:
+            raise SmartcatError(f"Unsupported Smartcat export type: {export_type!r}")
+
         query = {
             "documentIds": composite_document_id,
-            "type": DEFAULT_EXPORT_TYPE,
+            "type": export_type,
             "mode": DEFAULT_EXPORT_MODE,
         }
         status, body, headers = self._request(
@@ -145,6 +154,99 @@ class SmartcatApiClient:
             f"after {EXPORT_MAX_WAIT_SECONDS:.0f}s"
         )
 
+    def download_export(self, task_id: str) -> bytes:
+        path = f"/api/integration/v1/document/export/{urllib.parse.quote(task_id, safe='')}"
+        status, body, _headers = self._request("GET", path, accept="*/*")
+        if status >= 400:
+            detail = body.decode("utf-8", errors="replace").strip()
+            raise SmartcatError(
+                f"Smartcat export download for task {task_id!r} failed with HTTP {status}: {detail}"
+            )
+        return body
+
+    def export_document_srt(
+        self,
+        document_id: str,
+        language_id: str,
+        *,
+        export_type: str,
+    ) -> str:
+        composite_id = build_document_language_id(document_id, language_id)
+        task_id = self.request_document_export(composite_id, export_type=export_type)
+        self.wait_for_export(task_id)
+        body = self.download_export(task_id)
+        return body.decode("utf-8")
+
+    def import_document_translation_srt(
+        self,
+        document_id: str,
+        language_id: str,
+        target_srt: str,
+        *,
+        filename: str = "ai.bg.srt",
+    ) -> None:
+        """Upload a target SRT via company API PUT /document/translate."""
+        import uuid
+
+        composite_id = build_document_language_id(document_id, language_id)
+        boundary = f"----SmartcatBoundary{uuid.uuid4().hex}"
+        file_bytes = target_srt.encode("utf-8")
+        body = (
+            (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="translationFile"; '
+                f'filename="{filename}"\r\n'
+                f"Content-Type: application/x-subrip\r\n\r\n"
+            ).encode("utf-8")
+            + file_bytes
+            + f"\r\n--{boundary}--\r\n".encode("utf-8")
+        )
+        url = (
+            f"{self.api_base}/api/integration/v1/document/translate?"
+            f"{urllib.parse.urlencode({'documentId': composite_id})}"
+        )
+        request = urllib.request.Request(url, data=body, method="PUT")
+        request.add_header("Authorization", self._auth_header)
+        request.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        request.add_header("Accept", "application/json")
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                status = response.status
+                payload = response.read()
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            payload = exc.read()
+        if status >= 400:
+            detail = payload.decode("utf-8", errors="replace")[:500]
+            raise SmartcatError(
+                f"Smartcat document/translate failed for {composite_id!r} "
+                f"(HTTP {status}): {detail}"
+            )
+
+        # Poll status if the API returns an async task.
+        deadline = time.monotonic() + EXPORT_MAX_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            status_payload = self._request_json(
+                "GET",
+                "/api/integration/v1/document/translate/status",
+                query={"documentId": composite_id},
+            )
+            if status_payload is None:
+                return
+            if isinstance(status_payload, dict):
+                state = str(status_payload.get("status") or status_payload.get("state") or "").lower()
+                if state in {"", "done", "completed", "success", "ready"}:
+                    return
+                if state in {"failed", "error"}:
+                    raise SmartcatError(
+                        f"Smartcat translate import failed for {composite_id!r}: "
+                        f"{status_payload!r}"
+                    )
+            time.sleep(EXPORT_POLL_INTERVAL_SECONDS)
+        raise SmartcatError(
+            f"Timed out waiting for Smartcat translate import of {composite_id!r}"
+        )
+
     def resolve_bulgarian_srt_link(
         self,
         pkg_sm_link: str,
@@ -177,7 +279,7 @@ class SmartcatApiClient:
             if isinstance(document_id, str) and document_id:
                 language_id = resolve_target_language_id(project, language)
                 composite_id = build_document_language_id(document_id, language_id)
-                task_id = self.request_document_export(composite_id)
+                task_id = self.request_document_export(composite_id, export_type=DEFAULT_EXPORT_TYPE)
                 self.wait_for_export(task_id)
                 return build_export_download_link(self.api_base, task_id)
 
@@ -198,7 +300,7 @@ class SmartcatApiClient:
 
         language_id = resolve_target_language_id(project, language)
         composite_id = build_document_language_id(document_id, language_id)
-        task_id = self.request_document_export(composite_id)
+        task_id = self.request_document_export(composite_id, export_type=DEFAULT_EXPORT_TYPE)
         self.wait_for_export(task_id)
         return build_export_download_link(self.api_base, task_id)
 

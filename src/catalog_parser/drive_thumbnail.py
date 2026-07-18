@@ -380,6 +380,88 @@ def download_original_platform_thumbnail(
     return destination
 
 
+def find_peer_youtube_ct_link(
+    folder_id: str,
+    catalog_peers: list[dict[str, Any]],
+    *,
+    folder_link_field: str = "pkgLink",
+    exclude_ct_link: str | None = None,
+) -> str | None:
+    """Find another catalog row with the same Drive folder and a YouTube ctLink."""
+    from media_publisher.sources.source_thumbnail import detect_platform
+
+    exclude = (exclude_ct_link or "").strip()
+    for peer in catalog_peers:
+        peer_folder_link = peer.get(folder_link_field)
+        if not isinstance(peer_folder_link, str) or not peer_folder_link.strip():
+            continue
+        peer_folder_id = extract_drive_folder_id(peer_folder_link)
+        if peer_folder_id != folder_id:
+            continue
+        peer_ct_link = str(peer.get("ctLink") or "").strip()
+        if not peer_ct_link or peer_ct_link == exclude:
+            continue
+        if detect_platform(peer_ct_link) == "youtube":
+            return peer_ct_link
+    return None
+
+
+def _original_thumbnail_matches_video_aspect(
+    drive_service: Resource,
+    folder_id: str,
+    thumbnail_path: Path,
+) -> bool:
+    from media_publisher.sources.source_thumbnail import aspects_match
+    from PIL import Image
+
+    video_size = video_size_from_pkg_folder(drive_service, folder_id)
+    if video_size is None:
+        return False
+    with Image.open(thumbnail_path) as image:
+        width, height = image.size
+    return aspects_match(width, height, video_size[0], video_size[1])
+
+
+def _stage_original_thumbnail_for_ingest(
+    drive_service: Resource,
+    docs_service: Resource | None,
+    folder_id: str,
+    *,
+    source_url: str,
+    destination: Path,
+    updated: dict[str, Any],
+    thumbnail_field: str,
+) -> None:
+    """Stage original-platform thumbnail for Airtable upload or Drive review.
+
+    Direct Airtable upload is only allowed when Drive has a TN marker or Canva
+    link. Otherwise matching-aspect originals are queued for human review.
+    """
+    download_original_platform_thumbnail(source_url, destination)
+    updated[thumbnail_field] = None
+    updated.pop(f"{thumbnail_field}Error", None)
+
+    if has_original_video_thumbnail_source(drive_service, docs_service, folder_id):
+        updated["_originalThumbnailPath"] = str(destination)
+        updated.pop("_thumbnailReviewPath", None)
+        updated[f"{thumbnail_field}Source"] = "original-platform:local-upload"
+        print(f"  -> staged for Airtable upload: {destination.name}")
+        return
+
+    if _original_thumbnail_matches_video_aspect(drive_service, folder_id, destination):
+        updated["_thumbnailReviewPath"] = str(destination)
+        updated.pop("_originalThumbnailPath", None)
+        updated[f"{thumbnail_field}Source"] = "original-platform:review-queue"
+        print(f"  -> staged for review queue: {destination.name}")
+        return
+
+    destination.unlink(missing_ok=True)
+    updated.pop("_originalThumbnailPath", None)
+    updated.pop("_thumbnailReviewPath", None)
+    updated[f"{thumbnail_field}Source"] = None
+    print("  -> no thumbnail source (skipped review: aspect mismatch)")
+
+
 def enrich_records_with_original_video_thumbnails(
     records: list[dict[str, Any]],
     drive_service: Resource,
@@ -389,9 +471,11 @@ def enrich_records_with_original_video_thumbnails(
     folder_link_field: str = "pkgLink",
     thumbnail_field: str = DEFAULT_YT_THUMBNAIL_FIELD,
     staging_dir: Path | None = None,
+    catalog_peers: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     enriched: list[dict[str, Any]] = []
     total = len(records)
+    peers = catalog_peers if catalog_peers is not None else records
 
     for index, record in enumerate(records, start=1):
         updated = dict(record)
@@ -426,18 +510,58 @@ def enrich_records_with_original_video_thumbnails(
                     raise DriveThumbnailError(
                         "Cannot stage original thumbnail on ingest: ctLink is missing"
                     )
-                from media_publisher.sources.source_thumbnail import original_thumbnail_destination
+                from media_publisher.sources.source_thumbnail import (
+                    detect_platform,
+                    original_thumbnail_destination,
+                )
 
                 destination = original_thumbnail_destination(
                     staging_dir,
                     label_text if isinstance(label, str) and label else f"row-{index}",
                 )
-                download_original_platform_thumbnail(source_url, destination)
-                updated["_originalThumbnailPath"] = str(destination)
-                updated[thumbnail_field] = None
-                updated[f"{thumbnail_field}Source"] = "original-platform:local-upload"
-                updated.pop(f"{thumbnail_field}Error", None)
-                print(f"  -> staged for upload: {destination.name}")
+                try:
+                    _stage_original_thumbnail_for_ingest(
+                        drive_service,
+                        docs_service,
+                        folder_id,
+                        source_url=source_url,
+                        destination=destination,
+                        updated=updated,
+                        thumbnail_field=thumbnail_field,
+                    )
+                except DriveThumbnailError as primary_exc:
+                    peer_yt = None
+                    if detect_platform(source_url) == "instagram":
+                        peer_yt = find_peer_youtube_ct_link(
+                            folder_id,
+                            peers,
+                            folder_link_field=folder_link_field,
+                            exclude_ct_link=source_url,
+                        )
+                    if not peer_yt:
+                        raise
+                    print(
+                        "  -> IG thumbnail failed; "
+                        f"trying peer YouTube link ({peer_yt})"
+                    )
+                    destination.unlink(missing_ok=True)
+                    _stage_original_thumbnail_for_ingest(
+                        drive_service,
+                        docs_service,
+                        folder_id,
+                        source_url=peer_yt,
+                        destination=destination,
+                        updated=updated,
+                        thumbnail_field=thumbnail_field,
+                    )
+                    updated["_originalThumbnailFallbackCtLink"] = peer_yt
+                    updated.pop(f"{thumbnail_field}Error", None)
+                    source_label = updated.get(f"{thumbnail_field}Source")
+                    if isinstance(source_label, str) and source_label:
+                        updated[f"{thumbnail_field}Source"] = (
+                            f"{source_label}:peer-youtube"
+                        )
+                    print(f"  -> used peer YouTube after IG failure: {primary_exc}")
             elif has_original_video_thumbnail_source(
                 drive_service,
                 docs_service,
@@ -462,20 +586,10 @@ def enrich_records_with_original_video_thumbnails(
                 else:
                     print("  -> not found")
             else:
-                attachment, source = resolve_original_video_thumbnail(
-                    drive_service,
-                    docs_service,
-                    folder_id,
-                    original_video_url=updated.get("ctLink"),
-                    canva_client=canva_client,
-                )
-                updated[thumbnail_field] = attachment
-                updated[f"{thumbnail_field}Source"] = source
+                updated[thumbnail_field] = None
+                updated[f"{thumbnail_field}Source"] = None
                 updated.pop(f"{thumbnail_field}Error", None)
-                if attachment:
-                    print(f"  -> {thumbnail_field}: {source}")
-                else:
-                    print("  -> not found")
+                print("  -> no thumbnail source")
         except DriveThumbnailError as exc:
             updated[thumbnail_field] = None
             updated[f"{thumbnail_field}Source"] = None

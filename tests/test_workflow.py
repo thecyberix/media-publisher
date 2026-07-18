@@ -27,6 +27,7 @@ from catalog_parser.workflow.rules import (
     WorkflowActionType,
     plan_ingest_actions,
     plan_record_actions,
+    resolve_assign_editor_actions,
 )
 
 
@@ -359,6 +360,50 @@ class IngestPlanningTests(unittest.TestCase):
         )
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0].translator_name, "Dilyana Hayes")
+
+    def test_same_run_editor_assignment_blocks_dual_role_translation_ingest(self) -> None:
+        """Editor picks stamped before ingest must block dual-role translators."""
+        records = [
+            {
+                "id": "rec_needs_editor",
+                "fields": {
+                    FIELD_TITLE: "Long video ready for editing",
+                    "Type": "Video",
+                    "Status": STATUS_TRANSLATION_DONE,
+                    "Duration": 600,
+                },
+            }
+        ]
+        record_actions = []
+        for record in records:
+            record_actions.extend(plan_record_actions(record))
+        self.assertEqual(
+            [action.action_type for action in record_actions],
+            [WorkflowActionType.ASSIGN_EDITOR],
+        )
+
+        editors = [
+            ("Dilyana Hayes", 15, "Video"),
+            ("Nina Rueva", 4, "Reel"),
+        ]
+        resolved = resolve_assign_editor_actions(records, record_actions, editors=editors)
+        self.assertEqual(resolved[0].editor_name, "Dilyana Hayes")
+        self.assertEqual(records[0]["fields"][FIELD_EDITOR], "Dilyana Hayes")
+
+        ingest_actions = plan_ingest_actions(
+            records,
+            translators=[
+                ("Dilyana Hayes", 15, "Reel"),
+                ("Genka Petrova", 15, None),
+            ],
+            target_reel_to_video_ratio=6,
+            max_video_seconds=900,
+            editor_names=frozenset({"Dilyana Hayes", "Nina Rueva"}),
+        )
+        self.assertTrue(
+            all(action.translator_name != "Dilyana Hayes" for action in ingest_actions)
+        )
+        self.assertTrue(ingest_actions)
 
 
 class WorkflowActionTests(unittest.TestCase):

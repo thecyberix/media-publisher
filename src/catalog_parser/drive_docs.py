@@ -370,16 +370,19 @@ def read_drive_fields_from_folder(
     folder_id: str,
     *,
     original_video_url: str | None = None,
+    resolve_video_size: bool = True,
 ) -> dict[str, str | None]:
-    from catalog_parser.drive_video_size import video_size_from_pkg_folder
-
     documents = list_text_documents_in_folder(drive_service, folder_id)
     if not documents:
         raise DriveDocsError(
             f"No Google Docs or Word documents found in Drive folder {folder_id!r}"
         )
 
-    target_size = video_size_from_pkg_folder(drive_service, folder_id)
+    target_size: tuple[int, int] | None = None
+    if resolve_video_size:
+        from catalog_parser.drive_video_size import video_size_from_pkg_folder
+
+        target_size = video_size_from_pkg_folder(drive_service, folder_id)
     last_error: str | None = None
     merged = {field: None for field in LABELED_TABLE_FIELDS.values()}
 

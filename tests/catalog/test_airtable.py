@@ -38,6 +38,28 @@ class AirtableMappingTests(unittest.TestCase):
         self.assertEqual(fields["Translation resources"], "https://ea.smartcat.com/editor/1")
         self.assertEqual(fields["Type"], "Short")
 
+    def test_catalog_record_maps_bg_title_and_description(self) -> None:
+        from catalog_parser.airtable import (
+            FIELD_VIDEO_DESCRIPTION_TRANSLATED,
+            FIELD_VIDEO_NAME_TRANSLATED,
+        )
+
+        fields = catalog_record_to_airtable_fields(
+            {
+                "ctTitle": "English Title",
+                "ytTitle": "YT English Title",
+                "ytDescription": "English description",
+                "bgTitle": "Българско заглавие",
+                "bgDescription": "Българско описание",
+            }
+        )
+        self.assertEqual(fields[FIELD_VIDEO_NAME_TRANSLATED], "Българско заглавие")
+        self.assertEqual(
+            fields[FIELD_VIDEO_DESCRIPTION_TRANSLATED], "Българско описание"
+        )
+        self.assertEqual(fields["Original Video Name"], "YT English Title")
+        self.assertEqual(fields["Original Video Description"], "English description")
+
     def test_duration_to_type_boundaries(self) -> None:
         from catalog_parser.airtable import catalog_record_to_airtable_fields
 

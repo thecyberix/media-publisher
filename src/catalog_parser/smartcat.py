@@ -32,6 +32,14 @@ class ParsedPkgSmLink:
     search: str | None
 
 
+@dataclass(frozen=True)
+class ParsedSmartcatEditorLink:
+    document_id: str | None
+    target_language_id: int | None
+    project_id: str | None
+    search: str | None
+
+
 class SmartcatError(RuntimeError):
     pass
 
@@ -44,6 +52,108 @@ class BulgarianSrtResolver(Protocol):
         title: str | None = None,
         language: str = DEFAULT_TARGET_LANGUAGE,
     ) -> str | None: ...
+
+
+def _parse_back_url_context(back_url: str) -> tuple[str | None, str | None]:
+    back_path = urllib.parse.unquote(back_url)
+    back_for_parse = (
+        f"https://ea.smartcat.com{back_path}"
+        if back_path.startswith("/")
+        else back_path
+    )
+    parsed_back = parse_pkg_sm_link(back_for_parse)
+    if parsed_back is None:
+        return None, None
+    return parsed_back.project_id, parsed_back.search
+
+
+def _parse_language_id_from_query(query: dict[str, list[str]]) -> int | None:
+    for key in ("targetLanguageId", "languageId"):
+        raw = query.get(key, [None])[0]
+        if raw is not None and str(raw).strip().isdigit():
+            return int(str(raw).strip())
+    return None
+
+
+def parse_smartcat_resource_link(value: str) -> ParsedSmartcatEditorLink | None:
+    """Parse Smartcat editor URLs, including legacy /editor?documentId= links."""
+    value = value.strip()
+    if not value:
+        return None
+
+    parsed = urllib.parse.urlparse(value)
+    if "smartcat" not in (parsed.netloc or "").casefold():
+        return None
+
+    query = urllib.parse.parse_qs(parsed.query)
+    target_language_id = _parse_language_id_from_query(query)
+    back_url = query.get("backUrl", [""])[0]
+    project_id: str | None = None
+    search: str | None = None
+    if back_url:
+        project_id, search = _parse_back_url_context(back_url)
+
+    open_editor = re.search(
+        r"/open-editor/(?P<document_id>[a-f0-9]+)",
+        parsed.path,
+        re.IGNORECASE,
+    )
+    if open_editor is not None:
+        return ParsedSmartcatEditorLink(
+            document_id=open_editor.group("document_id"),
+            target_language_id=target_language_id,
+            project_id=project_id,
+            search=search,
+        )
+
+    document_id = query.get("documentId", [None])[0]
+    if isinstance(document_id, str) and document_id.strip():
+        return ParsedSmartcatEditorLink(
+            document_id=document_id.strip(),
+            target_language_id=target_language_id,
+            project_id=project_id,
+            search=search,
+        )
+
+    if project_id:
+        return ParsedSmartcatEditorLink(
+            document_id=None,
+            target_language_id=target_language_id,
+            project_id=project_id,
+            search=search,
+        )
+
+    return None
+
+
+def parse_smartcat_editor_link(value: str) -> ParsedSmartcatEditorLink | None:
+    parsed = parse_smartcat_resource_link(value)
+    if parsed is None or not parsed.document_id:
+        return parsed if parsed is not None and parsed.project_id else None
+    return parsed
+
+
+def build_pkg_sm_link(
+    ui_base: str,
+    project_id: str,
+    *,
+    search: str | None = None,
+) -> str:
+    base = ui_base.rstrip("/")
+    url = f"{base}/projects/{project_id}/files?folderMode=true"
+    if search:
+        url = f"{url}&search={urllib.parse.quote_plus(search)}"
+    return url
+
+
+def find_document_by_id(
+    documents: list[dict[str, Any]],
+    document_id: str,
+) -> dict[str, Any] | None:
+    for document in documents:
+        if document.get("id") == document_id:
+            return document
+    return None
 
 
 def parse_pkg_sm_link(value: str) -> ParsedPkgSmLink | None:
@@ -236,6 +346,18 @@ def bulgarian_target_needs_translation(target: dict[str, Any]) -> bool:
     if stage.get("progress", 0) > 0:
         return False
     return True
+
+
+def bulgarian_target_is_fully_done(target: dict[str, Any]) -> bool:
+    """Return True when the Bulgarian translation stage looks complete (100%)."""
+    stage = get_translation_stage(target)
+    if stage is None:
+        return False
+    try:
+        progress = float(stage.get("progress") or 0)
+    except (TypeError, ValueError):
+        progress = 0.0
+    return progress >= 100.0
 
 
 def language_matches(value: str | None, language: str) -> bool:

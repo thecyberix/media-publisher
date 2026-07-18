@@ -7,9 +7,12 @@ from catalog_parser.smartcat import (
     bulgarian_target_needs_translation,
     document_has_language_target,
     find_bulgarian_srt_document,
+    find_document_by_id,
     find_matching_document,
     language_matches,
     parse_pkg_sm_link,
+    parse_smartcat_editor_link,
+    parse_smartcat_resource_link,
     resolve_language_id,
 )
 from catalog_parser.smartcat_web import AnchorCandidate, pick_bulgarian_srt_href
@@ -142,6 +145,54 @@ class SmartcatLinkParsingTests(unittest.TestCase):
             pkg_sm_link=pkg_sm_link,
         )
         self.assertEqual(link, expected)
+
+    def test_parse_smartcat_editor_link(self) -> None:
+        pkg_sm_link = (
+            "https://ea.smartcat.com/projects/d1b6348b-541f-473a-9583-2a03d5315fef/"
+            "files?folderMode=true&search=What%20Old%20Bread%20Does%20To%20Your%20Body"
+        )
+        editor_link = build_smartcat_editor_link(
+            "https://ea.smartcat.com",
+            "823dc24f77812b1e698594b0",
+            language_id=1026,
+            pkg_sm_link=pkg_sm_link,
+        )
+        parsed = parse_smartcat_editor_link(editor_link)
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.document_id, "823dc24f77812b1e698594b0")
+        self.assertEqual(parsed.target_language_id, 1026)
+        self.assertEqual(parsed.project_id, "d1b6348b-541f-473a-9583-2a03d5315fef")
+        self.assertEqual(parsed.search, "What Old Bread Does To Your Body")
+
+    def test_find_document_by_id(self) -> None:
+        documents = [
+            {"id": "abc", "name": "One.srt"},
+            {"id": "def", "name": "Two.srt"},
+        ]
+        self.assertEqual(find_document_by_id(documents, "def"), documents[1])
+
+
+    def test_parse_legacy_smartcat_editor_document_id(self) -> None:
+        parsed = parse_smartcat_resource_link(
+            "https://ea.smartcat.com/editor?documentId=fac4d1f436d40b094c3ee72e"
+            "&languageId=1026&backUrl=%2Fprojects%2Fd1b6348b-541f-473a-9583-2a03d5315fef%2Ffiles"
+        )
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.document_id, "fac4d1f436d40b094c3ee72e")
+        self.assertEqual(parsed.target_language_id, 1026)
+        self.assertEqual(parsed.project_id, "d1b6348b-541f-473a-9583-2a03d5315fef")
+
+    def test_parse_legacy_smartcat_editor_back_url_only(self) -> None:
+        parsed = parse_smartcat_resource_link(
+            "https://ea.smartcat.com/editor?v=2&selectedStage=1&backUrl=%2Fprojects%2F"
+            "d1b6348b-541f-473a-9583-2a03d5315fef%2Ffiles%3Fsearch%3DTest%2520Title"
+        )
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertIsNone(parsed.document_id)
+        self.assertEqual(parsed.search, "Test Title")
 
 
 if __name__ == "__main__":

@@ -204,6 +204,84 @@ def count_active_editing_reel_units(
     return total
 
 
+def choose_editor(
+    records: list[dict[str, Any]],
+    *,
+    record_type: Any,
+    editors: list[tuple[str, int, str | None]],
+) -> str | None:
+    """Pick the least-utilized eligible editor for ``record_type``.
+
+    Each editor is ``(name, weekly_capacity_reels, preferred_editing_type)``.
+    """
+    eligible: list[tuple[str, int]] = []
+    for name, capacity, preferred in editors:
+        if preferred and preferred != record_type:
+            continue
+        eligible.append((name, capacity))
+    if not eligible:
+        return None
+
+    def utilization(item: tuple[str, int]) -> float:
+        name, capacity = item
+        return count_active_editing_reel_units(records, name) / max(1, capacity)
+
+    return sorted(eligible, key=utilization)[0][0]
+
+
+def resolve_assign_editor_actions(
+    records: list[dict[str, Any]],
+    actions: list[WorkflowAction],
+    *,
+    editors: list[tuple[str, int, str | None]],
+) -> list[WorkflowAction]:
+    """Choose editors for assign_editor actions and stamp them onto ``records``.
+
+    Mutates ``records`` so same-run translation ingest sees the new editing load.
+    Processes actions in order so utilization updates between assignments.
+    """
+    by_id = {
+        record_id: record
+        for record in records
+        if isinstance((record_id := record.get("id")), str)
+    }
+    resolved: list[WorkflowAction] = []
+    for action in actions:
+        if action.action_type != WorkflowActionType.ASSIGN_EDITOR:
+            resolved.append(action)
+            continue
+        if not action.record_id:
+            resolved.append(action)
+            continue
+        record = by_id.get(action.record_id)
+        if record is None:
+            resolved.append(action)
+            continue
+        fields = record.get("fields")
+        if not isinstance(fields, dict):
+            resolved.append(action)
+            continue
+        chosen = action.editor_name or choose_editor(
+            records,
+            record_type=fields.get("Type"),
+            editors=editors,
+        )
+        if chosen is None:
+            resolved.append(action)
+            continue
+        fields[FIELD_EDITOR] = chosen
+        resolved.append(
+            WorkflowAction(
+                action_type=action.action_type,
+                record_id=action.record_id,
+                title=action.title,
+                editor_name=chosen,
+                reason=f"{action.reason}; assign {chosen}",
+            )
+        )
+    return resolved
+
+
 def pool_type_counts(records: list[dict[str, Any]]) -> tuple[int, int]:
     reels = 0
     videos = 0

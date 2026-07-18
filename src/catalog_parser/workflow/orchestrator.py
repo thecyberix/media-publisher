@@ -19,6 +19,7 @@ from catalog_parser.workflow.rules import (
     is_workflow_type,
     plan_ingest_actions,
     plan_record_actions,
+    resolve_assign_editor_actions,
 )
 from catalog_parser.workflow.approved_thumbnails import (
     process_approved_review_thumbnails_in_workflow,
@@ -87,10 +88,28 @@ def run_workflow(
         (profile.name, profile.weekly_capacity_reels, profile.preferred_translation_type)
         for profile in config.translators
     ]
+    editor_slots = [
+        (profile.name, profile.weekly_capacity_reels, profile.preferred_editing_type)
+        for profile in config.editors
+    ]
     editor_names = frozenset(profile.name for profile in config.editors)
+    # Snapshot for ingest planning: stamp same-run editor picks so dual-role
+    # translators are blocked from new translation work in this run.
+    ingest_records = [
+        {
+            "id": record.get("id"),
+            "fields": dict(fields) if isinstance((fields := record.get("fields")), dict) else {},
+        }
+        for record in workflow_records
+    ]
+    planned_actions = resolve_assign_editor_actions(
+        ingest_records,
+        planned_actions,
+        editors=editor_slots,
+    )
     planned_actions.extend(
         plan_ingest_actions(
-            workflow_records,
+            ingest_records,
             translators=translator_slots,
             target_reel_to_video_ratio=config.target_reel_to_video_ratio,
             max_video_seconds=config.max_video_seconds,

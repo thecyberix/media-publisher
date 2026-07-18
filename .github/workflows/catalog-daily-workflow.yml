@@ -130,6 +130,13 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
+          SMARTCAT_AI_PREFILL: ${{ vars.SMARTCAT_AI_PREFILL || secrets.SMARTCAT_AI_PREFILL || 'true' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || secrets.ANTHROPIC_MODEL || '' }}
+          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || secrets.TRANSLATION_PROVIDER || 'anthropic' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || secrets.OPENAI_MODEL || '' }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL || '' }}
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
           # Do not rematerialize CANVA_TOKEN_JSON here: the Restore step already

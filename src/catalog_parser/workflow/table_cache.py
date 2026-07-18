@@ -10,9 +10,11 @@ from typing import Any
 from catalog_parser.airtable import (
     AirtableClient,
     FIELD_TITLE,
+    FIELD_VIDEO_FOLDER,
     catalog_record_to_airtable_fields,
     normalize_title,
 )
+from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.workflow.status_history import record_status_history_from_snapshots
 
 DEFAULT_BACKUP_DIR = Path("output") / "backups"
@@ -134,6 +136,20 @@ class TableCache:
             if title:
                 titles.add(title)
         return titles
+
+    def existing_video_folder_ids(self) -> set[str]:
+        folder_ids: set[str] = set()
+        for record in self._records:
+            fields = record.get("fields")
+            if not isinstance(fields, dict):
+                continue
+            link = fields.get(FIELD_VIDEO_FOLDER)
+            if not isinstance(link, str) or not link.strip():
+                continue
+            folder_id = extract_drive_folder_id(link)
+            if folder_id:
+                folder_ids.add(folder_id)
+        return folder_ids
 
     def update_fields(self, record_id: str, field_updates: dict[str, Any]) -> None:
         record = self.get(record_id)

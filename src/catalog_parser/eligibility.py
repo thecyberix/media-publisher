@@ -13,6 +13,14 @@ def needs_bulgarian_translation(record: dict[str, Any]) -> bool:
     return isinstance(pkg_bg_srt_link, str) and bool(pkg_bg_srt_link.strip())
 
 
+def catalog_video_folder_id(record: dict[str, Any]) -> str | None:
+    """Drive folder id from catalog ``pkgLink`` (Airtable Video Folder)."""
+    link = record.get("pkgLink")
+    if not isinstance(link, str) or not link.strip():
+        return None
+    return extract_drive_folder_id(link)
+
+
 def is_not_in_airtable(
     record: dict[str, Any],
     existing_titles: set[str],
@@ -23,10 +31,22 @@ def is_not_in_airtable(
     return title not in existing_titles
 
 
+def is_not_duplicate_video_folder(
+    record: dict[str, Any],
+    existing_folder_ids: set[str],
+) -> bool:
+    """True when the Drive package folder is new or missing/unparseable."""
+    folder_id = catalog_video_folder_id(record)
+    if not folder_id:
+        return True
+    return folder_id not in existing_folder_ids
+
+
 def is_catalog_eligible(
     record: dict[str, Any],
     existing_titles: set[str],
     *,
+    existing_folder_ids: set[str] | None = None,
     drive_service: Resource | None = None,
     require_smartcat: bool = True,
     require_mixable_media: bool = True,
@@ -34,6 +54,11 @@ def is_catalog_eligible(
     if require_smartcat and not needs_bulgarian_translation(record):
         return False
     if not is_not_in_airtable(record, existing_titles):
+        return False
+    if existing_folder_ids is not None and not is_not_duplicate_video_folder(
+        record,
+        existing_folder_ids,
+    ):
         return False
     if require_mixable_media:
         if drive_service is None:
@@ -47,6 +72,7 @@ def explain_catalog_eligibility(
     record: dict[str, Any],
     existing_titles: set[str],
     *,
+    existing_folder_ids: set[str] | None = None,
     drive_service: Resource | None = None,
     require_smartcat: bool = True,
     require_mixable_media: bool = True,
@@ -67,6 +93,11 @@ def explain_catalog_eligibility(
 
     if not is_not_in_airtable(record, existing_titles):
         reasons.append("Already in Airtable (duplicate title)")
+    elif existing_folder_ids is not None and not is_not_duplicate_video_folder(
+        record,
+        existing_folder_ids,
+    ):
+        reasons.append("Already in Airtable (duplicate Video Folder)")
 
     if require_mixable_media:
         if drive_service is None:

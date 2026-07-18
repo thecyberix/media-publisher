@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 
 from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ingest, normalize_title
+from catalog_parser.eligibility import (
+    catalog_video_folder_id,
+    explain_catalog_eligibility,
+    is_catalog_eligible,
+)
 from catalog_parser.auth import (
     DEFAULT_AUTH_PORT,
     get_docs_service,
@@ -17,7 +22,6 @@ from catalog_parser.auth import (
 from catalog_parser.canva import CanvaClient, build_canva_client_from_env
 from catalog_parser.drive_docs import enrich_records_with_yt_titles
 from catalog_parser.drive_thumbnail import enrich_records_with_original_video_thumbnails
-from catalog_parser.eligibility import explain_catalog_eligibility, is_catalog_eligible
 from catalog_parser.parser import (
     DEFAULT_LIMIT,
     DEFAULT_VIDEO_TYPE,
@@ -28,7 +32,7 @@ from catalog_parser.parser import (
     type_duration_bounds,
 )
 from catalog_parser.runtime_env import materialize_credentials, maybe_persist_canva_token
-from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE
+from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE, SmartcatError
 from catalog_parser.smartcat_api import SmartcatApiClient
 from catalog_parser.smartcat_web import (
     DEFAULT_STORAGE_STATE,
@@ -36,6 +40,10 @@ from catalog_parser.smartcat_web import (
     SmartcatWebSession,
     enrich_records_with_bulgarian_srt_links_web,
     login_interactive,
+)
+from catalog_parser.smartcat_cookie import (
+    import_browser_session_file,
+    print_smartcat_import_instructions,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +70,25 @@ def load_existing_airtable_titles() -> set[str]:
         or "https://api.airtable.com/v0",
     )
     return load_existing_titles_for_ingest(airtable_client, project_root=PROJECT_ROOT)
+
+
+def load_existing_airtable_video_folder_ids() -> set[str]:
+    from catalog_parser.airtable import load_existing_video_folder_ids_for_ingest
+
+    airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
+    airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
+    airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
+    if not airtable_token or not airtable_base_id or not airtable_table_name:
+        return set()
+
+    airtable_client = AirtableClient(
+        token=airtable_token,
+        base_id=airtable_base_id,
+        table_name=airtable_table_name,
+        api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
+        or "https://api.airtable.com/v0",
+    )
+    return load_existing_video_folder_ids_for_ingest(airtable_client)
 
 
 def enrich_single_record_with_smartcat_api(
@@ -106,6 +133,7 @@ def build_eligible_catalog_records(
     *,
     target_count: int,
     existing_titles: set[str],
+    existing_folder_ids: set[str] | None = None,
     smartcat_enabled: bool,
     smartcat_api: bool,
     smartcat_language: str,
@@ -119,6 +147,7 @@ def build_eligible_catalog_records(
 ) -> tuple[list[dict], int]:
     eligible: list[dict] = []
     scanned = 0
+    folder_ids = existing_folder_ids if existing_folder_ids is not None else set()
 
     def process_candidate(candidate: dict) -> None:
         nonlocal scanned
@@ -145,6 +174,38 @@ def build_eligible_catalog_records(
                 )
             if record.get("pkgBgSrtLk"):
                 print("  -> Smartcat editor link resolved")
+                from catalog_parser.translation.prefill import (
+                    ai_prefill_enabled,
+                    prefill_record_if_needed,
+                )
+
+                if ai_prefill_enabled():
+                    try:
+                        from catalog_parser.smartcat_export import (
+                            build_cookie_client_from_env,
+                        )
+
+                        cookie_client = build_cookie_client_from_env(
+                            project_root=PROJECT_ROOT
+                        )
+                        prefill = prefill_record_if_needed(
+                            record,
+                            cookie_client,
+                            project_root=PROJECT_ROOT,
+                        )
+                        if prefill.skipped:
+                            print("  -> AI prefill skipped (already has translation)")
+                        elif prefill.ok:
+                            print(
+                                f"  -> AI prefill wrote {prefill.written_segments} "
+                                f"segment(s) from {prefill.source_cues} cue(s)"
+                            )
+                        else:
+                            print(
+                                f"  -> AI prefill failed (continuing): {prefill.error}"
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"  -> AI prefill failed (continuing): {exc}")
             elif record.get("pkgBgSrtLkSkipReason"):
                 print(f"  -> Smartcat: {record['pkgBgSrtLkSkipReason']}")
             elif record.get("pkgBgSrtLkError"):
@@ -164,11 +225,46 @@ def build_eligible_catalog_records(
                 docs_service,
                 canva_client=canva_client,
                 staging_dir=thumbnail_staging_dir,
+                catalog_peers=candidates,
             )[0]
+
+        from catalog_parser.translation.prefill import ai_prefill_enabled
+        from catalog_parser.translation.metadata_prefill import (
+            translate_record_metadata_if_needed,
+        )
+
+        if ai_prefill_enabled():
+            try:
+                meta = translate_record_metadata_if_needed(
+                    record,
+                    project_root=PROJECT_ROOT,
+                )
+                if meta.skipped and not meta.errors:
+                    print("  -> AI metadata translate skipped")
+                elif meta.title_translated or meta.description_translated:
+                    parts: list[str] = []
+                    if meta.title_translated:
+                        parts.append("title")
+                    if meta.description_translated:
+                        parts.append("description")
+                    print(f"  -> AI metadata translated {', '.join(parts)}")
+                    if meta.errors:
+                        print(
+                            "  -> AI metadata partial errors: "
+                            + "; ".join(meta.errors)
+                        )
+                elif meta.errors:
+                    print(
+                        "  -> AI metadata translate failed (continuing): "
+                        + "; ".join(meta.errors)
+                    )
+            except Exception as exc:  # noqa: BLE001
+                print(f"  -> AI metadata translate failed (continuing): {exc}")
 
         if is_catalog_eligible(
             record,
             existing_titles,
+            existing_folder_ids=folder_ids,
             drive_service=drive_service if require_mixable_media else None,
             require_smartcat=smartcat_enabled,
             require_mixable_media=require_mixable_media,
@@ -177,11 +273,15 @@ def build_eligible_catalog_records(
             title = normalize_title(record.get("ctTitle"))
             if title:
                 existing_titles.add(title)
+            folder_id = catalog_video_folder_id(record)
+            if folder_id:
+                folder_ids.add(folder_id)
             print(f"  -> eligible ({len(eligible)}/{target_count})")
         else:
             for reason in explain_catalog_eligibility(
                 record,
                 existing_titles,
+                existing_folder_ids=folder_ids,
                 drive_service=drive_service if require_mixable_media else None,
                 require_smartcat=smartcat_enabled,
                 require_mixable_media=require_mixable_media,
@@ -277,6 +377,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--smartcat-login",
         action="store_true",
         help="Open a browser to log in to Smartcat and save the session for ingest.",
+    )
+    parser.add_argument(
+        "--smartcat-import-session",
+        metavar="COOKIES_JSON",
+        help=(
+            "Import Smartcat cookies exported from your browser (Cookie-Editor JSON) "
+            "into smartcat-state.json."
+        ),
     )
     parser.add_argument(
         "--canva-auth",
@@ -707,6 +815,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             print(
                 "Eligibility: no Airtable titles loaded; duplicate-title check skipped."
             )
+        existing_folder_ids = load_existing_airtable_video_folder_ids()
 
         web_client = None
         if smartcat_enabled and not args.smartcat_api:
@@ -721,6 +830,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             records,
             target_count=target_count,
             existing_titles=existing_titles,
+            existing_folder_ids=existing_folder_ids,
             smartcat_enabled=smartcat_enabled,
             smartcat_api=args.smartcat_api,
             smartcat_language=smartcat_language,
@@ -792,6 +902,33 @@ def main() -> int:
                 os.getenv("SMARTCAT_STORAGE_STATE", str(DEFAULT_SMARTCAT_STATE))
             ),
         )
+        return 0
+
+    if args.smartcat_import_session:
+        ui_base = os.getenv("SMARTCAT_UI_BASE", DEFAULT_UI_BASE).strip() or DEFAULT_UI_BASE
+        storage_state_path = Path(
+            os.getenv("SMARTCAT_STORAGE_STATE", str(DEFAULT_SMARTCAT_STATE))
+        )
+        source_path = Path(args.smartcat_import_session)
+        if not source_path.is_file():
+            print(f"Cookie export file not found: {source_path}", file=sys.stderr)
+            print()
+            print_smartcat_import_instructions(ui_base=ui_base)
+            return 1
+        try:
+            import_browser_session_file(
+                source_path,
+                storage_state_path,
+                ui_base=ui_base,
+                probe_project_id=os.getenv("SMARTCAT_PROBE_PROJECT_ID", "").strip() or None,
+            )
+        except SmartcatError as exc:
+            print(f"Smartcat session import failed: {exc}", file=sys.stderr)
+            print()
+            print_smartcat_import_instructions(ui_base=ui_base)
+            return 1
+        print(f"Saved Smartcat session to {storage_state_path}")
+        print("Session verified — corpus export can use cookie mode without Playwright.")
         return 0
 
     if args.canva_auth:

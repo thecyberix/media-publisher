@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from catalog_parser.parser import duration_to_type, parse_duration
+from catalog_parser.drive_docs import extract_drive_folder_id
 
 DEFAULT_API_BASE = "https://api.airtable.com/v0"
 DEFAULT_CONTENT_API_BASE = "https://content.airtable.com/v0"
@@ -37,6 +38,7 @@ STATUS_TRANSLATION_DONE = "2. Translation done"
 STATUS_EDITING_DONE = "3. Editing done"
 STATUS_SYNC_DONE = "5. Synchronization done"
 STATUS_NOT_ASSIGNED = "7. Not Assigned"
+STATUS_DONE_PUBLISHED = "Done & Published"
 
 WORKFLOW_STATUSES = (
     STATUS_TODO,
@@ -177,6 +179,12 @@ def catalog_record_to_airtable_fields(record: dict[str, Any]) -> dict[str, Any]:
     yt_description = record.get("ytDescription")
     if isinstance(yt_description, str) and yt_description.strip():
         fields[FIELD_ORIGINAL_VIDEO_DESCRIPTION] = yt_description.strip()
+    bg_title = record.get("bgTitle")
+    if isinstance(bg_title, str) and bg_title.strip():
+        fields[FIELD_VIDEO_NAME_TRANSLATED] = bg_title.strip()
+    bg_description = record.get("bgDescription")
+    if isinstance(bg_description, str) and bg_description.strip():
+        fields[FIELD_VIDEO_DESCRIPTION_TRANSLATED] = bg_description.strip()
     yt_thumbnail = record.get("ytThumbnail")
     if isinstance(yt_thumbnail, list) and yt_thumbnail and not record.get("_originalThumbnailPath"):
         fields[FIELD_ORIGINAL_VIDEO_THUMBNAIL] = yt_thumbnail
@@ -251,6 +259,34 @@ class AirtableClient:
 
     def list_existing_titles(self) -> set[str]:
         return self.list_title_variants(title_fields=(FIELD_TITLE,))
+
+    def list_existing_video_folder_ids(self) -> set[str]:
+        folder_ids: set[str] = set()
+        offset: str | None = None
+        while True:
+            query: dict[str, Any] = {
+                "pageSize": "100",
+                "fields[]": [FIELD_VIDEO_FOLDER],
+            }
+            if offset:
+                query["offset"] = offset
+            response = self._request("GET", self._table_url(), query=query)
+            for item in response.get("records", []):
+                if not isinstance(item, dict):
+                    continue
+                fields = item.get("fields")
+                if not isinstance(fields, dict):
+                    continue
+                link = fields.get(FIELD_VIDEO_FOLDER)
+                if not isinstance(link, str) or not link.strip():
+                    continue
+                folder_id = extract_drive_folder_id(link)
+                if folder_id:
+                    folder_ids.add(folder_id)
+            offset = response.get("offset")
+            if not offset:
+                break
+        return folder_ids
 
     def list_accessible_bases(self) -> list[dict[str, Any]]:
         response = self._request("GET", f"{self.api_base}/meta/bases")
@@ -341,6 +377,8 @@ class AirtableClient:
         self,
         *,
         filter_formula: str | None = None,
+        base_id: str | None = None,
+        table_name: str | None = None,
     ) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
         offset: str | None = None
@@ -350,7 +388,11 @@ class AirtableClient:
                 query["filterByFormula"] = filter_formula
             if offset:
                 query["offset"] = offset
-            response = self._request("GET", self._table_url(), query=query or None)
+            response = self._request(
+                "GET",
+                self._table_url(base_id=base_id, table_name=table_name),
+                query=query or None,
+            )
             batch = response.get("records", [])
             if isinstance(batch, list):
                 records.extend(item for item in batch if isinstance(item, dict))
@@ -507,6 +549,7 @@ class AirtableClient:
 
     def sync_catalog_records(self, records: list[dict[str, Any]]) -> tuple[int, int]:
         existing_titles = load_existing_titles_for_ingest(self)
+        existing_folder_ids = load_existing_video_folder_ids_for_ingest(self)
         to_create: list[dict[str, Any]] = []
         skipped = 0
 
@@ -518,8 +561,14 @@ class AirtableClient:
             if title in existing_titles:
                 skipped += 1
                 continue
+            folder_id = extract_drive_folder_id(str(record.get("pkgLink") or ""))
+            if folder_id and folder_id in existing_folder_ids:
+                skipped += 1
+                continue
             to_create.append(record)
             existing_titles.add(title)
+            if folder_id:
+                existing_folder_ids.add(folder_id)
 
         created = len(self.create_records(to_create))
         return created, skipped
@@ -564,3 +613,14 @@ def load_existing_titles_for_ingest(
             )
         )
     return titles
+
+
+def load_existing_video_folder_ids_for_ingest(
+    airtable: AirtableClient,
+    *,
+    table_cache: Any | None = None,
+) -> set[str]:
+    """Live-table Drive folder ids already present as Video Folder."""
+    if table_cache is not None:
+        return table_cache.existing_video_folder_ids()
+    return airtable.list_existing_video_folder_ids()

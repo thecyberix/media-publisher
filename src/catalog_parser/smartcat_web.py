@@ -13,13 +13,13 @@ from catalog_parser.smartcat import (
     DEFAULT_UI_BASE,
     SmartcatError,
     build_smartcat_editor_link,
-    bulgarian_target_needs_translation,
-    find_matching_document,
+    bulgarian_target_is_fully_done,
     get_language_target,
     language_matches,
     parse_pkg_sm_link,
     resolve_language_id,
 )
+from catalog_parser.smartcat_cookie import find_document_via_web_api
 
 DEFAULT_STORAGE_STATE = "smartcat-state.json"
 PAGE_GOTO_TIMEOUT_MS = 90_000
@@ -123,6 +123,27 @@ class SmartcatWebClient:
             raise SmartcatError("Smartcat web session is not open")
         return self._api_request
 
+    def web_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: Any | None = None,
+    ) -> tuple[int, bytes]:
+        request = self._require_api_request()
+        url = f"{self.ui_base}{path}"
+        if params:
+            url = f"{url}?{urllib.parse.urlencode(params, doseq=True)}"
+
+        kwargs: dict[str, Any] = {"method": method}
+        if json_body is not None:
+            kwargs["data"] = json.dumps(json_body)
+            kwargs["headers"] = {"Content-Type": "application/json"}
+
+        response = request.fetch(url, **kwargs)
+        return response.status, response.body() or b""
+
     def _api_json(
         self,
         method: str,
@@ -158,55 +179,12 @@ class SmartcatWebClient:
         search: str | None,
         title: str | None,
     ) -> dict[str, Any]:
-        file_items = self._api_json(
-            "POST",
-            f"/api/Projects/{project_id}/FileItemIds",
-            body={
-                "isFolderMode": True,
-                "orderBy": 0,
-                "desc": False,
-                "filter": {
-                    "searchName": search or title or "",
-                    "createdByAccountUserIds": [],
-                    "targetLanguageIds": [],
-                    "documentTargetStatuses": [],
-                    "stageNumbersWithNoAssignments": [],
-                    "stageNumbersWithIncompleteState": [],
-                    "creationDateFrom": None,
-                    "creationDateTo": None,
-                },
-            },
+        return find_document_via_web_api(
+            self._api_json,
+            project_id,
+            search=search,
+            title=title,
         )
-        if not isinstance(file_items, list) or not file_items:
-            raise SmartcatError(
-                "Could not find a Smartcat document for "
-                f"search={search!r} title={title!r}"
-            )
-
-        page_content = self._api_json(
-            "POST",
-            f"/api/Projects/{project_id}/PageContent",
-            body={
-                "filter": None,
-                "fileItems": file_items,
-                "loadPreviews": False,
-            },
-        )
-        documents_payload = page_content.get("documents") if isinstance(page_content, dict) else None
-        if not isinstance(documents_payload, dict) or not documents_payload:
-            raise SmartcatError(
-                "Smartcat returned no document details for "
-                f"search={search!r} title={title!r}"
-            )
-
-        documents = list(documents_payload.values())
-        document = find_matching_document(documents, search=search, title=title)
-        if document is None:
-            raise SmartcatError(
-                "Could not find a Smartcat document for "
-                f"search={search!r} title={title!r}"
-            )
-        return document
 
     def resolve_bulgarian_srt_link(
         self,
@@ -252,7 +230,9 @@ class SmartcatWebClient:
                 f"Document {document.get('name')!r} has no Smartcat target for language {language!r}"
             )
 
-        if not bulgarian_target_needs_translation(target):
+        # Skip only fully completed targets. Partially filled / AI-prefilled docs
+        # must still resolve an editor link so ingest can create the Airtable row.
+        if bulgarian_target_is_fully_done(target):
             return None
 
         document_id = document.get("id")

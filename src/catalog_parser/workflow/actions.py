@@ -24,7 +24,7 @@ from catalog_parser.workflow.ingest import ingest_batch_for_translator
 from catalog_parser.workflow.rules import (
     WorkflowAction,
     WorkflowActionType,
-    count_active_editing_reel_units,
+    choose_editor,
 )
 from catalog_parser.workflow.table_cache import TableCache
 
@@ -216,35 +216,37 @@ def _assign_editor(
     fields = record.get("fields", {})
     if not isinstance(fields, dict):
         return ActionResult(action=action, success=False, message="Record has no fields")
-    record_type = fields.get("Type")
 
-    eligible_editors = []
-    for editor in config.editors:
-        if editor.preferred_editing_type and editor.preferred_editing_type != record_type:
-            continue
-        eligible_editors.append(editor)
-    if not eligible_editors:
-        return ActionResult(action=action, success=False, message="No eligible editors for this type")
-
-    records_for_utilization = (
-        table_cache.records if table_cache is not None else airtable.list_records()
-    )
-
-    def utilization(editor_profile) -> float:
-        active_units = count_active_editing_reel_units(
-            records_for_utilization,
-            editor_profile.name,
+    if action.editor_name:
+        chosen_name = action.editor_name
+    else:
+        record_type = fields.get("Type")
+        editor_slots = [
+            (editor.name, editor.weekly_capacity_reels, editor.preferred_editing_type)
+            for editor in config.editors
+        ]
+        records_for_utilization = (
+            table_cache.records if table_cache is not None else airtable.list_records()
         )
-        return active_units / max(1, editor_profile.weekly_capacity_reels)
+        chosen_name = choose_editor(
+            records_for_utilization,
+            record_type=record_type,
+            editors=editor_slots,
+        )
+        if chosen_name is None:
+            return ActionResult(
+                action=action,
+                success=False,
+                message="No eligible editors for this type",
+            )
 
-    chosen = sorted(eligible_editors, key=utilization)[0]
     if dry_run:
         return ActionResult(
             action=action,
             success=True,
-            message=f"Would assign editor {chosen.name!r}",
+            message=f"Would assign editor {chosen_name!r}",
         )
-    airtable.update_record_fields(action.record_id, {FIELD_EDITOR: chosen.name})
+    airtable.update_record_fields(action.record_id, {FIELD_EDITOR: chosen_name})
     if table_cache is not None:
-        table_cache.update_fields(action.record_id, {FIELD_EDITOR: chosen.name})
-    return ActionResult(action=action, success=True, message=f"Assigned editor {chosen.name!r}")
+        table_cache.update_fields(action.record_id, {FIELD_EDITOR: chosen_name})
+    return ActionResult(action=action, success=True, message=f"Assigned editor {chosen_name!r}")
