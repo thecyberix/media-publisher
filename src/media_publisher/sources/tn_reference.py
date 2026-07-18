@@ -11,6 +11,7 @@ except ImportError as exc:  # pragma: no cover
 from dataclasses import replace
 
 from media_publisher.sources.tn_psd import TnLineStyle, TnTextSegment
+from media_publisher.sources.tn_renderer import TEXT_EDGE_MARGIN_PX
 
 TEXT_LUMINANCE_THRESHOLD = 180
 TEXT_ROW_PIXEL_RATIO = 0.02
@@ -49,6 +50,8 @@ REFERENCE_LABEL_GAP_FACTOR = 0.10
 REFERENCE_LABEL_BOX_WIDTH_RATIO = 0.4125
 REFERENCE_LABEL_BOX_HEIGHT_FONT_FACTOR = 0.9072
 REFERENCE_LABEL_BOX_HEIGHT_WIDTH_RATIO = 0.3888
+TOP_ONLY_YELLOW_ACCENT_FONT_SCALE = 1.45
+TOP_ONLY_BODY_LINE_GAP_FACTOR = -0.30
 MYSTIC_MUSINGS_FIRST_GAP_FACTOR = 0.55
 MYSTIC_MUSINGS_LINE1_FONT_SCALE = 1.22
 MYSTIC_MUSINGS_LINE2_FONT_SCALE = 1.28
@@ -69,6 +72,21 @@ ENLIGHTENMENT_BOTTOM_COVER_TOP_MARGIN_RATIO = 0.010
 ENLIGHTENMENT_BOTTOM_COVER_BOTTOM_MARGIN_RATIO = 0.05
 SPLIT_BOTTOM_COVER_TOP_MARGIN_RATIO = 0.004
 SPLIT_BOTTOM_COVER_BOTTOM_MARGIN_RATIO = 0.04
+RIGHT_SIDE_SCAN_LEFT_RATIO = 0.45
+RIGHT_SIDE_SCAN_TOP_RATIO = 0.12
+RIGHT_SIDE_SCAN_BOTTOM_RATIO = 0.50
+RIGHT_SIDE_MIN_BANDS = 2
+RIGHT_SIDE_TEXT_AVG_LUMINANCE = 160
+RIGHT_SIDE_BOX_LEFT_RATIO = 0.42
+RIGHT_SIDE_BOX_RIGHT_MARGIN_RATIO = 0.025
+RIGHT_SIDE_FONT_SCALE = 0.72
+RIGHT_SIDE_LINE1_FONT_SCALE = 0.80
+RIGHT_SIDE_LINE3_FONT_SCALE = 1.18
+RIGHT_SIDE_COVER_MARGIN_X_RATIO = 0.03
+RIGHT_SIDE_COVER_HEIGHT = 135
+RIGHT_SIDE_PANEL_OLIVE = (50, 59, 39)
+RIGHT_SIDE_PANEL_OLIVE_ALPHA = 0.45
+RIGHT_SIDE_PANEL_TRIM_PAD_RATIO = 0.004
 
 
 def _is_text_pixel(red: int, green: int, blue: int) -> bool:
@@ -582,13 +600,268 @@ def cover_top_only_reference_text(
     image: Image.Image,
     *,
     solid_fill: bool = True,
+    caption_line_count: int | None = None,
 ) -> Image.Image:
     """Cover English text detected in the upper region."""
     aligned = image.convert("RGB")
     bands = _filter_bands(_text_bands(aligned, scan_start_ratio=0.0), aligned.size)
     top_limit = int(aligned.size[1] * TOP_ONLY_TEXT_MAX_RATIO)
     top = [band for band in bands if band[3] <= top_limit]
-    return _cover_band_group(image, top, solid_fill=solid_fill)
+    selected = _select_bands_for_caption(top, aligned.size, caption_line_count)
+    if not selected:
+        selected = top[:2]
+    margin_y = max(10, int(aligned.size[1] * 0.012))
+    return _cover_band_group(
+        image,
+        selected,
+        solid_fill=solid_fill,
+        margin_y_top=margin_y,
+        margin_y_bottom=margin_y,
+        cover_width_ratio=1.0,
+    )
+
+
+def _right_side_text_bands(
+    reference: Image.Image,
+) -> list[tuple[int, int, int, int, str, str | None]]:
+    """Detect bright caption lines constrained to the right column."""
+    width, height = reference.size
+    pixels = reference.load()
+    scan_left = int(width * RIGHT_SIDE_SCAN_LEFT_RATIO)
+    scan_right = width
+    scan_top = int(height * RIGHT_SIDE_SCAN_TOP_RATIO)
+    scan_bottom = int(height * RIGHT_SIDE_SCAN_BOTTOM_RATIO)
+    scan_width = max(1, scan_right - scan_left)
+    row_threshold = max(1, int(scan_width * TEXT_ROW_PIXEL_RATIO))
+
+    raw_bands: list[tuple[int, int]] = []
+    in_band = False
+    band_start = 0
+    for y in range(scan_top, scan_bottom):
+        bright_count = 0
+        for x in range(scan_left, scan_right):
+            red, green, blue = pixels[x, y][:3]
+            if _is_text_pixel(red, green, blue):
+                bright_count += 1
+        if bright_count > row_threshold and not in_band:
+            in_band = True
+            band_start = y
+        elif bright_count <= row_threshold and in_band:
+            in_band = False
+            raw_bands.append((band_start, y))
+    if in_band:
+        raw_bands.append((band_start, scan_bottom))
+
+    styled: list[tuple[int, int, int, int, str, str | None]] = []
+    for top, bottom in raw_bands:
+        text_pixels: list[tuple[int, int, int]] = []
+        min_x = width
+        max_x = 0
+        for y in range(top, bottom):
+            for x in range(scan_left, scan_right):
+                red, green, blue = pixels[x, y][:3]
+                if _is_text_pixel(red, green, blue):
+                    text_pixels.append((red, green, blue))
+                    min_x = min(min_x, x)
+                    max_x = max(max_x, x)
+        if min_x >= max_x or not text_pixels:
+            continue
+        text_color = _average_rgb(text_pixels)
+        if sum(text_color) / 3 < RIGHT_SIDE_TEXT_AVG_LUMINANCE:
+            continue
+        margin_x = max(6, int(width * 0.02))
+        styled.append(
+            (
+                max(0, min_x - margin_x),
+                top,
+                min(width, max_x + margin_x),
+                bottom,
+                _hex_from_rgb(*text_color),
+                None,
+            )
+        )
+    return styled
+
+
+def has_right_side_reference_layout(
+    reference: Image.Image,
+    template_size: tuple[int, int],
+) -> bool:
+    """Return True when English caption sits in a right-side overlay column."""
+    aligned = _resize_reference(reference.convert("RGB"), template_size)
+    bands = _filter_bands(_right_side_text_bands(aligned), template_size)
+    if len(bands) < RIGHT_SIDE_MIN_BANDS:
+        return False
+    width = template_size[0]
+    # Require the detected lines to stay in the right half overall.
+    median_left = sorted(band[0] for band in bands)[len(bands) // 2]
+    return median_left >= int(width * 0.40)
+
+
+def _layout_right_side_line_styles(
+    bands: list[tuple[int, int, int, int, str, str | None]],
+    template_size: tuple[int, int],
+) -> list[TnLineStyle]:
+    if not bands:
+        return []
+
+    width, height = template_size
+    box_left = int(width * RIGHT_SIDE_BOX_LEFT_RATIO)
+    box_right = width - max(8, int(width * RIGHT_SIDE_BOX_RIGHT_MARGIN_RATIO))
+
+    styles: list[TnLineStyle] = []
+    body_height = max(1, bands[min(1, len(bands) - 1)][3] - bands[min(1, len(bands) - 1)][1])
+    body_font = max(22.0, body_height * RIGHT_SIDE_FONT_SCALE * REFERENCE_FONT_SCALE)
+    for index, band in enumerate(bands):
+        band_height = max(1, band[3] - band[1])
+        if index == 0:
+            font_size = max(22.0, band_height * RIGHT_SIDE_LINE1_FONT_SCALE * REFERENCE_FONT_SCALE)
+        elif index == len(bands) - 1 and len(bands) >= 3:
+            font_size = max(22.0, body_font * RIGHT_SIDE_LINE3_FONT_SCALE)
+        else:
+            font_size = body_font
+        line_box_height = max(1, int(round(font_size * 1.12)))
+        center_y = (band[1] + band[3]) // 2
+        top = max(0, center_y - line_box_height // 2)
+        bottom = min(height, top + line_box_height)
+        styles.append(
+            TnLineStyle(
+                placeholder_text="reference-line",
+                rendered_text="reference-line",
+                bbox=(box_left, top, box_right, bottom),
+                font_size_px=font_size,
+                color_hex=band[4],
+                layer_name="reference-thumbnail",
+                alignment="right",
+                faux_bold=False,
+                max_grow_factor=REFERENCE_MAX_GROW_FACTOR,
+            )
+        )
+    return styles
+
+
+def extract_right_side_reference_line_styles(
+    reference: Image.Image,
+    template_size: tuple[int, int],
+    *,
+    caption_line_count: int,
+) -> list[TnLineStyle]:
+    """Derive right-aligned line styles from a right-column English caption."""
+    aligned = _resize_reference(reference.convert("RGB"), template_size)
+    bands = _filter_bands(_right_side_text_bands(aligned), template_size)
+    selected = _select_bands_for_caption(bands, template_size, caption_line_count)
+    if not selected:
+        return []
+    return _layout_right_side_line_styles(selected, template_size)
+
+
+def _lift_right_side_olive_pixel(red: int, green: int, blue: int) -> tuple[int, int, int]:
+    """Approximate removal of the right-column olive veil to reveal underlying photo."""
+    alpha = RIGHT_SIDE_PANEL_OLIVE_ALPHA
+    olive_r, olive_g, olive_b = RIGHT_SIDE_PANEL_OLIVE
+    return (
+        max(0, min(255, int(round((red - alpha * olive_r) / (1.0 - alpha))))),
+        max(0, min(255, int(round((green - alpha * olive_g) / (1.0 - alpha))))),
+        max(0, min(255, int(round((blue - alpha * olive_b) / (1.0 - alpha))))),
+    )
+
+
+def _trim_right_side_panel_outside_text(
+    image: Image.Image,
+    *,
+    panel_left: int,
+    panel_right: int,
+    keep_top: int,
+    keep_bottom: int,
+) -> Image.Image:
+    """Shorten the olive text background within the text column only.
+
+    Restricted to the caption column so Sadhguru / composite edges are untouched.
+    """
+    result = image.copy()
+    pixels = result.load()
+    width, height = result.size
+    left = max(0, panel_left)
+    right = min(width, panel_right)
+    if right <= left:
+        return result
+    for y in range(height):
+        if keep_top <= y <= keep_bottom:
+            continue
+        for x in range(left, right):
+            red, green, blue = pixels[x, y][:3]
+            if _is_text_pixel(red, green, blue):
+                continue
+            luminance = (red + green + blue) / 3
+            if luminance > 160:
+                continue
+            # Olive panel is green-dominant and fairly dark.
+            if green < red - 5 or green < blue - 5:
+                continue
+            if luminance > 120 and (green - red) < 8 and (green - blue) < 8:
+                continue
+            pixels[x, y] = _lift_right_side_olive_pixel(red, green, blue)
+    return result
+
+
+def cover_right_side_reference_text(
+    image: Image.Image,
+    *,
+    solid_fill: bool = True,
+    caption_line_count: int | None = None,
+) -> Image.Image:
+    """Cover English text in the right-side caption column."""
+    aligned = image.convert("RGB")
+    bands = _filter_bands(_right_side_text_bands(aligned), aligned.size)
+    selected = _select_bands_for_caption(bands, aligned.size, caption_line_count)
+    if not selected:
+        selected = bands
+    if not selected:
+        return image.copy()
+
+    width, height = aligned.size
+    # Restore previous horizontal cover from detected text bands.
+    left = min(band[0] for band in selected)
+    right = max(band[2] for band in selected)
+    text_top = min(band[1] for band in selected)
+    text_bottom = max(band[3] for band in selected)
+    margin_x = max(10, int(width * RIGHT_SIDE_COVER_MARGIN_X_RATIO))
+    cover_left = max(0, left - margin_x)
+    cover_right = min(width, right + margin_x)
+    # Fixed-height panel centered on the caption block.
+    text_center = (text_top + text_bottom) // 2
+    cover_height = min(RIGHT_SIDE_COVER_HEIGHT, height)
+    cover_top = max(0, text_center - cover_height // 2)
+    cover_bottom = cover_top + cover_height
+    if cover_bottom > height:
+        cover_bottom = height
+        cover_top = max(0, cover_bottom - cover_height)
+
+    # Paint a clean fixed-height panel only — do not alter pixels outside it
+    # (olive-lift trimming caused edge artifacts on Sadhguru / the inset).
+    result = image.copy()
+
+    if not solid_fill:
+        return cover_text_region(
+            result,
+            (cover_left, cover_top, cover_right, cover_bottom),
+            solid_fill=False,
+        )
+
+    pixels = aligned.load()
+    sample_pixels: list[tuple[int, int, int]] = []
+    for y in range(cover_top, cover_bottom):
+        for x in range(cover_left, cover_right):
+            red, green, blue = pixels[x, y][:3]
+            if _is_text_pixel(red, green, blue):
+                continue
+            if (red + green + blue) / 3 > 140:
+                continue
+            sample_pixels.append((red, green, blue))
+    fill = _average_rgb(sample_pixels) if sample_pixels else (72, 83, 63)
+    draw = ImageDraw.Draw(result)
+    draw.rectangle((cover_left, cover_top, cover_right, cover_bottom), fill=fill)
+    return result
 
 
 def has_label_box_reference_layout(
@@ -864,9 +1137,10 @@ def _line_bbox_for_font(
 ) -> tuple[int, int, int, int]:
     width, height = template_size
     line_box_height = _line_box_height(font_size)
-    body_width = int(width * 0.88)
-    left = max(0, (width - body_width) // 2)
-    right = min(width, left + body_width)
+    max_body_width = max(1, width - 2 * TEXT_EDGE_MARGIN_PX)
+    body_width = min(int(width * 0.88), max_body_width)
+    left = max(TEXT_EDGE_MARGIN_PX, (width - body_width) // 2)
+    right = min(width - TEXT_EDGE_MARGIN_PX, left + body_width)
     top = max(0, center_y - line_box_height // 2)
     bottom = min(height, top + line_box_height)
     return left, top, right, bottom
@@ -883,6 +1157,16 @@ def _is_blue_text_pixel(red: int, green: int, blue: int) -> bool:
 
 def _is_white_text_pixel(red: int, green: int, blue: int) -> bool:
     return (red + green + blue) / 3 >= TEXT_LUMINANCE_THRESHOLD
+
+
+def _is_yellow_text_pixel(red: int, green: int, blue: int) -> bool:
+    return (
+        red >= 140
+        and green >= 140
+        and blue <= 130
+        and (red + green) / 2 > blue + 40
+        and abs(red - green) < 80
+    )
 
 
 def _two_tone_segments_from_band(
@@ -931,6 +1215,92 @@ def _two_tone_segments_from_band(
     )
 
 
+def _white_yellow_segments_from_band(
+    reference: Image.Image,
+    band: tuple[int, int, int, int, str, str | None],
+    *,
+    body_font: float,
+) -> tuple[TnTextSegment, ...] | None:
+    """Detect white body text followed by a yellow accent word (e.g. Sadhguru?)."""
+    left, top, right, bottom, _color, _background = band
+    if right <= left or bottom <= top:
+        return None
+
+    pixels = reference.load()
+    white_pixels: list[tuple[int, int, int]] = []
+    yellow_pixels: list[tuple[int, int, int]] = []
+    column_stats: list[tuple[int, int, int]] = []
+    for x in range(left, right):
+        white_count = 0
+        yellow_count = 0
+        for y in range(top, bottom):
+            red, green, blue = pixels[x, y][:3]
+            if _is_white_text_pixel(red, green, blue):
+                white_count += 1
+                white_pixels.append((red, green, blue))
+            elif _is_yellow_text_pixel(red, green, blue):
+                yellow_count += 1
+                yellow_pixels.append((red, green, blue))
+        column_stats.append((x, white_count, yellow_count))
+
+    ink = [x for x, white_count, yellow_count in column_stats if white_count + yellow_count >= 5]
+    if len(ink) < 40 or not white_pixels or not yellow_pixels:
+        return None
+
+    ink_left = min(ink)
+    ink_right = max(ink)
+    best_split: tuple[float, int] | None = None
+    for split in range(ink_left + 40, ink_right - 40):
+        left_white = 0
+        left_yellow = 0
+        right_white = 0
+        right_yellow = 0
+        for x, white_count, yellow_count in column_stats:
+            if ink_left <= x < split:
+                left_white += white_count
+                left_yellow += yellow_count
+            elif split <= x <= ink_right:
+                right_white += white_count
+                right_yellow += yellow_count
+        left_total = left_white + left_yellow
+        right_total = right_white + right_yellow
+        if left_total == 0 or right_total == 0:
+            continue
+        left_white_ratio = left_white / left_total
+        right_yellow_ratio = right_yellow / right_total
+        if left_white_ratio < 0.7 or right_yellow_ratio < 0.7:
+            continue
+        score = left_white_ratio + right_yellow_ratio
+        if best_split is None or score > best_split[0]:
+            best_split = (score, split)
+    if best_split is None:
+        return None
+
+    split_x = best_split[1]
+    left_white_pixels = [
+        pixels[x, y][:3]
+        for x in range(ink_left, split_x)
+        for y in range(top, bottom)
+        if _is_white_text_pixel(*pixels[x, y][:3])
+    ]
+    right_yellow_pixels = [
+        pixels[x, y][:3]
+        for x in range(split_x, ink_right + 1)
+        for y in range(top, bottom)
+        if _is_yellow_text_pixel(*pixels[x, y][:3])
+    ]
+    if not left_white_pixels or not right_yellow_pixels:
+        return None
+
+    white_hex = _hex_from_rgb(*_average_rgb(left_white_pixels))
+    yellow_hex = _hex_from_rgb(*_average_rgb(right_yellow_pixels))
+    accent_font = body_font * TOP_ONLY_YELLOW_ACCENT_FONT_SCALE
+    return (
+        TnTextSegment("Drawn to ", body_font, white_hex),
+        TnTextSegment("Sadhguru?", accent_font, yellow_hex),
+    )
+
+
 def _layout_top_only_line_styles(
     bands: list[tuple[int, int, int, int, str, str | None]],
     template_size: tuple[int, int],
@@ -941,24 +1311,16 @@ def _layout_top_only_line_styles(
         return []
 
     width, height = template_size
-    body_width = int(width * 0.88)
-    box_left = max(0, (width - body_width) // 2)
-    box_right = min(width, box_left + body_width)
+    max_body_width = max(1, width - 2 * TEXT_EDGE_MARGIN_PX)
+    body_width = min(int(width * 0.88), max_body_width)
+    box_left = max(TEXT_EDGE_MARGIN_PX, (width - body_width) // 2)
+    box_right = min(width - TEXT_EDGE_MARGIN_PX, box_left + body_width)
     body_heights = [max(1, band[3] - band[1]) for band in bands]
     base_height = max(body_heights)
     body_font = max(24.0, base_height * 0.82 * REFERENCE_FONT_SCALE)
-    line_box_height = max(1, int(round(body_font * 1.12)))
-    line_gap = max(2, int(round(body_font * REFERENCE_BODY_LINE_GAP_FACTOR)))
 
-    body_top = min(band[1] for band in bands)
-    body_bottom = max(band[3] for band in bands)
-    total_body_height = len(bands) * line_box_height + max(0, len(bands) - 1) * line_gap
-    start_y = max(0, (body_top + body_bottom) // 2 - total_body_height // 2)
-
-    styles: list[TnLineStyle] = []
+    line_segments: list[tuple[TnTextSegment, ...]] = []
     for index, band in enumerate(bands):
-        top = start_y + index * (line_box_height + line_gap)
-        bottom = min(height, top + line_box_height)
         segments: tuple[TnTextSegment, ...] = ()
         if index == 0:
             segments = _two_tone_segments_from_band(
@@ -966,18 +1328,55 @@ def _layout_top_only_line_styles(
                 band,
                 body_font=body_font,
             ) or ()
+        if not segments:
+            segments = _white_yellow_segments_from_band(
+                reference,
+                band,
+                body_font=body_font,
+            ) or ()
+        line_segments.append(segments)
+
+    line_heights: list[int] = []
+    for segments in line_segments:
+        # Size boxes from body font so post-fit text doesn't sit in oversized padding.
+        # Accent lines get a modest extra height for the larger yellow word.
+        has_accent = bool(
+            segments and max(segment.font_size_px for segment in segments) > body_font + 0.5
+        )
+        line_font = body_font * (1.15 if has_accent else 1.0)
+        line_heights.append(max(1, int(round(line_font * 0.95))))
+    line_gap = int(round(body_font * TOP_ONLY_BODY_LINE_GAP_FACTOR))
+
+    body_top = min(band[1] for band in bands)
+    body_bottom = max(band[3] for band in bands)
+    total_body_height = sum(line_heights) + max(0, len(bands) - 1) * line_gap
+    start_y = max(0, (body_top + body_bottom) // 2 - total_body_height // 2)
+
+    styles: list[TnLineStyle] = []
+    cursor_y = start_y
+    for index, (band, segments, line_box_height) in enumerate(
+        zip(bands, line_segments, line_heights, strict=True)
+    ):
+        top = cursor_y
+        bottom = min(height, top + line_box_height)
+        cursor_y = bottom + line_gap
+        color_hex = band[4]
+        if segments:
+            color_hex = segments[0].color_hex
         styles.append(
             TnLineStyle(
                 placeholder_text="reference-line",
                 rendered_text="reference-line",
                 bbox=(box_left, top, box_right, bottom),
                 font_size_px=body_font,
-                color_hex=band[4],
+                color_hex=color_hex,
                 layer_name="reference-thumbnail",
                 alignment="center",
                 faux_bold=False,
                 max_grow_factor=REFERENCE_MAX_GROW_FACTOR,
                 segments=segments,
+                # Keep earlier lines the same rendered size as the last (usually longest) line.
+                matched_font_size_style_index=(len(bands) - 1) if index < len(bands) - 1 else None,
             )
         )
     return styles
@@ -1226,9 +1625,10 @@ def _layout_reference_line_styles(
 
     body_top = min(band[1] for band in body_bands)
     body_bottom = max(band[3] for band in body_bands)
-    body_width = int(width * 0.88)
-    left = max(0, (width - body_width) // 2)
-    right = min(width, left + body_width)
+    max_body_width = max(1, width - 2 * TEXT_EDGE_MARGIN_PX)
+    body_width = min(int(width * 0.88), max_body_width)
+    left = max(TEXT_EDGE_MARGIN_PX, (width - body_width) // 2)
+    right = min(width - TEXT_EDGE_MARGIN_PX, left + body_width)
 
     total_body_height = (
         len(body_bands) * line_box_height + max(0, len(body_bands) - 1) * line_gap

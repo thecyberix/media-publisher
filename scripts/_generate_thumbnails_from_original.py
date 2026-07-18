@@ -23,14 +23,17 @@ from media_publisher.sources.tn_publish import render_destination
 from media_publisher.sources.tn_reference import (
     cover_label_box_reference_text,
     cover_reference_text,
+    cover_right_side_reference_text,
     cover_split_reference_text,
     cover_top_only_reference_text,
     extract_label_box_reference_line_styles,
     extract_line_styles_from_reference_thumbnail,
     extract_reordered_mystic_musings_reference_styles,
+    extract_right_side_reference_line_styles,
     extract_top_only_reference_line_styles,
     extract_top_reference_line_styles,
     has_label_box_reference_layout,
+    has_right_side_reference_layout,
     has_split_top_bottom_reference_layout,
     has_top_only_reference_layout,
 )
@@ -143,6 +146,13 @@ def main() -> int:
                 caption_line_count=len(caption_lines),
             )
             cover_mode = "top"
+        elif has_right_side_reference_layout(reference, template.size):
+            line_styles = extract_right_side_reference_line_styles(
+                reference,
+                template.size,
+                caption_line_count=len(caption_lines),
+            )
+            cover_mode = "right"
         elif has_label_box_reference_layout(reference, template.size):
             line_styles = extract_label_box_reference_line_styles(
                 reference,
@@ -171,7 +181,15 @@ def main() -> int:
             continue
 
         if cover_mode == "top":
-            template = cover_top_only_reference_text(reference)
+            template = cover_top_only_reference_text(
+                reference,
+                caption_line_count=len(caption_lines),
+            )
+        elif cover_mode == "right":
+            template = cover_right_side_reference_text(
+                reference,
+                caption_line_count=len(caption_lines),
+            )
         elif cover_mode == "label box":
             template = cover_label_box_reference_text(reference)
         elif cover_mode == "split top/bottom":

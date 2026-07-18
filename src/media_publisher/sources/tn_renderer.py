@@ -35,6 +35,9 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 
+# Hard rule: rendered text must stay at least this far from left/right image edges.
+TEXT_EDGE_MARGIN_PX = 50
+
 TN_FONT_BOLD_CANDIDATES = (
     Path("C:/Windows/Fonts/timesbd.ttf"),
     Path("C:/Windows/Fonts/timesbi.ttf"),
@@ -66,6 +69,39 @@ class TnRenderResult:
 def _bbox_size(bbox: tuple[int, int, int, int]) -> tuple[int, int]:
     left, top, right, bottom = bbox
     return right - left, bottom - top
+
+
+def _clamp_bbox_to_edge_margin(
+    bbox: tuple[int, int, int, int],
+    image_width: int,
+    *,
+    margin: int = TEXT_EDGE_MARGIN_PX,
+) -> tuple[int, int, int, int]:
+    """Inset a line bbox so text cannot enter the left/right edge margins."""
+    left, top, right, bottom = bbox
+    max_margin = max(0, (image_width - 1) // 2)
+    edge = min(max(0, margin), max_margin)
+    clamped_left = max(left, edge)
+    clamped_right = min(right, image_width - edge)
+    if clamped_right <= clamped_left:
+        clamped_left = edge
+        clamped_right = max(clamped_left + 1, image_width - edge)
+    return (clamped_left, top, clamped_right, bottom)
+
+
+def _clamp_styles_to_edge_margin(
+    styles: list[TnLineStyle],
+    image_width: int,
+    *,
+    margin: int = TEXT_EDGE_MARGIN_PX,
+) -> list[TnLineStyle]:
+    return [
+        replace(
+            style,
+            bbox=_clamp_bbox_to_edge_margin(style.bbox, image_width, margin=margin),
+        )
+        for style in styles
+    ]
 
 
 def _is_merged_text_block(psd_size: float, box_height: int) -> bool:
@@ -229,6 +265,15 @@ def _fit_line_fonts(style: TnLineStyle) -> list[tuple[TnTextSegment, ImageFont.F
     psd_reference = max(12, int(round(psd_size)))
     if style.fixed_font_size_px is not None:
         best_size = max(12, int(round(style.fixed_font_size_px)))
+        while best_size > 12:
+            fonts = _build_segment_fonts(
+                segments,
+                best_size,
+                allow_auto_bold=style.allow_auto_bold,
+            )
+            if _line_fits(segments, fonts, box_width, box_height):
+                break
+            best_size -= 1
     else:
         max_target = _cap_max_target(
             psd_reference,
@@ -858,7 +903,12 @@ def fallback_line_styles(width: int, height: int, english_text: str) -> list[TnL
             TnLineStyle(
                 placeholder_text=line,
                 rendered_text=line,
-                bbox=(int(width * 0.08), line_top, int(width * 0.92), line_bottom),
+                bbox=(
+                    max(TEXT_EDGE_MARGIN_PX, int(width * 0.08)),
+                    line_top,
+                    min(width - TEXT_EDGE_MARGIN_PX, int(width * 0.92)),
+                    line_bottom,
+                ),
                 font_size_px=max(28.0, height * 0.07),
                 color_hex="#FFFFFF",
                 layer_name="fallback",
@@ -1097,15 +1147,24 @@ def _consciousness_uniform_font_sizes(styles: list[TnLineStyle]) -> list[TnLineS
 
 def _apply_matched_font_sizes(styles: list[TnLineStyle]) -> list[TnLineStyle]:
     result = list(styles)
+    shared_sizes: dict[int, float] = {}
     for index, style in enumerate(styles):
         source_index = style.matched_font_size_style_index
         if source_index is None or source_index >= len(styles):
             continue
-        source_fonts = _fit_line_fonts(styles[source_index])
-        if not source_fonts:
-            continue
-        shared_size = float(source_fonts[0][1].size)
+        if source_index not in shared_sizes:
+            source_fonts = _fit_line_fonts(styles[source_index])
+            if not source_fonts:
+                continue
+            # Match body size (smallest segment) so accent words can stay larger.
+            shared_sizes[source_index] = float(min(font.size for _, font in source_fonts))
+        shared_size = shared_sizes[source_index]
         result[index] = replace(style, fixed_font_size_px=shared_size)
+        source = result[source_index]
+        source_sizes = {segment.font_size_px for segment in source.segments}
+        # Only lock the source when it is single-size; multi-size accents need free fit.
+        if len(source_sizes) <= 1 and source.fixed_font_size_px is None:
+            result[source_index] = replace(source, fixed_font_size_px=shared_size)
     return result
 
 
@@ -1182,6 +1241,7 @@ def render_tn_thumbnail(
         ]
 
     assigned = _apply_matched_font_sizes(assigned)
+    assigned = _clamp_styles_to_edge_margin(assigned, template.width)
 
     result = template.copy()
     peer_widths = {index: _line_render_width(style) for index, style in enumerate(assigned)}

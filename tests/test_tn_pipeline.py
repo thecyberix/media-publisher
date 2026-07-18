@@ -16,6 +16,8 @@ from media_publisher.sources.tn_psd import (
     TnLineStyle,
 )
 from media_publisher.sources.tn_renderer import (
+    TEXT_EDGE_MARGIN_PX,
+    _clamp_bbox_to_edge_margin,
     _max_upscale_target,
     _should_upscale_font,
 )
@@ -34,6 +36,17 @@ class TnHelperTests(unittest.TestCase):
         self.assertTrue(_should_upscale_font(35, 85))
         self.assertLess(_max_upscale_target(16, 80), 55)
         self.assertGreater(_max_upscale_target(40, 79), 70)
+
+    def test_clamp_bbox_enforces_edge_margin(self) -> None:
+        self.assertEqual(TEXT_EDGE_MARGIN_PX, 50)
+        self.assertEqual(
+            _clamp_bbox_to_edge_margin((20, 10, 620, 80), 640),
+            (50, 10, 590, 80),
+        )
+        self.assertEqual(
+            _clamp_bbox_to_edge_margin((80, 10, 560, 80), 640),
+            (80, 10, 560, 80),
+        )
 
     def test_farm_title_formatting(self) -> None:
         from media_publisher.sources.tn_text_mapping import (
