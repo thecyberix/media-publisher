@@ -22,10 +22,12 @@ CREDENTIAL_ENV_FILES: dict[str, str] = {
 }
 
 CANVA_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["CANVA_TOKEN_JSON"]
+YOUTUBE_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["YOUTUBE_TOKEN_JSON"]
 DEFAULT_GITHUB_REPOSITORY = "thecyberix/media-publisher"
 GITHUB_API_VERSION = "2022-11-28"
 INITIAL_CREDENTIAL_JSON: dict[str, str] = {}
 CANVA_TOKEN_BASELINE: str | None = None
+YOUTUBE_TOKEN_BASELINE: str | None = None
 
 
 def _canva_token_expires_at(payload: str) -> float | None:
@@ -299,3 +301,55 @@ def maybe_persist_canva_token(project_root: Path) -> str | None:
     INITIAL_CREDENTIAL_JSON[CANVA_TOKEN_RELATIVE_PATH] = current
 
     return "Updated CANVA_TOKEN_JSON GitHub secret after Canva token refresh."
+
+
+def _youtube_token_baseline() -> str | None:
+    global YOUTUBE_TOKEN_BASELINE
+    if YOUTUBE_TOKEN_BASELINE is not None:
+        return YOUTUBE_TOKEN_BASELINE
+    return INITIAL_CREDENTIAL_JSON.get(YOUTUBE_TOKEN_RELATIVE_PATH)
+
+
+def maybe_persist_youtube_token(
+    project_root: Path,
+    *,
+    force: bool = False,
+) -> str | None:
+    """Write a YouTube token back to GitHub Secrets after local re-auth/refresh.
+
+    Uses the same CANVA_TOKEN_SYNC_PAT (repo secrets write access).
+    Pass force=True after interactive re-auth so a revoked→new token always syncs.
+    """
+    sync_pat = os.getenv("CANVA_TOKEN_SYNC_PAT", "").strip()
+    if not sync_pat:
+        return None
+
+    repository = _github_repository()
+    if not repository:
+        return None
+
+    token_path = project_root / YOUTUBE_TOKEN_RELATIVE_PATH
+    if not token_path.is_file():
+        return None
+
+    current = token_path.read_text(encoding="utf-8").strip()
+    if not current:
+        return None
+
+    if not force:
+        baseline = _youtube_token_baseline()
+        if baseline is not None and baseline == current:
+            return None
+
+    _set_github_actions_secret_file(
+        repository,
+        "YOUTUBE_TOKEN_JSON",
+        token_path,
+        token=sync_pat,
+    )
+
+    global YOUTUBE_TOKEN_BASELINE
+    YOUTUBE_TOKEN_BASELINE = current
+    INITIAL_CREDENTIAL_JSON[YOUTUBE_TOKEN_RELATIVE_PATH] = current
+
+    return "Updated YOUTUBE_TOKEN_JSON GitHub secret after YouTube token refresh."

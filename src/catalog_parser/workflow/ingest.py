@@ -20,8 +20,10 @@ from catalog_parser.parser import (
     DEFAULT_VIDEO_TYPE,
     TYPE_VIDEO,
     extract_sheet_id,
+    filter_by_pkg_tn,
     parse_catalog,
     parse_video_type,
+    tn_is_marked,
     type_duration_bounds,
 )
 from catalog_parser.__main__ import (
@@ -48,6 +50,7 @@ def ingest_batch_for_translator(
     use_console: bool = False,
     table_cache: TableCache | None = None,
     dry_run: bool = False,
+    require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
 ) -> list[str]:
     return ingest_batch(
@@ -61,6 +64,7 @@ def ingest_batch_for_translator(
         use_console=use_console,
         table_cache=table_cache,
         dry_run=dry_run,
+        require_pkg_tn=require_pkg_tn,
         log=log,
     )
 
@@ -76,6 +80,7 @@ def ingest_batch_unassigned(
     use_console: bool = False,
     table_cache: TableCache | None = None,
     dry_run: bool = False,
+    require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
 ) -> list[str]:
     return ingest_batch(
@@ -89,6 +94,7 @@ def ingest_batch_unassigned(
         use_console=use_console,
         table_cache=table_cache,
         dry_run=dry_run,
+        require_pkg_tn=require_pkg_tn,
         log=log,
     )
 
@@ -105,6 +111,7 @@ def ingest_batch(
     use_console: bool = False,
     table_cache: TableCache | None = None,
     dry_run: bool = False,
+    require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
 ) -> list[str]:
     sheet_id = os.getenv("SHEET_ID", "").strip()
@@ -139,6 +146,19 @@ def ingest_batch(
         max_duration=max_duration,
         video_type=video_type,
     )
+    if require_pkg_tn:
+        before = len(candidates)
+        candidates = filter_by_pkg_tn(candidates, require_marked=True)
+        emit(
+            f"pkgTn filter: {len(candidates)}/{before} {video_type} candidate(s) "
+            f"have pkgTn marked (not empty/X)."
+        )
+    else:
+        marked = sum(1 for row in candidates if tn_is_marked(row.get("pkgTn")))
+        emit(
+            f"Ingest order: {marked} pkgTn-marked {video_type} candidate(s) first, "
+            f"then {len(candidates) - marked} unmarked."
+        )
 
     smartcat_language = os.getenv("SMARTCAT_TARGET_LANGUAGE") or DEFAULT_TARGET_LANGUAGE
     smartcat_api = os.getenv("SMARTCAT_API", "").strip().lower() in {"1", "true", "yes"}
@@ -205,6 +225,8 @@ def ingest_batch(
             max_duration=type_max_duration,
             video_type=video_type,
         )
+        if require_pkg_tn:
+            candidates = filter_by_pkg_tn(candidates, require_marked=True)
         eligible, scanned = build_eligible_catalog_records(candidates, **enrich_kwargs)
 
     emit(

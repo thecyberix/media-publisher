@@ -547,6 +547,156 @@ class IngestPlanningTests(unittest.TestCase):
         self.assertEqual(resolved[1].timing_editor_name, "Timing B")
         self.assertEqual(records[2]["fields"][FIELD_TIMING_EDITOR], "Timing B")
 
+    def test_timing_video_resolved_before_reel_when_reel_listed_first(self) -> None:
+        """Flexible timing editors must take waiting Videos before Reels."""
+        records = [
+            {
+                "id": "rec_reel",
+                "fields": {
+                    FIELD_TITLE: "Reel ready for timing",
+                    "Type": "Reel",
+                    "Status": STATUS_EDITING_DONE,
+                    "Combined Media File": "https://drive.google.com/file/d/def/view",
+                },
+            },
+            {
+                "id": "rec_video",
+                "fields": {
+                    FIELD_TITLE: "Video ready for timing",
+                    "Type": "Video",
+                    "Status": STATUS_EDITING_DONE,
+                    "Combined Media File": "https://drive.google.com/file/d/abc/view",
+                },
+            },
+        ]
+        record_actions = []
+        for record in records:
+            record_actions.extend(plan_record_actions(record))
+        # Reel is listed before Video in the planned action list.
+        self.assertEqual(record_actions[0].record_id, "rec_reel")
+        self.assertEqual(record_actions[1].record_id, "rec_video")
+
+        timing_editors = [
+            ("Timing Reel", 20, "Reel"),
+            ("Timing Flex", 20, None),
+        ]
+        resolved = resolve_assign_timing_editor_actions(
+            records,
+            record_actions,
+            timing_editors=timing_editors,
+        )
+        timing_resolved = [
+            action
+            for action in resolved
+            if action.action_type == WorkflowActionType.ASSIGN_TIMING_EDITOR
+        ]
+        by_id = {action.record_id: action for action in timing_resolved}
+        self.assertEqual(by_id["rec_video"].timing_editor_name, "Timing Flex")
+        self.assertEqual(records[1]["fields"][FIELD_TIMING_EDITOR], "Timing Flex")
+        self.assertEqual(by_id["rec_reel"].timing_editor_name, "Timing Reel")
+        self.assertEqual(records[0]["fields"][FIELD_TIMING_EDITOR], "Timing Reel")
+
+    def test_flexible_timing_editor_with_partial_capacity_can_take_reel(self) -> None:
+        """Flexible editors with <10 free units are not reserved for a waiting Video."""
+        records = [
+            {
+                "id": "rec_video",
+                "fields": {
+                    FIELD_TITLE: "Waiting video",
+                    "Type": "Video",
+                    "Status": STATUS_EDITING_DONE,
+                },
+            },
+            {
+                "id": "rec_reel",
+                "fields": {
+                    FIELD_TITLE: "Another reel",
+                    "Type": "Reel",
+                    "Status": STATUS_EDITING_DONE,
+                },
+            },
+        ]
+        # 6 reels already assigned → 4 free (< 10), so Flex may take another Reel.
+        for index in range(6):
+            records.append(
+                {
+                    "id": f"rec_pad_{index}",
+                    "fields": {
+                        FIELD_TITLE: f"Pad {index}",
+                        "Type": "Reel",
+                        "Status": STATUS_EDITING_DONE,
+                        FIELD_TIMING_EDITOR: "Timing Flex",
+                    },
+                }
+            )
+        actions = [
+            WorkflowAction(
+                action_type=WorkflowActionType.ASSIGN_TIMING_EDITOR,
+                record_id="rec_reel",
+                title="Another reel",
+                reason="needs timing",
+            ),
+            WorkflowAction(
+                action_type=WorkflowActionType.ASSIGN_TIMING_EDITOR,
+                record_id="rec_video",
+                title="Waiting video",
+                reason="needs timing",
+            ),
+        ]
+        timing_editors = [
+            ("Timing Flex", 10, None),
+        ]
+        resolved = resolve_assign_timing_editor_actions(
+            records,
+            actions,
+            timing_editors=timing_editors,
+        )
+        by_id = {action.record_id: action for action in resolved}
+        # Flex has 6 active, 4 free — cannot hold the Video; may take the Reel.
+        self.assertEqual(by_id["rec_reel"].timing_editor_name, "Timing Flex")
+        self.assertIsNone(by_id["rec_video"].timing_editor_name)
+
+    def test_pending_timing_video_reserves_flexible_editor_for_reel_only_action(self) -> None:
+        """A waiting Video in records blocks Reels onto flexible editors with room."""
+        records = [
+            {
+                "id": "rec_video",
+                "fields": {
+                    FIELD_TITLE: "Waiting video",
+                    "Type": "Video",
+                    "Status": STATUS_EDITING_DONE,
+                },
+            },
+            {
+                "id": "rec_reel",
+                "fields": {
+                    FIELD_TITLE: "Reel only action",
+                    "Type": "Reel",
+                    "Status": STATUS_EDITING_DONE,
+                },
+            },
+        ]
+        actions = [
+            WorkflowAction(
+                action_type=WorkflowActionType.ASSIGN_TIMING_EDITOR,
+                record_id="rec_reel",
+                title="Reel only action",
+                reason="needs timing",
+            ),
+        ]
+        timing_editors = [
+            ("Timing Flex", 20, None),
+            ("Timing Reel", 20, "Reel"),
+        ]
+        resolved = resolve_assign_timing_editor_actions(
+            records,
+            actions,
+            timing_editors=timing_editors,
+        )
+        self.assertEqual(resolved[0].timing_editor_name, "Timing Reel")
+        self.assertEqual(records[1]["fields"][FIELD_TIMING_EDITOR], "Timing Reel")
+        self.assertNotIn(FIELD_TIMING_EDITOR, records[0]["fields"])
+
 
 class WorkflowActionTests(unittest.TestCase):
     def test_assign_editor_reuses_table_cache_without_extra_reads(self) -> None:

@@ -27,8 +27,10 @@ from catalog_parser.parser import (
     DEFAULT_VIDEO_TYPE,
     VIDEO_TYPES,
     extract_sheet_id,
+    filter_by_pkg_tn,
     parse_catalog,
     parse_video_type,
+    tn_is_marked,
     type_duration_bounds,
 )
 from catalog_parser.runtime_env import materialize_credentials, maybe_persist_canva_token
@@ -497,6 +499,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Preview eligible rows without writing to Airtable.",
     )
+    ingest_parser.add_argument(
+        "--require-pkg-tn",
+        action="store_true",
+        help=(
+            "Only consider SM catalog rows whose pkgTn mark is present and not X. "
+            "By default ingest still prefers pkgTn-marked rows first, then unmarked."
+        ),
+    )
     smartcat_group = ingest_parser.add_mutually_exclusive_group()
     smartcat_group.add_argument(
         "--smartcat",
@@ -608,6 +618,7 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
             token_path=args.token,
             use_console=args.console_auth,
             dry_run=args.dry_run,
+            require_pkg_tn=bool(getattr(args, "require_pkg_tn", False)),
             log=print,
         )
     except RuntimeError as exc:
@@ -684,6 +695,8 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         "AIRTABLE_SYNC",
         default=not args.sheet_only,
     )
+    if args.dry_run:
+        airtable_enabled = False
     require_mixable_media = not args.sheet_only
 
     target_count = limit if limit > 0 else DEFAULT_LIMIT
@@ -699,6 +712,19 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         max_duration=max_duration,
         video_type=video_type,
     )
+    if args.require_pkg_tn:
+        before = len(records)
+        records = filter_by_pkg_tn(records, require_marked=True)
+        print(
+            f"pkgTn filter: {len(records)}/{before} {video_type} candidate(s) "
+            f"have pkgTn marked (not empty/X)."
+        )
+    else:
+        marked = sum(1 for row in records if tn_is_marked(row.get("pkgTn")))
+        print(
+            f"Ingest order: {marked} pkgTn-marked {video_type} candidate(s) first, "
+            f"then {len(records) - marked} unmarked."
+        )
 
     if args.sheet_only:
         smartcat_language = (
@@ -878,6 +904,11 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="replace")
+
     load_env_file(PROJECT_ROOT / ".env")
     materialize_credentials(PROJECT_ROOT)
 

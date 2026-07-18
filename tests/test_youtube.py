@@ -73,6 +73,24 @@ class YouTubeHelperTests(unittest.TestCase):
         self.assertEqual(secrets.client_secret, "client-secret")
         self.assertEqual(secrets.redirect_uri, "http://127.0.0.1:8766/callback")
 
+    def test_load_client_secrets_ignores_bare_localhost(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "client.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "installed": {
+                            "client_id": "client-id",
+                            "client_secret": "client-secret",
+                            "redirect_uris": ["http://localhost"],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            secrets = load_client_secrets(path)
+        self.assertEqual(secrets.redirect_uri, "http://127.0.0.1:8766/callback")
+
     def test_validate_schedule_time_rejects_past(self) -> None:
         publish_at = datetime.now(timezone.utc) - timedelta(minutes=5)
         with self.assertRaises(YouTubePublishError):

@@ -305,9 +305,15 @@ def load_client_secrets(path: Path) -> YouTubeClientSecrets:
     redirect_uri = DEFAULT_REDIRECT_URI
     redirect_uris = config.get("redirect_uris")
     if isinstance(redirect_uris, list):
+        # Prefer an explicit loopback host:port URI. Bare http://localhost (no port)
+        # is common in Desktop OAuth clients but cannot receive the callback locally.
         for candidate in redirect_uris:
-            if isinstance(candidate, str) and candidate.strip():
-                redirect_uri = candidate.strip()
+            if not isinstance(candidate, str) or not candidate.strip():
+                continue
+            value = candidate.strip()
+            parsed = urllib.parse.urlparse(value)
+            if parsed.hostname in {"127.0.0.1", "localhost"} and parsed.port:
+                redirect_uri = value
                 break
 
     return YouTubeClientSecrets(

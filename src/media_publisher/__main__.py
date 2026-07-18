@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from media_publisher.config import load_settings, update_env_values
-from media_publisher.runtime_env import maybe_persist_canva_token
+from media_publisher.runtime_env import maybe_persist_canva_token, maybe_persist_youtube_token
 from media_publisher.models import PlatformName
 from media_publisher.scheduling import (
     instagram_is_due,
@@ -1885,6 +1885,12 @@ def main() -> int:
         print(f"YouTube token saved to {settings.youtube_token!r}.")
         if token.scope:
             print(f"Scopes: {token.scope}")
+        try:
+            message = maybe_persist_youtube_token(PROJECT_ROOT, force=True)
+            if message:
+                print(message)
+        except RuntimeError as exc:
+            print(f"Warning: could not sync YOUTUBE_TOKEN_JSON: {exc}")
         return 0
 
     if args.test_youtube:
@@ -2190,6 +2196,13 @@ def main() -> int:
                     "to Instagram."
                 )
                 return 1
+            drive_client = None
+            service_account = PROJECT_ROOT / settings.google_sheets_service_account
+            if service_account.exists():
+                try:
+                    drive_client = GoogleDriveClient.from_service_account(service_account)
+                except GoogleDriveError:
+                    drive_client = None
             meta_client = meta_client_from_settings(settings)
             media_id = publish_to_instagram(
                 task.job,
@@ -2198,6 +2211,8 @@ def main() -> int:
                 app_id=settings.meta_app_id,
                 page_id=page_id,
                 ffmpeg_path=settings.happyscribe_ffmpeg,
+                drive_client=drive_client,
+                drive_host_folder_id=settings.publish_override_drive_folder_id or None,
                 **template_urls_from_settings(settings),
             )
             permalink = meta_client.get_instagram_media_permalink(media_id)
@@ -2281,6 +2296,9 @@ if __name__ == "__main__":
         message = maybe_persist_canva_token(PROJECT_ROOT)
         if message:
             print_console(message)
+        yt_message = maybe_persist_youtube_token(PROJECT_ROOT)
+        if yt_message:
+            print_console(yt_message)
     except RuntimeError as exc:
         print_console(f"Warning: {exc}")
     sys.exit(exit_code)

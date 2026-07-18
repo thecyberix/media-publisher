@@ -5,7 +5,9 @@ from pathlib import Path
 from media_publisher.models import PublishJob
 from media_publisher.post_templates import prepare_publish_job
 from media_publisher.publishers.meta import MetaClient, MetaError
+from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
 from media_publisher.video_duration import (
+    INSTAGRAM_SINGLE_UPLOAD_MAX_BYTES,
     ensure_instagram_upload_video,
     instagram_duration_skip_message,
     instagram_exceeds_api_limit,
@@ -30,6 +32,13 @@ def _build_caption(job: PublishJob) -> str:
     return job.description.strip() or job.title
 
 
+def _should_host_on_drive(video_path: Path) -> bool:
+    try:
+        return video_path.stat().st_size > INSTAGRAM_SINGLE_UPLOAD_MAX_BYTES
+    except OSError:
+        return False
+
+
 def publish_to_instagram(
     job: PublishJob,
     *,
@@ -41,6 +50,8 @@ def publish_to_instagram(
     instagram_url: str | None = None,
     youtube_channel_url: str | None = None,
     ffmpeg_path: str | None = None,
+    drive_client: GoogleDriveClient | None = None,
+    drive_host_folder_id: str | None = None,
 ) -> str:
     """Publish or schedule an Instagram video and return the media ID."""
     from media_publisher.post_templates import (
@@ -81,6 +92,32 @@ def publish_to_instagram(
                 )
             except InstagramVideoPrepError as exc:
                 raise InstagramPublishError(str(exc)) from exc
+
+            # Large local files often fail IG rupload (ProcessingFailedError) and
+            # Facebook CDN hosting (2207076). Host temporarily on Drive instead.
+            if (
+                drive_client is not None
+                and drive_host_folder_id
+                and _should_host_on_drive(video_path)
+            ):
+                try:
+                    video_url = drive_client.host_public_video(
+                        drive_host_folder_id,
+                        video_path,
+                    )
+                except GoogleDriveError as exc:
+                    raise InstagramPublishError(
+                        f"Failed to host Instagram video on Drive: {exc}"
+                    ) from exc
+                return client.schedule_instagram_reel(
+                    instagram_account_id=instagram_account_id,
+                    caption=caption,
+                    video_url=video_url,
+                    page_id=page_id,
+                    publish_at=None,
+                    cover_path=cover_path,
+                )
+
             return client.schedule_instagram_reel(
                 instagram_account_id=instagram_account_id,
                 caption=caption,

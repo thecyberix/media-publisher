@@ -136,6 +136,7 @@ def publish_platform_task(
     *,
     settings: PublishPipelineSettings,
     meta_client: MetaClient,
+    drive_client: GoogleDriveClient | None = None,
 ) -> str:
     if task.platform == "youtube":
         video_id = publish_to_youtube(
@@ -173,6 +174,8 @@ def publish_platform_task(
             app_id=settings.meta_app_id,
             page_id=settings.meta_page_id,
             ffmpeg_path=settings.ffmpeg_path,
+            drive_client=drive_client,
+            drive_host_folder_id=settings.publish_override_drive_folder_id or None,
             **settings.template_urls,
         )
         return meta_client.get_instagram_media_permalink(media_id)
@@ -426,6 +429,7 @@ def run_publish_pipeline(
                     task,
                     settings=settings,
                     meta_client=meta_client,
+                    drive_client=drive_client,
                 )
                 updated = mark_platform_scheduled(
                     airtable,

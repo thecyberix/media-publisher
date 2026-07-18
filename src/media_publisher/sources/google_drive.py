@@ -259,6 +259,58 @@ class GoogleDriveClient:
             )
         return sorted(backgrounds, key=lambda image: image.day)
 
+    def share_anyone_reader(self, file_id: str) -> None:
+        """Grant public read access so Meta/etc. can fetch the file without auth."""
+        try:
+            (
+                self._drive.permissions()
+                .create(
+                    fileId=file_id,
+                    body={"type": "anyone", "role": "reader"},
+                    supportsAllDrives=True,
+                    fields="id",
+                )
+                .execute()
+            )
+        except Exception as exc:
+            message = str(exc).lower()
+            # Already shared publicly is fine.
+            if "already" in message or "exists" in message:
+                return
+            raise GoogleDriveError(
+                f"Failed to share Drive file {file_id} as anyone:reader: {exc}"
+            ) from exc
+
+    @staticmethod
+    def public_usercontent_download_url(file_id: str) -> str:
+        """Direct-ish download URL Meta's crawler accepts for public Drive files."""
+        return (
+            "https://drive.usercontent.google.com/download"
+            f"?id={file_id}&export=download"
+        )
+
+    def host_public_video(
+        self,
+        parent_folder_id: str,
+        source_path: Path,
+        *,
+        name: str | None = None,
+        temp_subfolder: str = "_ig_temp_host",
+    ) -> str:
+        """Upload a video under a temp Drive folder, share it, return a public URL."""
+        if not source_path.is_file():
+            raise GoogleDriveError(f"Local file not found for Drive host: {source_path}")
+        temp_folder = self.ensure_folder(parent_folder_id, temp_subfolder)
+        upload_name = name or source_path.name
+        result = self.upload_or_update_file(
+            temp_folder.id,
+            source_path,
+            name=upload_name,
+            mime_type="video/mp4",
+        )
+        self.share_anyone_reader(result.file.id)
+        return self.public_usercontent_download_url(result.file.id)
+
     def upload_or_update_file(
         self,
         parent_id: str,

@@ -16,6 +16,7 @@ CATALOG_OUTPUT_FIELDS = (
     "ctTitle",
     "pkgSmLk",
     "pkgLink",
+    "pkgTn",
 )
 
 DEFAULT_LIMIT = 10
@@ -204,6 +205,34 @@ def filter_by_duration(
     return filtered
 
 
+def tn_is_marked(value: Any) -> bool:
+    """True when SM catalog pkgTn is present and not the explicit unmarked ``X``."""
+    text = str(value or "").strip()
+    return bool(text) and text.upper() != "X"
+
+
+def filter_by_pkg_tn(
+    records: list[dict[str, Any]],
+    *,
+    require_marked: bool = False,
+) -> list[dict[str, Any]]:
+    if not require_marked:
+        return records
+    return [record for record in records if tn_is_marked(record.get("pkgTn"))]
+
+
+def order_pkg_tn_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Stable-partition so pkgTn-marked rows are scanned before unmarked ones."""
+    marked: list[dict[str, Any]] = []
+    unmarked: list[dict[str, Any]] = []
+    for record in records:
+        if tn_is_marked(record.get("pkgTn")):
+            marked.append(record)
+        else:
+            unmarked.append(record)
+    return marked + unmarked
+
+
 def _quote_sheet_name(sheet_name: str) -> str:
     escaped = sheet_name.replace("'", "''")
     return f"'{escaped}'"
@@ -281,6 +310,7 @@ def parse_catalog(
     records = filter_by_duration(records, min_duration, max_duration)
     records = select_fields(records)
     records = sort_by_pub_date_newest_first(records)
+    records = order_pkg_tn_first(records)
     if limit > 0:
         records = records[:limit]
     return records

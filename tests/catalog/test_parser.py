@@ -7,10 +7,13 @@ from catalog_parser.parser import (
     TYPE_SHORT,
     TYPE_VIDEO,
     duration_to_type,
+    filter_by_pkg_tn,
     filter_by_video_type,
+    order_pkg_tn_first,
     parse_pub_date,
     parse_video_type,
     sort_by_pub_date_newest_first,
+    tn_is_marked,
     type_duration_bounds,
 )
 
@@ -58,6 +61,39 @@ class VideoTypeTests(unittest.TestCase):
         ]
         ordered = [record["ctTitle"] for record in sort_by_pub_date_newest_first(records)]
         self.assertEqual(ordered, ["Newer", "Middle", "Older", "No date"])
+
+
+class PkgTnFilterTests(unittest.TestCase):
+    def test_tn_is_marked(self) -> None:
+        self.assertFalse(tn_is_marked(None))
+        self.assertFalse(tn_is_marked(""))
+        self.assertFalse(tn_is_marked("X"))
+        self.assertFalse(tn_is_marked("x"))
+        self.assertTrue(tn_is_marked("1"))
+        self.assertTrue(tn_is_marked("yes"))
+
+    def test_filter_by_pkg_tn(self) -> None:
+        records = [
+            {"ctTitle": "A", "pkgTn": "X"},
+            {"ctTitle": "B", "pkgTn": None},
+            {"ctTitle": "C", "pkgTn": "marked"},
+        ]
+        self.assertEqual(len(filter_by_pkg_tn(records)), 3)
+        marked = filter_by_pkg_tn(records, require_marked=True)
+        self.assertEqual([r["ctTitle"] for r in marked], ["C"])
+
+    def test_order_pkg_tn_first_preserves_relative_order(self) -> None:
+        records = [
+            {"ctTitle": "Unmarked new", "pkgTn": "X"},
+            {"ctTitle": "Marked old", "pkgTn": "1"},
+            {"ctTitle": "Unmarked old", "pkgTn": None},
+            {"ctTitle": "Marked new", "pkgTn": "yes"},
+        ]
+        ordered = [row["ctTitle"] for row in order_pkg_tn_first(records)]
+        self.assertEqual(
+            ordered,
+            ["Marked old", "Marked new", "Unmarked new", "Unmarked old"],
+        )
 
 
 if __name__ == "__main__":
