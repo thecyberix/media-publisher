@@ -146,36 +146,17 @@ class CheckAuthorizationTests(unittest.TestCase):
         self.assertEqual(exit_code, check_authorization.EXIT_OK)
         _smartcat_check.assert_not_called()
 
-    def test_request_get_retries_transient_timeouts(self) -> None:
-        request = MagicMock()
-        ok = MagicMock()
-        ok.status = 200
-        ok.url = "https://ea.smartcat.com/projects"
-        timeout = TimeoutError("Timeout 90000ms exceeded")
-        request.get.side_effect = [timeout, timeout, ok]
+    def test_cookie_get_projects_maps_url_errors(self) -> None:
+        client = MagicMock()
+        client.ui_base = "https://ea.smartcat.com"
+        client._host = "ea.smartcat.com"
+        client._cookies = [{"name": "session", "value": "x", "domain": "ea.smartcat.com"}]
 
-        response = check_authorization._request_get_with_retries(
-            request,
-            "https://ea.smartcat.com/projects",
-            timeout_ms=1000,
-            attempts=3,
-        )
-
-        self.assertIs(response, ok)
-        self.assertEqual(request.get.call_count, 3)
-
-    def test_request_get_raises_after_exhausted_retries(self) -> None:
-        request = MagicMock()
-        request.get.side_effect = TimeoutError("Timeout 90000ms exceeded")
-
-        with self.assertRaisesRegex(RuntimeError, "could not reach"):
-            check_authorization._request_get_with_retries(
-                request,
-                "https://ea.smartcat.com/projects",
-                timeout_ms=1000,
-                attempts=2,
-            )
-        self.assertEqual(request.get.call_count, 2)
+        opener = MagicMock()
+        opener.open.side_effect = urllib.error.URLError("timed out")
+        with patch("urllib.request.build_opener", return_value=opener):
+            with self.assertRaisesRegex(RuntimeError, "could not reach"):
+                check_authorization._cookie_get_projects(client)
 
 
 if __name__ == "__main__":

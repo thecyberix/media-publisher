@@ -30,75 +30,6 @@ def _assert_not_login_page(*, page_url: str, step: str) -> None:
         )
 
 
-def _verify_project_api_access(
-    request: object,
-    *,
-    ui_base: str,
-    project_id: str,
-) -> None:
-    """Use the same web API ingest relies on; only 401/403 mean an auth problem."""
-    response = request.post(  # type: ignore[attr-defined]
-        f"{ui_base}/api/Projects/{project_id}/FileItemIds",
-        data=json.dumps(
-            {
-                "isFolderMode": True,
-                "orderBy": 0,
-                "desc": False,
-                "filter": {
-                    "searchName": "",
-                    "createdByAccountUserIds": [],
-                    "targetLanguageIds": [],
-                    "documentTargetStatuses": [],
-                    "stageNumbersWithNoAssignments": [],
-                    "stageNumbersWithIncompleteState": [],
-                    "creationDateFrom": None,
-                    "creationDateTo": None,
-                },
-            }
-        ),
-        headers={"Content-Type": "application/json"},
-        timeout=60_000,
-    )
-    if response.status in {401, 403}:
-        raise RuntimeError(
-            f"Smartcat session rejected by project API (HTTP {response.status}). "
-            "Run locally: python -m catalog_parser --smartcat-login"
-        )
-
-
-def _request_get_with_retries(
-    request: object,
-    url: str,
-    *,
-    timeout_ms: int,
-    attempts: int = 3,
-) -> object:
-    """HTTP GET via Playwright request context (no SPA page load)."""
-    last_error: Exception | None = None
-    for attempt in range(1, attempts + 1):
-        try:
-            return request.get(url, timeout=timeout_ms)  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001 - retry transient Playwright/network errors
-            last_error = exc
-            name = type(exc).__name__
-            message = str(exc)
-            transient = (
-                "Timeout" in name
-                or "timeout" in message.casefold()
-                or "net::" in message
-                or "ECONNRESET" in message
-            )
-            if not transient or attempt >= attempts:
-                break
-    assert last_error is not None
-    raise RuntimeError(
-        f"Smartcat authorization check could not reach {url!r} "
-        f"after {attempts} attempt(s): {last_error}. "
-        "This is often a transient Smartcat/network issue; re-run the workflow. "
-        "If it keeps failing, renew with: python -m catalog_parser --smartcat-login"
-    ) from last_error
-
-
 def check_smartcat_session(
     *,
     storage_state_path: Path,
@@ -106,51 +37,133 @@ def check_smartcat_session(
     probe_project_id: str | None = None,
     timeout_ms: int = 90_000,
 ) -> None:
+    """Validate Smartcat session via cookie HTTP (no Playwright page.goto).
+
+    Full SPA navigation is flaky on GitHub runners (domcontentloaded hangs /
+    APIRequestContext aborts while reading HTML). Cookie GET /projects matches
+    what ingest uses and is enough to detect expired sessions.
+    """
+    del timeout_ms  # Kept for call-site compatibility; urllib uses seconds below.
     if not storage_state_path.exists():
         raise FileNotFoundError(
             f"Smartcat session file not found: {storage_state_path}. "
             "Run locally: python -m catalog_parser --smartcat-login"
         )
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright is required. Install with: pip install playwright && playwright install chromium"
-        ) from exc
+    from catalog_parser.smartcat import SmartcatError
+    from catalog_parser.smartcat_cookie import SmartcatCookieClient
 
-    ui_base = ui_base.rstrip("/")
-    with sync_playwright() as playwright:
-        # Cookie/API probe only — avoid page.goto() on the Smartcat SPA, which
-        # frequently hangs past domcontentloaded on GitHub-hosted runners.
-        browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(storage_state=str(storage_state_path))
-        try:
-            response = _request_get_with_retries(
-                context.request,
-                f"{ui_base}/projects",
-                timeout_ms=timeout_ms,
+    client = SmartcatCookieClient(
+        ui_base=ui_base.rstrip("/"),
+        storage_state_path=storage_state_path,
+    )
+    try:
+        # Capture final URL after redirects to detect login pages that still
+        # return HTTP 200.
+        status, body, final_url = _cookie_get_projects(client)
+        if status in {401, 403}:
+            raise RuntimeError(
+                f"Smartcat session rejected (HTTP {status}). "
+                "Run locally: python -m catalog_parser --smartcat-login"
             )
-            if response.status in {401, 403}:
+        if status >= 400:
+            raise RuntimeError(
+                f"Smartcat session check failed with HTTP {status}."
+            )
+        _assert_not_login_page(page_url=final_url, step="projects")
+        snippet = body[:4000].decode("utf-8", errors="replace").casefold()
+        if "sign in" in snippet and "password" in snippet:
+            raise RuntimeError(
+                "Smartcat session expired (login page content on /projects). "
+                "Run locally: python -m catalog_parser --smartcat-login"
+            )
+
+        if probe_project_id:
+            status, body = client.web_request(
+                "POST",
+                f"/api/Projects/{probe_project_id}/FileItemIds",
+                json_body={
+                    "isFolderMode": True,
+                    "orderBy": 0,
+                    "desc": False,
+                    "filter": {
+                        "searchName": "",
+                        "createdByAccountUserIds": [],
+                        "targetLanguageIds": [],
+                        "documentTargetStatuses": [],
+                        "stageNumbersWithNoAssignments": [],
+                        "stageNumbersWithIncompleteState": [],
+                        "creationDateFrom": None,
+                        "creationDateTo": None,
+                    },
+                },
+            )
+            if status in {401, 403}:
                 raise RuntimeError(
-                    f"Smartcat session rejected (HTTP {response.status}). "
+                    f"Smartcat session rejected by project API (HTTP {status}). "
                     "Run locally: python -m catalog_parser --smartcat-login"
                 )
-            if response.status >= 400:
+            if status >= 400:
+                detail = body.decode("utf-8", errors="replace")[:500]
                 raise RuntimeError(
-                    f"Smartcat session check failed with HTTP {response.status}."
+                    f"Smartcat project API probe failed with HTTP {status}: {detail}"
                 )
-            _assert_not_login_page(page_url=response.url, step="projects")
+    except SmartcatError as exc:
+        raise RuntimeError(str(exc)) from exc
 
-            if probe_project_id:
-                _verify_project_api_access(
-                    context.request,
-                    ui_base=ui_base,
-                    project_id=probe_project_id,
-                )
-        finally:
-            context.close()
-            browser.close()
+
+def _cookie_get_projects(client: object) -> tuple[int, bytes, str]:
+    """GET /projects with cookies; return status, body peek, and final URL."""
+    import http.client
+    import urllib.error
+    import urllib.request
+
+    from catalog_parser.smartcat_cookie import DEFAULT_USER_AGENT, cookies_header
+
+    ui_base = str(getattr(client, "ui_base")).rstrip("/")
+    host = str(getattr(client, "_host"))
+    cookies = getattr(client, "_cookies")
+    url = f"{ui_base}/projects"
+    headers = {
+        "Cookie": cookies_header(cookies, host=host),
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    request = urllib.request.Request(url, method="GET", headers=headers)
+
+    class _CaptureRedirect(urllib.request.HTTPRedirectHandler):
+        def __init__(self) -> None:
+            self.final_url = url
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+            self.final_url = newurl
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+    capture = _CaptureRedirect()
+    opener = urllib.request.build_opener(capture)
+    try:
+        with opener.open(request, timeout=60) as response:
+            final_url = getattr(response, "geturl", lambda: capture.final_url)()
+            try:
+                # Smartcat sometimes aborts chunked HTML mid-stream on CI/runners.
+                # Status + redirect URL are enough; body is only a login sniff.
+                body = response.read(16384)
+            except http.client.IncompleteRead as exc:
+                body = exc.partial or b""
+            return response.status, body, str(final_url or capture.final_url)
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read(16384)
+        except http.client.IncompleteRead as read_exc:
+            detail = read_exc.partial or b""
+        final_url = getattr(exc, "url", None) or capture.final_url
+        return exc.code, detail, str(final_url)
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"Smartcat authorization check could not reach {url!r}: {exc.reason}. "
+            "This is often a transient Smartcat/network issue; re-run the workflow. "
+            "If it keeps failing, renew with: python -m catalog_parser --smartcat-login"
+        ) from exc
 
 
 def check_canva_authorization(*, client: CanvaClient) -> str:
