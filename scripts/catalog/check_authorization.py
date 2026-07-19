@@ -57,12 +57,46 @@ def _verify_project_api_access(
             }
         ),
         headers={"Content-Type": "application/json"},
+        timeout=60_000,
     )
     if response.status in {401, 403}:
         raise RuntimeError(
             f"Smartcat session rejected by project API (HTTP {response.status}). "
             "Run locally: python -m catalog_parser --smartcat-login"
         )
+
+
+def _request_get_with_retries(
+    request: object,
+    url: str,
+    *,
+    timeout_ms: int,
+    attempts: int = 3,
+) -> object:
+    """HTTP GET via Playwright request context (no SPA page load)."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return request.get(url, timeout=timeout_ms)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - retry transient Playwright/network errors
+            last_error = exc
+            name = type(exc).__name__
+            message = str(exc)
+            transient = (
+                "Timeout" in name
+                or "timeout" in message.casefold()
+                or "net::" in message
+                or "ECONNRESET" in message
+            )
+            if not transient or attempt >= attempts:
+                break
+    assert last_error is not None
+    raise RuntimeError(
+        f"Smartcat authorization check could not reach {url!r} "
+        f"after {attempts} attempt(s): {last_error}. "
+        "This is often a transient Smartcat/network issue; re-run the workflow. "
+        "If it keeps failing, renew with: python -m catalog_parser --smartcat-login"
+    ) from last_error
 
 
 def check_smartcat_session(
@@ -87,18 +121,26 @@ def check_smartcat_session(
 
     ui_base = ui_base.rstrip("/")
     with sync_playwright() as playwright:
+        # Cookie/API probe only — avoid page.goto() on the Smartcat SPA, which
+        # frequently hangs past domcontentloaded on GitHub-hosted runners.
         browser = playwright.chromium.launch(headless=True)
         context = browser.new_context(storage_state=str(storage_state_path))
-        page = context.new_page()
-        page.set_default_timeout(timeout_ms)
         try:
-            page.goto(ui_base, wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_timeout(3000)
-            _assert_not_login_page(page_url=page.url, step="home")
-
-            page.goto(f"{ui_base}/projects", wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_timeout(3000)
-            _assert_not_login_page(page_url=page.url, step="projects")
+            response = _request_get_with_retries(
+                context.request,
+                f"{ui_base}/projects",
+                timeout_ms=timeout_ms,
+            )
+            if response.status in {401, 403}:
+                raise RuntimeError(
+                    f"Smartcat session rejected (HTTP {response.status}). "
+                    "Run locally: python -m catalog_parser --smartcat-login"
+                )
+            if response.status >= 400:
+                raise RuntimeError(
+                    f"Smartcat session check failed with HTTP {response.status}."
+                )
+            _assert_not_login_page(page_url=response.url, step="projects")
 
             if probe_project_id:
                 _verify_project_api_access(
