@@ -222,6 +222,16 @@ Each daily orchestrator run uploads files from the Drive review folder's **Appro
 
 Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. Optional overrides: `THUMBNAIL_REVIEW_DRIVE_FOLDER_ID`, `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`. Review emails need `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, and `NOTIFY_EMAIL` on the orchestrator / ingest job.
 
+### Missing prepared thumbnail on publish schedule
+
+When the daily orchestrator schedules tomorrow's video and that record has an
+**Original Video Thumbnail** but no matching design/file in the Canva catalog
+folder or Drive override **Thumbnails** folder, it emails `NOTIFY_EMAIL` with
+the title, translated name, and Airtable **Canva Design** link (when set).
+Scheduling still proceeds; the email is informational. Needs the same
+`GMAIL_SMTP_*` / `NOTIFY_EMAIL` env as other catalog alerts, plus Canva secrets
+when checking the Canva catalog.
+
 Renew locally (either CLI works — same token file):
 
 ```powershell

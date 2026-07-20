@@ -36,6 +36,7 @@ from media_publisher.sources.canva import (
     thumbnail_destination_path,
 )
 from media_publisher.sources.google_drive import (
+    DriveFile,
     GoogleDriveClient,
     GoogleDriveError,
     IMAGE_MIME_PREFIX,
@@ -183,6 +184,105 @@ def _find_drive_override_image(
                     continue
             return item, folder_id
     return None
+
+
+def drive_override_thumbnail_exists(
+    drive: GoogleDriveClient,
+    *,
+    root_folder_id: str,
+    thumbnails_subfolder: str,
+    published_subfolder_name: str,
+    title: str,
+) -> bool:
+    """True when a matching image exists in Thumbnails or Thumbnails/Published."""
+    folder_id = resolve_drive_override_subfolder(
+        drive,
+        root_folder_id=root_folder_id,
+        subfolder_name=thumbnails_subfolder,
+    )
+    if folder_id is None:
+        return False
+
+    target = _override_match_stem(title)
+    if not target:
+        return False
+
+    search_folder_ids = [folder_id]
+    published_folder = drive.find_child_folder(folder_id, published_subfolder_name)
+    if published_folder is not None:
+        search_folder_ids.append(published_folder.id)
+
+    return _find_drive_override_image(drive, search_folder_ids, target) is not None
+
+
+def canva_catalog_thumbnail_exists(
+    *,
+    client: CanvaClient,
+    title: str,
+    video_format: str,
+    long_catalog_url: str,
+    short_catalog_url: str,
+    published_subfolder_name: str,
+) -> bool:
+    """True when a Canva design matching title exists in the catalog or Published folder."""
+    catalog_ref = thumbnail_catalog_url_for_format(
+        video_format,
+        long_url=long_catalog_url,
+        short_url=short_catalog_url,
+    )
+    resource_type, resource_id = parse_canva_resource(catalog_ref)
+    if resource_type != "folder":
+        return False
+
+    published_folder = client.find_subfolder(resource_id, published_subfolder_name)
+    try:
+        client.find_design_in_folder(resource_id, title)
+        return True
+    except CanvaError:
+        if published_folder is None:
+            return False
+        try:
+            client.find_design_in_folder(published_folder.id, title)
+            return True
+        except CanvaError:
+            return False
+
+
+def has_prepared_publish_thumbnail(
+    *,
+    title: str,
+    video_format: str,
+    drive: GoogleDriveClient | None,
+    canva_client: CanvaClient | None,
+    override_root_folder_id: str,
+    thumbnails_subfolder: str,
+    published_subfolder_name: str,
+    long_catalog_url: str,
+    short_catalog_url: str,
+) -> bool:
+    """True when Drive override or Canva catalog already has a prepared thumbnail."""
+    if drive is not None and override_root_folder_id:
+        if drive_override_thumbnail_exists(
+            drive,
+            root_folder_id=override_root_folder_id,
+            thumbnails_subfolder=thumbnails_subfolder,
+            published_subfolder_name=published_subfolder_name,
+            title=title,
+        ):
+            return True
+
+    if canva_client is not None:
+        if canva_catalog_thumbnail_exists(
+            client=canva_client,
+            title=title,
+            video_format=video_format,
+            long_catalog_url=long_catalog_url,
+            short_catalog_url=short_catalog_url,
+            published_subfolder_name=published_subfolder_name,
+        ):
+            return True
+
+    return False
 
 
 def resolve_drive_override_thumbnail(

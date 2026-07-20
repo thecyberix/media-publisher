@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Callable
 
 from googleapiclient.errors import HttpError
@@ -29,6 +31,7 @@ FIELD_SG_IG_DATE = "SG-IG-Date published"
 FIELD_SG_YT_PUBLISHED = "SG-YT-Published video"
 FIELD_SG_FB_PUBLISHED = "SG-FB-Published video"
 FIELD_SG_IG_PUBLISHED = "SG-IG-Published video"
+FIELD_CANVA_DESIGN = "Canva Design"
 
 PLATFORM_DATE_FIELDS = (FIELD_SG_YT_DATE, FIELD_SG_FB_DATE, FIELD_SG_IG_DATE)
 PLATFORM_PUBLISHED_FIELDS = (
@@ -48,6 +51,7 @@ class ScheduleTomorrowResult:
     record_id: str | None = None
     target_date: date | None = None
     applied: bool = False
+    missing_prepared_thumbnail_notified: bool = False
 
 
 def _publish_settings() -> tuple[str, int]:
@@ -128,6 +132,195 @@ def video_format_from_type(type_value: Any) -> str:
 def instagram_schedule_excluded(fields: dict[str, Any]) -> bool:
     """True when Instagram should not receive a schedule date (Type=Video)."""
     return is_video_type(fields)
+
+
+def format_missing_prepared_thumbnail_email(
+    *,
+    title: str,
+    translated: str | None,
+    canva_design: str | None,
+    target_date: date,
+) -> tuple[str, str]:
+    subject = (
+        f"Scheduled for {target_date.isoformat()} — missing prepared thumbnail"
+    )
+    lines = [
+        "A video was scheduled for publishing with an Original Video Thumbnail,",
+        "but no prepared thumbnail was found in the Canva catalog or Drive",
+        "Thumbnails folder.",
+        "",
+        f"Publish date: {target_date.isoformat()}",
+        "",
+        f"1. {title}",
+    ]
+    if translated:
+        lines.append(f"   Translated: {translated}")
+    if canva_design:
+        lines.append(f"   Canva design: {canva_design}")
+    else:
+        lines.append("   Canva design: (not set)")
+    body = "\n".join(lines).rstrip() + "\n"
+    return subject, body
+
+
+def send_missing_prepared_thumbnail_email(
+    *,
+    title: str,
+    translated: str | None,
+    canva_design: str | None,
+    target_date: date,
+) -> bool:
+    scripts_dir = Path(__file__).resolve().parents[3] / "scripts" / "catalog"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+
+    from send_notification_email import send_email
+
+    smtp_user = os.getenv("GMAIL_SMTP_USER", "").strip()
+    smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD", "").strip()
+    notify_email = os.getenv("NOTIFY_EMAIL", "georgi.uzunov-ext@sadhguru.org").strip()
+    if not smtp_user or not smtp_password or not notify_email:
+        return False
+
+    subject, body = format_missing_prepared_thumbnail_email(
+        title=title,
+        translated=translated,
+        canva_design=canva_design,
+        target_date=target_date,
+    )
+    send_email(
+        smtp_user=smtp_user,
+        smtp_password=smtp_password,
+        to_address=notify_email,
+        subject=subject,
+        body=body,
+    )
+    return True
+
+
+def _optional_canva_client(project_root: Path) -> Any | None:
+    client_id = os.getenv("CANVA_CLIENT_ID", "").strip()
+    client_secret = os.getenv("CANVA_CLIENT_SECRET", "").strip()
+    token_setting = os.getenv("CANVA_TOKEN", "credentials/canva-token.json").strip()
+    token_path = Path(token_setting)
+    if not token_path.is_absolute():
+        token_path = project_root / token_path
+    if not client_id or not client_secret or not token_path.is_file():
+        return None
+    try:
+        from media_publisher.sources.canva import CanvaClient
+
+        return CanvaClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            token_path=token_path,
+        )
+    except Exception:
+        return None
+
+
+def _notify_if_missing_prepared_thumbnail(
+    *,
+    fields: dict[str, Any],
+    drive_service: Any,
+    target_date: date,
+    dry_run: bool,
+    log: Callable[[str], None],
+    project_root: Path | None = None,
+) -> bool:
+    """Email when Original Video Thumbnail is set but Canva/Drive prepared thumb is missing."""
+    if not has_original_video_thumbnail(fields):
+        return False
+
+    title = _field_text(fields.get(FIELD_TITLE)) or "Untitled"
+    translated = _field_text(fields.get(FIELD_VIDEO_NAME_TRANSLATED))
+    canva_design = _field_text(fields.get(FIELD_CANVA_DESIGN))
+    video_format = video_format_from_type(fields.get(FIELD_TYPE))
+
+    root = project_root or Path(__file__).resolve().parents[3]
+    from media_publisher.sources.google_drive import GoogleDriveClient
+    from media_publisher.sources.publish_media import has_prepared_publish_thumbnail
+
+    override_root_folder_id = (
+        os.getenv(
+            "PUBLISH_OVERRIDE_DRIVE_FOLDER_ID",
+            "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ",
+        ).strip()
+        or "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ"
+    )
+    thumbnails_subfolder = (
+        os.getenv("PUBLISH_OVERRIDE_THUMBNAILS_SUBFOLDER", "Thumbnails").strip()
+        or "Thumbnails"
+    )
+    published_subfolder_name = (
+        os.getenv("CANVA_PUBLISHED_SUBFOLDER_NAME", "Published").strip() or "Published"
+    )
+    long_catalog_url = (
+        os.getenv(
+            "CANVA_LONG_VIDEO_THUMBNAILS_URL",
+            "https://www.canva.com/folder/FAHOgLx_jAw",
+        ).strip()
+        or "https://www.canva.com/folder/FAHOgLx_jAw"
+    )
+    short_catalog_url = (
+        os.getenv(
+            "CANVA_SHORT_VIDEO_THUMBNAILS_URL",
+            "https://www.canva.com/folder/FAHOgF-NT8Q",
+        ).strip()
+        or "https://www.canva.com/folder/FAHOgF-NT8Q"
+    )
+    drive = GoogleDriveClient(drive_service)
+    canva_client = _optional_canva_client(root)
+    checked_any = bool(override_root_folder_id) or canva_client is not None
+    if not checked_any:
+        log(
+            "  prepared thumbnail: skipped check "
+            "(Drive override folder / Canva client unavailable)"
+        )
+        return False
+
+    try:
+        prepared = has_prepared_publish_thumbnail(
+            title=title,
+            video_format=video_format,
+            drive=drive,
+            canva_client=canva_client,
+            override_root_folder_id=override_root_folder_id,
+            thumbnails_subfolder=thumbnails_subfolder,
+            published_subfolder_name=published_subfolder_name,
+            long_catalog_url=long_catalog_url,
+            short_catalog_url=short_catalog_url,
+        )
+    except Exception as exc:
+        log(f"  prepared thumbnail: check failed ({exc})")
+        return False
+
+    if prepared:
+        log("  prepared thumbnail: found in Canva catalog or Drive Thumbnails")
+        return False
+
+    log(
+        "  prepared thumbnail: missing in Canva catalog and Drive Thumbnails "
+        f"for {title!r}"
+    )
+    if dry_run:
+        log("  prepared thumbnail: would email notification (dry-run)")
+        return False
+
+    sent = send_missing_prepared_thumbnail_email(
+        title=title,
+        translated=translated,
+        canva_design=canva_design,
+        target_date=target_date,
+    )
+    if sent:
+        log("  prepared thumbnail: notification email sent")
+        return True
+    log(
+        "  prepared thumbnail: notification email not sent "
+        "(check GMAIL_SMTP_* / NOTIFY_EMAIL)"
+    )
+    return False
 
 
 def _record_has_any_publish_date(fields: dict[str, Any]) -> bool:
@@ -311,6 +504,7 @@ def schedule_tomorrow_publish(
     dry_run: bool = False,
     target_date: date | None = None,
     log: Callable[[str], None] | None = None,
+    project_root: Path | None = None,
 ) -> ScheduleTomorrowResult:
     """Pick one catalog record for tomorrow and set SG publish dates."""
     from zoneinfo import ZoneInfo
@@ -375,6 +569,14 @@ def schedule_tomorrow_publish(
             dry_run=True,
             log=emit,
         )
+        _notify_if_missing_prepared_thumbnail(
+            fields=fields,
+            drive_service=drive_service,
+            target_date=target_date,
+            dry_run=True,
+            log=emit,
+            project_root=project_root,
+        )
         return ScheduleTomorrowResult(
             success=True,
             message=f"Preview scheduled {record_id} for {target_date.isoformat()}.",
@@ -399,6 +601,14 @@ def schedule_tomorrow_publish(
         dry_run=False,
         log=emit,
     )
+    notified = _notify_if_missing_prepared_thumbnail(
+        fields=fields,
+        drive_service=drive_service,
+        target_date=target_date,
+        dry_run=False,
+        log=emit,
+        project_root=project_root,
+    )
     if not combined_ok:
         return ScheduleTomorrowResult(
             success=False,
@@ -409,6 +619,7 @@ def schedule_tomorrow_publish(
             record_id=record_id,
             target_date=target_date,
             applied=True,
+            missing_prepared_thumbnail_notified=notified,
         )
 
     return ScheduleTomorrowResult(
@@ -417,4 +628,5 @@ def schedule_tomorrow_publish(
         record_id=record_id,
         target_date=target_date,
         applied=True,
+        missing_prepared_thumbnail_notified=notified,
     )

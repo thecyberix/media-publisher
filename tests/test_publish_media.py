@@ -11,6 +11,8 @@ from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
     combined_media_cleanup_from_fields,
+    drive_override_thumbnail_exists,
+    has_prepared_publish_thumbnail,
     merge_publish_media_cleanup,
     resolve_canva_catalog_thumbnail,
     resolve_drive_override_thumbnail,
@@ -489,6 +491,71 @@ class PublishMediaResolutionTests(unittest.TestCase):
         assert result.path is not None
         self.assertIsNone(result.cleanup)
         client.find_design_in_folder.assert_any_call("published-folder", "Launch video")
+
+    def test_drive_override_thumbnail_exists_checks_without_download(self) -> None:
+        drive = MagicMock()
+        drive.find_child_folder.side_effect = [
+            DriveFile(id="thumbs", name="Thumbnails", mime_type="application/vnd.google-apps.folder"),
+            DriveFile(id="published", name="Published", mime_type="application/vnd.google-apps.folder"),
+        ]
+        drive.list_children.side_effect = [
+            [
+                DriveFile(
+                    id="img1",
+                    name="Launch video.jpg",
+                    mime_type="image/jpeg",
+                )
+            ],
+            [],
+        ]
+        self.assertTrue(
+            drive_override_thumbnail_exists(
+                drive,
+                root_folder_id="root123",
+                thumbnails_subfolder="Thumbnails",
+                published_subfolder_name="Published",
+                title="Launch video",
+            )
+        )
+        drive.download_file.assert_not_called()
+
+    def test_has_prepared_publish_thumbnail_true_from_canva_only(self) -> None:
+        from media_publisher.sources.canva import CanvaDesignSummary, CanvaError
+
+        canva = MagicMock()
+        canva.find_subfolder.return_value = None
+        canva.find_design_in_folder.return_value = CanvaDesignSummary(
+            id="design1",
+            title="Launch video",
+        )
+        self.assertTrue(
+            has_prepared_publish_thumbnail(
+                title="Launch video",
+                video_format="post",
+                drive=None,
+                canva_client=canva,
+                override_root_folder_id="root123",
+                thumbnails_subfolder="Thumbnails",
+                published_subfolder_name="Published",
+                long_catalog_url="https://www.canva.com/folder/FAHOgLx_jAw",
+                short_catalog_url="https://www.canva.com/folder/FAHOgF-NT8Q",
+            )
+        )
+
+        canva.find_design_in_folder.side_effect = CanvaError("missing")
+        self.assertFalse(
+            has_prepared_publish_thumbnail(
+                title="Launch video",
+                video_format="post",
+                drive=None,
+                canva_client=canva,
+                override_root_folder_id="root123",
+                thumbnails_subfolder="Thumbnails",
+                published_subfolder_name="Published",
+                long_catalog_url="https://www.canva.com/folder/FAHOgLx_jAw",
+                short_catalog_url="https://www.canva.com/folder/FAHOgF-NT8Q",
+            )
+        )
 
 
 if __name__ == "__main__":
