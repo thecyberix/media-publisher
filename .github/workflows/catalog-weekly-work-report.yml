@@ -25,12 +25,23 @@ jobs:
         run: |
           mkdir -p output/workflow
           latest_run=$(gh run list --workflow=catalog-daily-workflow.yml --status=success --limit 10 --json databaseId -q '.[0].databaseId' || true)
-          if [ -n "$latest_run" ]; then
-            gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
-            if [ -f /tmp/workflow-state-restore/output/workflow/status_history.json ]; then
-              cp /tmp/workflow-state-restore/output/workflow/status_history.json output/workflow/
-            fi
+          if [ -z "$latest_run" ]; then
+            echo "No successful daily workflow run found to restore from"
+            exit 0
           fi
+          gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
+          # upload-artifact@v4 strips the common "output/" prefix; accept both layouts.
+          for candidate in \
+            /tmp/workflow-state-restore/workflow/status_history.json \
+            /tmp/workflow-state-restore/output/workflow/status_history.json
+          do
+            if [ -f "$candidate" ]; then
+              cp "$candidate" output/workflow/status_history.json
+              echo "Restored output/workflow/status_history.json from ${candidate}"
+              exit 0
+            fi
+          done
+          echo "No status_history.json in workflow-state artifact"
 
       - name: Send weekly translation/editing report
         env:

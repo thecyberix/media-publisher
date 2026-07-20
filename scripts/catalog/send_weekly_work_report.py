@@ -5,10 +5,10 @@ import os
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_CATALOG_DIR = PROJECT_ROOT / "scripts" / "catalog"
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
-sys.path.insert(0, str(SCRIPTS_DIR))
+sys.path.insert(0, str(SCRIPTS_CATALOG_DIR))
 
 from catalog_parser.__main__ import load_env_file
 from catalog_parser.reports.weekly_work import (

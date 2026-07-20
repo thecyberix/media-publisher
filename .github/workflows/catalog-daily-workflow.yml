@@ -108,18 +108,33 @@ jobs:
         run: |
           mkdir -p output/workflow output/backups
           latest_run=$(gh run list --workflow=catalog-daily-workflow.yml --status=success --limit 10 --json databaseId -q '.[0].databaseId' || true)
-          if [ -n "$latest_run" ]; then
-            gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
-            if [ -f /tmp/workflow-state-restore/output/workflow/status_history.json ]; then
-              cp /tmp/workflow-state-restore/output/workflow/status_history.json output/workflow/
-            fi
-            if [ -f /tmp/workflow-state-restore/output/backups/airtable-latest.json ]; then
-              cp /tmp/workflow-state-restore/output/backups/airtable-latest.json output/backups/
-            fi
-            if [ -f /tmp/workflow-state-restore/output/backups/airtable-archive-titles.json ]; then
-              cp /tmp/workflow-state-restore/output/backups/airtable-archive-titles.json output/backups/
-            fi
+          if [ -z "$latest_run" ]; then
+            echo "No successful daily workflow run found to restore from"
+            exit 0
           fi
+          gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
+          # upload-artifact@v4 strips the common "output/" prefix, so files usually
+          # land as backups/... and workflow/...; also accept legacy output/... paths.
+          restore_state_file() {
+            rel="$1"
+            dest="$2"
+            for candidate in \
+              "/tmp/workflow-state-restore/${rel}" \
+              "/tmp/workflow-state-restore/output/${rel}"
+            do
+              if [ -f "$candidate" ]; then
+                mkdir -p "$(dirname "$dest")"
+                cp "$candidate" "$dest"
+                echo "Restored ${dest} from ${candidate}"
+                return 0
+              fi
+            done
+            echo "No artifact file for ${rel}"
+            return 0
+          }
+          restore_state_file "workflow/status_history.json" "output/workflow/status_history.json"
+          restore_state_file "backups/airtable-latest.json" "output/backups/airtable-latest.json"
+          restore_state_file "backups/airtable-archive-titles.json" "output/backups/airtable-archive-titles.json"
 
       - name: Show Drive service account email
         if: steps.auth_check.outcome == 'success'

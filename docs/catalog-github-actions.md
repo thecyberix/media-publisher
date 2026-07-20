@@ -375,6 +375,8 @@ The [weekly work report workflow](../.github/workflows/catalog-weekly-work-repor
 
 The report covers the **previous calendar week** (Monday 00:00 – Sunday 23:59, UTC+3). It reads `output/workflow/status_history.json` accumulated by daily runs — **no Airtable API calls**.
 
+Daily runs restore the previous `workflow-state` artifact (Airtable backup + status history) before writing a new snapshot. `actions/upload-artifact@v4` strips the common `output/` prefix from uploaded paths, so restore looks under both `backups/…` / `workflow/…` and legacy `output/backups/…` / `output/workflow/…`.
+
 - **Translation** — record entered `2. Translation done` without an Editor (Translator field used for attribution)
 - **Editing** — record entered `3. Editing done` without Combined Media File (Editor field used for attribution)
 
