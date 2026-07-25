@@ -851,7 +851,6 @@ def cli_requested_action(args) -> bool:
             args.resolve_meta,
             args.meta_setup_token is not None,
             args.list_pending,
-            args.schedule,
             args.schedule_youtube,
             args.schedule_facebook,
             args.schedule_instagram,
