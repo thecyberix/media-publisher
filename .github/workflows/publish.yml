@@ -21,6 +21,10 @@ on:
         description: Standard mode (IG now, YT/FB tomorrow)
         type: boolean
         default: false
+      schedule:
+        description: Native schedule mode (YT/FB/IG due today)
+        type: boolean
+        default: false
 
 env:
   AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
@@ -52,7 +56,8 @@ jobs:
     if: >-
       inputs.mode == 'all' || inputs.mode == 'videos'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Long-form Videos (HappyScribe download + ffmpeg burn) can exceed 1h.
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v4
@@ -69,9 +74,12 @@ jobs:
       - name: Publish catalog videos
         env:
           PUBLISH_STAGGERED: ${{ inputs.staggered }}
+          PYTHONUNBUFFERED: "1"
         run: |
           EXTRA_ARGS=""
-          if [ "${{ inputs.private }}" = "true" ]; then
+          if [ "${{ inputs.schedule }}" = "true" ]; then
+            EXTRA_ARGS="--schedule"
+          elif [ "${{ inputs.private }}" = "true" ]; then
             EXTRA_ARGS="--private"
           fi
           python -m media_publisher ${EXTRA_ARGS}
