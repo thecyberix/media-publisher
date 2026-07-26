@@ -25,6 +25,15 @@ on:
         description: Native schedule mode (YT/FB/IG due today)
         type: boolean
         default: false
+      platform:
+        description: Limit quotes/videos to one platform (retry-safe)
+        type: choice
+        options:
+          - all
+          - youtube
+          - facebook
+          - instagram
+        default: all
 
 env:
   AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
@@ -82,6 +91,9 @@ jobs:
           elif [ "${{ inputs.private }}" = "true" ]; then
             EXTRA_ARGS="--private"
           fi
+          if [ "${{ inputs.platform }}" != "all" ]; then
+            EXTRA_ARGS="${EXTRA_ARGS} --platform ${{ inputs.platform }}"
+          fi
           python -m media_publisher ${EXTRA_ARGS}
 
   quotes:
@@ -109,5 +121,8 @@ jobs:
           EXTRA_ARGS=""
           if [ "${{ inputs.private }}" = "true" ]; then
             EXTRA_ARGS="--private"
+          fi
+          if [ "${{ inputs.platform }}" != "all" ]; then
+            EXTRA_ARGS="${EXTRA_ARGS} --platform ${{ inputs.platform }}"
           fi
           python -m media_publisher --quotes ${EXTRA_ARGS}
