@@ -6,6 +6,11 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# Required so github.token can list/download daily workflow-state artifacts.
+permissions:
+  actions: read
+  contents: read
+
 env:
   NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
 

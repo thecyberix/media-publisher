@@ -14,6 +14,12 @@ concurrency:
   group: catalog-workflow
   cancel-in-progress: false
 
+# Required so github.token can list/download prior workflow-state artifacts
+# (status_history + Airtable backups) for the weekly report chain.
+permissions:
+  actions: read
+  contents: read
+
 env:
   NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
 
