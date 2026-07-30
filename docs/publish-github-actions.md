@@ -138,6 +138,15 @@ Same as the catalog workflow where noted:
 
 The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render can run when Drive override and Canva are unavailable.
 
+## Repository variables (email)
+
+| Variable | Used for |
+|----------|----------|
+| `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts (also set on catalog workflows) |
+| `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails; comma-separated list supported |
+
+Also requires secrets `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD`.
+
 ## Headers (all cron-job.org publish jobs)
 
 | Name | Value |

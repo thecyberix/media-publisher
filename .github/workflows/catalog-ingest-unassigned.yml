@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
+  NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
 
 jobs:
   ingest:

@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  NOTIFY_EMAIL: georgi.uzunov-ext@sadhguru.org
+  NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
 
 jobs:
   weekly-report:

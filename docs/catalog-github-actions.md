@@ -191,7 +191,7 @@ Ingest uses Playwright with a saved Smartcat browser session (no company API req
 | `GMAIL_SMTP_USER` | Gmail address used to send alert emails (e.g. your workspace Gmail). |
 | `GMAIL_SMTP_APP_PASSWORD` | [Gmail App Password](https://myaccount.google.com/apppasswords) for that account (not your normal login password). |
 
-Alert emails go to `georgi.uzunov-ext@sadhguru.org` (configured in the workflow). Also set:
+Alert emails go to the repository variable `NOTIFY_EMAIL`. Also set:
 
 | Secret | Description |
 |--------|-------------|
@@ -382,7 +382,7 @@ Daily runs restore the previous `workflow-state` artifact (Airtable backup + sta
 
 If a record jumps from `1. To do` to `3. Editing done` between daily snapshots, translation and editing are credited separately in the same week.
 
-Recipient: `georgi.uzunov-ext@sadhguru.org` (set in the workflow `NOTIFY_EMAIL` env).
+Recipient: repository variable `NOTIFY_EMAIL`.
 
 Uses Gmail SMTP secrets only: `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`.
 

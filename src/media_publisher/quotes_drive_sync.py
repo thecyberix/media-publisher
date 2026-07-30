@@ -29,11 +29,19 @@ GENERATED_QUOTES_DRIVE_ROOT_ID = "1lRx8fyrABIQbm13X8MS-dAvd5-3txRoE"
 GENERATED_QUOTES_DRIVE_FOLDER_URL = (
     f"https://drive.google.com/drive/folders/{GENERATED_QUOTES_DRIVE_ROOT_ID}"
 )
-# Intentionally separate from NOTIFY_EMAIL (catalog/auth/thumbnail alerts).
-GENERATED_QUOTES_NOTIFY_EMAIL = "badjorov@gmail.com"
 GENERATED_MONTH_FOLDER_PATTERN = "{month:02d} {month_abbr} {year}"
 SYNC_STATE_RELATIVE_PATH = Path("downloads/quotes/generated-sync-state.json")
 DEFAULT_VARIANT = "fbyt"
+
+
+def _parse_email_list(raw: str) -> list[str]:
+    """Split a comma/semicolon-separated email list, preserving order and uniqueness."""
+    recipients: list[str] = []
+    for part in raw.replace(";", ",").split(","):
+        text = part.strip()
+        if text and text not in recipients:
+            recipients.append(text)
+    return recipients
 
 
 @dataclass(frozen=True)
@@ -108,16 +116,8 @@ def save_sync_state(path: Path, state: dict[str, dict[str, str]]) -> None:
 
 
 def generated_quotes_notify_recipients() -> list[str]:
-    """Primary quotes recipient plus optional NOTIFY_EMAIL for ops tracking."""
-    recipients: list[str] = []
-    for address in (
-        GENERATED_QUOTES_NOTIFY_EMAIL,
-        os.getenv("NOTIFY_EMAIL", "").strip(),
-    ):
-        text = address.strip()
-        if text and text not in recipients:
-            recipients.append(text)
-    return recipients
+    """Recipients from GENERATED_QUOTES_NOTIFY_EMAIL (comma-separated list)."""
+    return _parse_email_list(os.getenv("GENERATED_QUOTES_NOTIFY_EMAIL", ""))
 
 
 def format_generated_quotes_email(
@@ -162,7 +162,7 @@ def send_generated_quotes_notification_email(
     *,
     to_addresses: list[str] | None = None,
 ) -> bool:
-    """Email quote Drive add/update summary to quotes + optional NOTIFY_EMAIL recipients."""
+    """Email quote Drive add/update summary to GENERATED_QUOTES_NOTIFY_EMAIL recipients."""
     if not changes:
         return False
 
@@ -411,8 +411,11 @@ def sync_generated_quotes_for_months(
                     + ", ".join(recipients)
                 )
             else:
-                all_warnings.append(
-                    "Generated-quotes email skipped (missing Gmail SMTP settings)"
+                reason = (
+                    "missing GENERATED_QUOTES_NOTIFY_EMAIL"
+                    if not recipients
+                    else "missing Gmail SMTP settings"
                 )
+                all_warnings.append(f"Generated-quotes email skipped ({reason})")
 
     return GeneratedQuotesSyncResult(changes=all_changes, warnings=all_warnings)

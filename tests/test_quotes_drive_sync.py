@@ -97,20 +97,28 @@ class QuotesDriveSyncHelpersTests(unittest.TestCase):
         self.assertIn("First quote", body)
         self.assertIn("drive.google.com/drive/folders/", body)
 
-    def test_generated_quotes_notify_recipients_includes_notify_email(self) -> None:
+    def test_generated_quotes_notify_recipients_from_env_list(self) -> None:
         import os
         from unittest.mock import patch
 
-        with patch.dict(os.environ, {"NOTIFY_EMAIL": "georgi.uzunov-ext@sadhguru.org"}):
+        with patch.dict(
+            os.environ,
+            {
+                "GENERATED_QUOTES_NOTIFY_EMAIL": (
+                    "badjorov@gmail.com, georgi.uzunov-ext@sadhguru.org"
+                ),
+                "NOTIFY_EMAIL": "should-not-appear@example.com",
+            },
+            clear=False,
+        ):
             recipients = generated_quotes_notify_recipients()
         self.assertEqual(
             recipients,
             ["badjorov@gmail.com", "georgi.uzunov-ext@sadhguru.org"],
         )
 
-        with patch.dict(os.environ, {"NOTIFY_EMAIL": "badjorov@gmail.com"}):
-            recipients = generated_quotes_notify_recipients()
-        self.assertEqual(recipients, ["badjorov@gmail.com"])
+        with patch.dict(os.environ, {"GENERATED_QUOTES_NOTIFY_EMAIL": ""}, clear=False):
+            self.assertEqual(generated_quotes_notify_recipients(), [])
 
     def test_local_file_md5(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
