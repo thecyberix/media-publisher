@@ -10,6 +10,7 @@ from media_publisher.quotes_drive_sync import (
     GeneratedQuoteChange,
     current_and_next_months,
     format_generated_quotes_email,
+    generated_quotes_notify_recipients,
     pair_fingerprint,
     state_key,
 )
@@ -95,6 +96,21 @@ class QuotesDriveSyncHelpersTests(unittest.TestCase):
         self.assertIn("2026-07-02.jpg", body)
         self.assertIn("First quote", body)
         self.assertIn("drive.google.com/drive/folders/", body)
+
+    def test_generated_quotes_notify_recipients_includes_notify_email(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"NOTIFY_EMAIL": "georgi.uzunov-ext@sadhguru.org"}):
+            recipients = generated_quotes_notify_recipients()
+        self.assertEqual(
+            recipients,
+            ["badjorov@gmail.com", "georgi.uzunov-ext@sadhguru.org"],
+        )
+
+        with patch.dict(os.environ, {"NOTIFY_EMAIL": "badjorov@gmail.com"}):
+            recipients = generated_quotes_notify_recipients()
+        self.assertEqual(recipients, ["badjorov@gmail.com"])
 
     def test_local_file_md5(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

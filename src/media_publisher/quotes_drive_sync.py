@@ -107,6 +107,19 @@ def save_sync_state(path: Path, state: dict[str, dict[str, str]]) -> None:
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def generated_quotes_notify_recipients() -> list[str]:
+    """Primary quotes recipient plus optional NOTIFY_EMAIL for ops tracking."""
+    recipients: list[str] = []
+    for address in (
+        GENERATED_QUOTES_NOTIFY_EMAIL,
+        os.getenv("NOTIFY_EMAIL", "").strip(),
+    ):
+        text = address.strip()
+        if text and text not in recipients:
+            recipients.append(text)
+    return recipients
+
+
 def format_generated_quotes_email(
     changes: list[GeneratedQuoteChange],
     *,
@@ -147,13 +160,14 @@ def format_generated_quotes_email(
 def send_generated_quotes_notification_email(
     changes: list[GeneratedQuoteChange],
     *,
-    to_address: str = GENERATED_QUOTES_NOTIFY_EMAIL,
+    to_addresses: list[str] | None = None,
 ) -> bool:
-    """Email quote Drive add/update summary.
-
-    Does not use NOTIFY_EMAIL — catalog and auth alerts keep their existing recipient.
-    """
+    """Email quote Drive add/update summary to quotes + optional NOTIFY_EMAIL recipients."""
     if not changes:
+        return False
+
+    recipients = list(to_addresses) if to_addresses is not None else generated_quotes_notify_recipients()
+    if not recipients:
         return False
 
     scripts_dir = Path(__file__).resolve().parents[2] / "scripts" / "catalog"
@@ -164,17 +178,18 @@ def send_generated_quotes_notification_email(
 
     smtp_user = os.getenv("GMAIL_SMTP_USER", "").strip()
     smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD", "").strip()
-    if not smtp_user or not smtp_password or not to_address:
+    if not smtp_user or not smtp_password:
         return False
 
     subject, body = format_generated_quotes_email(changes)
-    send_email(
-        smtp_user=smtp_user,
-        smtp_password=smtp_password,
-        to_address=to_address,
-        subject=subject,
-        body=body,
-    )
+    for to_address in recipients:
+        send_email(
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            to_address=to_address,
+            subject=subject,
+            body=body,
+        )
     return True
 
 
@@ -384,13 +399,17 @@ def sync_generated_quotes_for_months(
     save_sync_state(state_path, state)
 
     if send_email and all_changes:
+        recipients = generated_quotes_notify_recipients()
         try:
             sent = send_generated_quotes_notification_email(all_changes)
         except Exception as exc:  # noqa: BLE001 - email must not fail the sync
             all_warnings.append(f"Failed to send generated-quotes email: {exc}")
         else:
             if sent:
-                log(f"Sent generated-quotes email to {GENERATED_QUOTES_NOTIFY_EMAIL}")
+                log(
+                    "Sent generated-quotes email to "
+                    + ", ".join(recipients)
+                )
             else:
                 all_warnings.append(
                     "Generated-quotes email skipped (missing Gmail SMTP settings)"
