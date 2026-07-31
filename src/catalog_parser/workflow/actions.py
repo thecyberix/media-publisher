@@ -28,7 +28,6 @@ from catalog_parser.workflow.rules import (
     WorkflowActionType,
     choose_editor,
     choose_timing_editor,
-    record_reel_units,
 )
 from catalog_parser.workflow.table_cache import TableCache
 
@@ -317,14 +316,13 @@ def _assign_timing_editor(
         chosen_name = choose_timing_editor(
             records_for_utilization,
             record_type=record_type,
-            record_units=record_reel_units(fields),
             timing_editors=timing_editor_slots,
         )
         if chosen_name is None:
             return ActionResult(
                 action=action,
                 success=True,
-                message="Skipped: no eligible timing editors with remaining capacity for this type",
+                message="Skipped: no eligible timing editors for this type",
             )
 
     if dry_run:

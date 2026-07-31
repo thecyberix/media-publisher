@@ -356,53 +356,21 @@ def count_active_timing_reel_units(
     return total
 
 
-def has_pending_timing_video(records: list[dict[str, Any]]) -> bool:
-    """True when a Video at Editing done still needs a timing editor."""
-    for record in records:
-        fields = record.get("fields", {})
-        if not isinstance(fields, dict):
-            continue
-        if fields.get(FIELD_STATUS) != STATUS_EDITING_DONE:
-            continue
-        if fields.get("Type") != TYPE_VIDEO:
-            continue
-        if fields.get(FIELD_TIMING_EDITOR):
-            continue
-        return True
-    return False
-
-
 def choose_timing_editor(
     records: list[dict[str, Any]],
     *,
     record_type: Any,
-    record_units: int,
     timing_editors: list[tuple[str, int, str | None]],
-    reserve_for_pending_video: bool = False,
 ) -> str | None:
-    """Pick the least-utilized eligible timing editor that has remaining capacity.
+    """Pick the least-utilized eligible timing editor for ``record_type``.
 
     Each timing editor is ``(name, weekly_capacity_reels, preferred_timing_type)``.
-    Skips people whose preference does not match ``record_type``, and skips anyone
-    who cannot take ``record_units`` without exceeding capacity.
-
-    When ``reserve_for_pending_video`` is set (Reel assignment while a Video still
-    waits), skip flexible editors (no type preference) who still have room for a
-    full Video so their capacity is not filled with Reels.
+    Skips people whose preference does not match ``record_type``. Capacity is used
+    only for utilization ranking (same as editor assignment); it is not a hard cap.
     """
     eligible: list[tuple[str, int]] = []
     for name, capacity, preferred in timing_editors:
         if preferred and preferred != record_type:
-            continue
-        active = count_active_timing_reel_units(records, name)
-        if (
-            reserve_for_pending_video
-            and record_type == TYPE_REEL
-            and preferred is None
-            and capacity - active >= VIDEO_REEL_EQUIVALENT
-        ):
-            continue
-        if active + record_units > capacity:
             continue
         eligible.append((name, capacity))
     if not eligible:
@@ -425,8 +393,7 @@ def resolve_assign_timing_editor_actions(
 
     Mutates ``records`` so utilization updates between assignments in the same run.
     Videos are resolved before Reels so flexible timing editors are claimed by
-    waiting Videos first; Reels then skip flexible editors who still have room
-    for a full Video while any Video remains unassigned.
+    waiting Videos first (capacity is utilization weight only, not a hard cap).
     """
     by_id = {
         record_id: record
@@ -474,13 +441,10 @@ def resolve_assign_timing_editor_actions(
             resolved_timing.append(action)
             continue
         record_type = fields.get("Type")
-        reserve = record_type == TYPE_REEL and has_pending_timing_video(records)
         chosen = action.timing_editor_name or choose_timing_editor(
             records,
             record_type=record_type,
-            record_units=record_reel_units(fields),
             timing_editors=timing_editors,
-            reserve_for_pending_video=reserve,
         )
         if chosen is None:
             resolved_timing.append(action)
