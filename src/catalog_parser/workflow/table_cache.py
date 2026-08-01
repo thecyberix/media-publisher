@@ -9,9 +9,13 @@ from typing import Any
 
 from catalog_parser.airtable import (
     AirtableClient,
+    FIELD_ORIGINAL_VIDEO,
+    FIELD_ORIGINAL_VIDEO_NAME,
     FIELD_TITLE,
     FIELD_VIDEO_FOLDER,
     catalog_record_to_airtable_fields,
+    normalize_original_video_key,
+    normalize_original_video_name_key,
     normalize_title,
 )
 from catalog_parser.drive_docs import extract_drive_folder_id
@@ -150,6 +154,30 @@ class TableCache:
             if folder_id:
                 folder_ids.add(folder_id)
         return folder_ids
+
+    def existing_original_video_names(self) -> set[str]:
+        names: set[str] = set()
+        for record in self._records:
+            fields = record.get("fields")
+            if not isinstance(fields, dict):
+                continue
+            key = normalize_original_video_name_key(
+                fields.get(FIELD_ORIGINAL_VIDEO_NAME)
+            )
+            if key:
+                names.add(key)
+        return names
+
+    def existing_original_video_keys(self) -> set[str]:
+        keys: set[str] = set()
+        for record in self._records:
+            fields = record.get("fields")
+            if not isinstance(fields, dict):
+                continue
+            key = normalize_original_video_key(fields.get(FIELD_ORIGINAL_VIDEO))
+            if key:
+                keys.add(key)
+        return keys
 
     def update_fields(self, record_id: str, field_updates: dict[str, Any]) -> None:
         record = self.get(record_id)

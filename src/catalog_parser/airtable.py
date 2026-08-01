@@ -78,6 +78,38 @@ def normalize_original_video_name(value: Any) -> str | None:
     return normalized or None
 
 
+def normalize_original_video_name_key(value: Any) -> str | None:
+    """Casefolded Original Video Name / ytTitle key for ingest dedup."""
+    original = normalize_original_video_name(value)
+    if not original:
+        return None
+    collapsed = original.replace("\u2019", "'").replace("\u2018", "'")
+    return normalize_title(collapsed)
+
+
+def normalize_original_video_key(value: Any) -> str | None:
+    """Platform id key from Original Video / ctLink (yt:… / ig:…)."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    url = value.strip()
+    if not url:
+        return None
+    from media_publisher.sources.source_thumbnail import (
+        parse_instagram_shortcode,
+        parse_youtube_video_id,
+    )
+
+    youtube_id = parse_youtube_video_id(url)
+    if youtube_id:
+        return f"yt:{youtube_id}"
+    shortcode = parse_instagram_shortcode(url)
+    if shortcode:
+        return f"ig:{shortcode}"
+    return None
+
+
 def resolve_original_video_name(
     *,
     yt_title: Any = None,
@@ -103,7 +135,7 @@ def normalize_title_variants(value: Any) -> set[str]:
     direct = normalize_title(value)
     if direct:
         variants.add(direct)
-    original = normalize_title(normalize_original_video_name(value))
+    original = normalize_original_video_name_key(value)
     if original:
         variants.add(original)
     return variants
@@ -288,6 +320,58 @@ class AirtableClient:
             if not offset:
                 break
         return folder_ids
+
+    def list_existing_original_video_names(self) -> set[str]:
+        names: set[str] = set()
+        offset: str | None = None
+        while True:
+            query: dict[str, Any] = {
+                "pageSize": "100",
+                "fields[]": [FIELD_ORIGINAL_VIDEO_NAME],
+            }
+            if offset:
+                query["offset"] = offset
+            response = self._request("GET", self._table_url(), query=query)
+            for item in response.get("records", []):
+                if not isinstance(item, dict):
+                    continue
+                fields = item.get("fields")
+                if not isinstance(fields, dict):
+                    continue
+                key = normalize_original_video_name_key(
+                    fields.get(FIELD_ORIGINAL_VIDEO_NAME)
+                )
+                if key:
+                    names.add(key)
+            offset = response.get("offset")
+            if not offset:
+                break
+        return names
+
+    def list_existing_original_video_keys(self) -> set[str]:
+        keys: set[str] = set()
+        offset: str | None = None
+        while True:
+            query: dict[str, Any] = {
+                "pageSize": "100",
+                "fields[]": [FIELD_ORIGINAL_VIDEO],
+            }
+            if offset:
+                query["offset"] = offset
+            response = self._request("GET", self._table_url(), query=query)
+            for item in response.get("records", []):
+                if not isinstance(item, dict):
+                    continue
+                fields = item.get("fields")
+                if not isinstance(fields, dict):
+                    continue
+                key = normalize_original_video_key(fields.get(FIELD_ORIGINAL_VIDEO))
+                if key:
+                    keys.add(key)
+            offset = response.get("offset")
+            if not offset:
+                break
+        return keys
 
     def list_accessible_bases(self) -> list[dict[str, Any]]:
         response = self._request("GET", f"{self.api_base}/meta/bases")
@@ -551,6 +635,12 @@ class AirtableClient:
     def sync_catalog_records(self, records: list[dict[str, Any]]) -> tuple[int, int]:
         existing_titles = load_existing_titles_for_ingest(self)
         existing_folder_ids = load_existing_video_folder_ids_for_ingest(self)
+        existing_original_video_names = load_existing_original_video_names_for_ingest(
+            self
+        )
+        existing_original_video_keys = load_existing_original_video_keys_for_ingest(
+            self
+        )
         to_create: list[dict[str, Any]] = []
         skipped = 0
 
@@ -566,10 +656,25 @@ class AirtableClient:
             if folder_id and folder_id in existing_folder_ids:
                 skipped += 1
                 continue
+            yt_title_key = normalize_original_video_name_key(record.get("ytTitle"))
+            if yt_title_key and yt_title_key in existing_original_video_names:
+                skipped += 1
+                continue
+            original_video_key = normalize_original_video_key(record.get("ctLink"))
+            if (
+                original_video_key
+                and original_video_key in existing_original_video_keys
+            ):
+                skipped += 1
+                continue
             to_create.append(record)
             existing_titles.add(title)
             if folder_id:
                 existing_folder_ids.add(folder_id)
+            if yt_title_key:
+                existing_original_video_names.add(yt_title_key)
+            if original_video_key:
+                existing_original_video_keys.add(original_video_key)
 
         created = len(self.create_records(to_create))
         return created, skipped
@@ -625,3 +730,25 @@ def load_existing_video_folder_ids_for_ingest(
     if table_cache is not None:
         return table_cache.existing_video_folder_ids()
     return airtable.list_existing_video_folder_ids()
+
+
+def load_existing_original_video_names_for_ingest(
+    airtable: AirtableClient,
+    *,
+    table_cache: Any | None = None,
+) -> set[str]:
+    """Live-table Original Video Name keys already present (ytTitle dedup)."""
+    if table_cache is not None:
+        return table_cache.existing_original_video_names()
+    return airtable.list_existing_original_video_names()
+
+
+def load_existing_original_video_keys_for_ingest(
+    airtable: AirtableClient,
+    *,
+    table_cache: Any | None = None,
+) -> set[str]:
+    """Live-table Original Video platform keys already present (ctLink dedup)."""
+    if table_cache is not None:
+        return table_cache.existing_original_video_keys()
+    return airtable.list_existing_original_video_keys()

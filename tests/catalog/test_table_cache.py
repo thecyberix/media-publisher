@@ -7,7 +7,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from catalog_parser.airtable import FIELD_EDITOR, FIELD_STATUS, FIELD_TITLE, FIELD_TYPE
+from catalog_parser.airtable import (
+    FIELD_EDITOR,
+    FIELD_ORIGINAL_VIDEO,
+    FIELD_ORIGINAL_VIDEO_NAME,
+    FIELD_STATUS,
+    FIELD_TITLE,
+    FIELD_TYPE,
+)
 from catalog_parser.workflow.table_cache import TableCache
 
 
@@ -29,6 +36,44 @@ class TableCacheTests(unittest.TestCase):
         self.assertEqual(cache.existing_titles(), {"video a"})
         cache.update_fields("rec1", {FIELD_EDITOR: "Nina Rueva"})
         self.assertEqual(cache.get("rec1")["fields"][FIELD_EDITOR], "Nina Rueva")
+
+    def test_existing_original_video_names(self) -> None:
+        cache = TableCache(
+            [
+                {
+                    "id": "rec1",
+                    "fields": {
+                        FIELD_TITLE: "Poison title",
+                        FIELD_ORIGINAL_VIDEO_NAME: (
+                            "You’re Misunderstanding Karma Completely"
+                        ),
+                    },
+                }
+            ]
+        )
+        self.assertEqual(
+            cache.existing_original_video_names(),
+            {"you're misunderstanding karma completely"},
+        )
+
+    def test_existing_original_video_keys(self) -> None:
+        cache = TableCache(
+            [
+                {
+                    "id": "rec1",
+                    "fields": {
+                        FIELD_TITLE: "Let Life Become A Dance",
+                        FIELD_ORIGINAL_VIDEO: (
+                            "https://www.instagram.com/p/DXwoY7rzBzu"
+                        ),
+                    },
+                }
+            ]
+        )
+        self.assertEqual(
+            cache.existing_original_video_keys(),
+            {"ig:DXwoY7rzBzu"},
+        )
 
     def test_register_created_from_catalog(self) -> None:
         cache = TableCache([])

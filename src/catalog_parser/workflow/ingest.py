@@ -12,6 +12,8 @@ from catalog_parser.airtable import (
     FIELD_TRANSLATOR,
     STATUS_NOT_ASSIGNED,
     STATUS_TODO,
+    load_existing_original_video_keys_for_ingest,
+    load_existing_original_video_names_for_ingest,
     load_existing_titles_for_ingest,
     load_existing_video_folder_ids_for_ingest,
 )
@@ -194,6 +196,14 @@ def ingest_batch(
         airtable,
         table_cache=table_cache,
     )
+    existing_original_video_names = load_existing_original_video_names_for_ingest(
+        airtable,
+        table_cache=table_cache,
+    )
+    existing_original_video_keys = load_existing_original_video_keys_for_ingest(
+        airtable,
+        table_cache=table_cache,
+    )
     staging_dir = PROJECT_ROOT / "output" / "ingest-thumbnails"
     staging_dir.mkdir(parents=True, exist_ok=True)
 
@@ -201,6 +211,8 @@ def ingest_batch(
         "target_count": target_count,
         "existing_titles": existing_titles,
         "existing_folder_ids": existing_folder_ids,
+        "existing_original_video_names": existing_original_video_names,
+        "existing_original_video_keys": existing_original_video_keys,
         "smartcat_enabled": True,
         "smartcat_api": smartcat_api,
         "smartcat_language": smartcat_language,

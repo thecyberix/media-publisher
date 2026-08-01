@@ -6,7 +6,9 @@ from unittest.mock import MagicMock
 from catalog_parser.eligibility import (
     explain_catalog_eligibility,
     is_catalog_eligible,
+    is_not_duplicate_original_video,
     is_not_duplicate_video_folder,
+    is_not_duplicate_yt_title,
     is_not_in_airtable,
     needs_bulgarian_translation,
 )
@@ -109,6 +111,101 @@ class EligibilityTests(unittest.TestCase):
         )
         self.assertIn("Already in Airtable (duplicate Video Folder)", reasons)
 
+    def test_is_not_duplicate_yt_title(self) -> None:
+        record = {"ytTitle": "You're Misunderstanding Karma Completely"}
+        self.assertTrue(is_not_duplicate_yt_title(record, set()))
+        self.assertFalse(
+            is_not_duplicate_yt_title(
+                record,
+                {"you're misunderstanding karma completely"},
+            )
+        )
+        # curly vs straight apostrophe
+        self.assertFalse(
+            is_not_duplicate_yt_title(
+                {"ytTitle": "You’re Misunderstanding Karma Completely"},
+                {"you're misunderstanding karma completely"},
+            )
+        )
+        self.assertTrue(is_not_duplicate_yt_title({}, {"some title"}))
+
+    def test_is_catalog_eligible_rejects_duplicate_yt_title(self) -> None:
+        record = {
+            "ctTitle": "It Can Bring You Wisdom Or Bind You And Poison Your Life",
+            "ytTitle": "You're Misunderstanding Karma Completely",
+            "pkgBgSrtLk": "https://ea.smartcat.com/open-editor/1",
+            "pkgLink": "https://drive.google.com/drive/folders/other-pkg",
+        }
+        with unittest.mock.patch(
+            "catalog_parser.eligibility.record_has_mixable_media",
+            return_value=True,
+        ):
+            self.assertFalse(
+                is_catalog_eligible(
+                    record,
+                    set(),
+                    existing_folder_ids=set(),
+                    existing_original_video_names={
+                        "you're misunderstanding karma completely"
+                    },
+                    drive_service=MagicMock(),
+                )
+            )
+
+    def test_explain_duplicate_yt_title(self) -> None:
+        reasons = explain_catalog_eligibility(
+            {
+                "ctTitle": "Poison title",
+                "ytTitle": "You're Misunderstanding Karma Completely",
+                "pkgBgSrtLk": "https://ea.smartcat.com/open-editor/1",
+                "pkgLink": "https://drive.google.com/drive/folders/other-pkg",
+            },
+            set(),
+            existing_folder_ids=set(),
+            existing_original_video_names={
+                "you're misunderstanding karma completely"
+            },
+            require_mixable_media=False,
+        )
+        self.assertIn(
+            "Already in Airtable (duplicate Original Video Name)",
+            reasons,
+        )
+
+    def test_is_not_duplicate_original_video(self) -> None:
+        record = {"ctLink": "https://www.instagram.com/p/DXwoY7rzBzu"}
+        self.assertTrue(is_not_duplicate_original_video(record, set()))
+        self.assertFalse(
+            is_not_duplicate_original_video(record, {"ig:DXwoY7rzBzu"})
+        )
+        self.assertFalse(
+            is_not_duplicate_original_video(
+                {"ctLink": "https://www.instagram.com/reel/DXwoY7rzBzu/"},
+                {"ig:DXwoY7rzBzu"},
+            )
+        )
+        self.assertFalse(
+            is_not_duplicate_original_video(
+                {"ctLink": "https://youtu.be/8xl1cANaov0"},
+                {"yt:8xl1cANaov0"},
+            )
+        )
+        self.assertTrue(is_not_duplicate_original_video({}, {"ig:abc"}))
+
+    def test_explain_duplicate_original_video(self) -> None:
+        reasons = explain_catalog_eligibility(
+            {
+                "ctTitle": "Prayer Means You Are Trying To Tell God What To Do",
+                "ctLink": "https://www.instagram.com/p/DXwoY7rzBzu",
+                "pkgBgSrtLk": "https://ea.smartcat.com/open-editor/1",
+                "pkgLink": "https://drive.google.com/drive/folders/other-pkg",
+            },
+            set(),
+            existing_folder_ids=set(),
+            existing_original_video_keys={"ig:DXwoY7rzBzu"},
+            require_mixable_media=False,
+        )
+        self.assertIn("Already in Airtable (duplicate Original Video)", reasons)
 
     def test_explain_catalog_eligibility_reports_smartcat_skip(self) -> None:
         reasons = explain_catalog_eligibility(

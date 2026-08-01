@@ -8,7 +8,9 @@ from pathlib import Path
 
 from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ingest, normalize_title
 from catalog_parser.eligibility import (
+    catalog_original_video_key,
     catalog_video_folder_id,
+    catalog_yt_title_key,
     explain_catalog_eligibility,
     is_catalog_eligible,
 )
@@ -93,6 +95,44 @@ def load_existing_airtable_video_folder_ids() -> set[str]:
     return load_existing_video_folder_ids_for_ingest(airtable_client)
 
 
+def load_existing_airtable_original_video_names() -> set[str]:
+    from catalog_parser.airtable import load_existing_original_video_names_for_ingest
+
+    airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
+    airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
+    airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
+    if not airtable_token or not airtable_base_id or not airtable_table_name:
+        return set()
+
+    airtable_client = AirtableClient(
+        token=airtable_token,
+        base_id=airtable_base_id,
+        table_name=airtable_table_name,
+        api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
+        or "https://api.airtable.com/v0",
+    )
+    return load_existing_original_video_names_for_ingest(airtable_client)
+
+
+def load_existing_airtable_original_video_keys() -> set[str]:
+    from catalog_parser.airtable import load_existing_original_video_keys_for_ingest
+
+    airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
+    airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
+    airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
+    if not airtable_token or not airtable_base_id or not airtable_table_name:
+        return set()
+
+    airtable_client = AirtableClient(
+        token=airtable_token,
+        base_id=airtable_base_id,
+        table_name=airtable_table_name,
+        api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
+        or "https://api.airtable.com/v0",
+    )
+    return load_existing_original_video_keys_for_ingest(airtable_client)
+
+
 def enrich_single_record_with_smartcat_api(
     record: dict,
     *,
@@ -136,6 +176,8 @@ def build_eligible_catalog_records(
     target_count: int,
     existing_titles: set[str],
     existing_folder_ids: set[str] | None = None,
+    existing_original_video_names: set[str] | None = None,
+    existing_original_video_keys: set[str] | None = None,
     smartcat_enabled: bool,
     smartcat_api: bool,
     smartcat_language: str,
@@ -150,6 +192,16 @@ def build_eligible_catalog_records(
     eligible: list[dict] = []
     scanned = 0
     folder_ids = existing_folder_ids if existing_folder_ids is not None else set()
+    original_video_names = (
+        existing_original_video_names
+        if existing_original_video_names is not None
+        else set()
+    )
+    original_video_keys = (
+        existing_original_video_keys
+        if existing_original_video_keys is not None
+        else set()
+    )
 
     def process_candidate(candidate: dict) -> None:
         nonlocal scanned
@@ -267,6 +319,8 @@ def build_eligible_catalog_records(
             record,
             existing_titles,
             existing_folder_ids=folder_ids,
+            existing_original_video_names=original_video_names,
+            existing_original_video_keys=original_video_keys,
             drive_service=drive_service if require_mixable_media else None,
             require_smartcat=smartcat_enabled,
             require_mixable_media=require_mixable_media,
@@ -278,12 +332,20 @@ def build_eligible_catalog_records(
             folder_id = catalog_video_folder_id(record)
             if folder_id:
                 folder_ids.add(folder_id)
+            yt_title_key = catalog_yt_title_key(record)
+            if yt_title_key:
+                original_video_names.add(yt_title_key)
+            original_video_key = catalog_original_video_key(record)
+            if original_video_key:
+                original_video_keys.add(original_video_key)
             print(f"  -> eligible ({len(eligible)}/{target_count})")
         else:
             for reason in explain_catalog_eligibility(
                 record,
                 existing_titles,
                 existing_folder_ids=folder_ids,
+                existing_original_video_names=original_video_names,
+                existing_original_video_keys=original_video_keys,
                 drive_service=drive_service if require_mixable_media else None,
                 require_smartcat=smartcat_enabled,
                 require_mixable_media=require_mixable_media,
@@ -842,6 +904,8 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
                 "Eligibility: no Airtable titles loaded; duplicate-title check skipped."
             )
         existing_folder_ids = load_existing_airtable_video_folder_ids()
+        existing_original_video_names = load_existing_airtable_original_video_names()
+        existing_original_video_keys = load_existing_airtable_original_video_keys()
 
         web_client = None
         if smartcat_enabled and not args.smartcat_api:
@@ -857,6 +921,8 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             target_count=target_count,
             existing_titles=existing_titles,
             existing_folder_ids=existing_folder_ids,
+            existing_original_video_names=existing_original_video_names,
+            existing_original_video_keys=existing_original_video_keys,
             smartcat_enabled=smartcat_enabled,
             smartcat_api=args.smartcat_api,
             smartcat_language=smartcat_language,
