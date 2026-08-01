@@ -25,6 +25,9 @@ from catalog_parser.workflow.rules import (
 from catalog_parser.workflow.approved_thumbnails import (
     process_approved_review_thumbnails_in_workflow,
 )
+from catalog_parser.workflow.editing_done_thumbnails import (
+    notify_editing_done_missing_prepared_thumbnails,
+)
 from catalog_parser.workflow.table_cache import TableCache, DEFAULT_BACKUP_DIR
 from catalog_parser.workflow.publish_schedule import schedule_tomorrow_publish
 from catalog_parser.workflow.status_validation import (
@@ -80,6 +83,15 @@ def run_workflow(
         token_path,
         use_console=use_console,
     )
+
+    editing_done_thumb_result = notify_editing_done_missing_prepared_thumbnails(
+        project_root=project_root,
+        current_records=table_cache.records,
+        drive_service=drive_service,
+        dry_run=dry_run,
+        log=print,
+    )
+    print(f"Editing-done thumbnails: {editing_done_thumb_result.message}")
 
     planned_actions = []
     for record in workflow_records:

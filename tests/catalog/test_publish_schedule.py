@@ -188,10 +188,12 @@ class PublishScheduleTests(unittest.TestCase):
             translated='"Здравейте" или "Намаскар"',
             canva_design="https://www.canva.com/design/ABC",
             target_date=date(2026, 7, 21),
+            tn_template="https://drive.google.com/file/d/tmpl/view",
         )
         self.assertIn("2026-07-21", subject)
         self.assertIn("Hello Or Namaskar Whats Your Choice", body)
         self.assertIn("https://www.canva.com/design/ABC", body)
+        self.assertIn("Drive TN template:", body)
         self.assertIn("Translated:", body)
 
     def test_schedule_emails_when_original_thumb_lacks_prepared(self) -> None:

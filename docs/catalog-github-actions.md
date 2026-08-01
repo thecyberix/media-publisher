@@ -200,7 +200,13 @@ Alert emails go to the repository variable `NOTIFY_EMAIL`. Also set:
 
 ### Optional: Canva thumbnail export during ingest
 
-When a video folder has no direct thumbnail image, ingest can export the design from a Canva link in the docx. Uses the **same Canva integration** as publishing (`CANVA_*` secrets → `credentials/canva-token.json`).
+When package docs include a Canva link, ingest exports that design and uses it as
+Airtable **Original Video Thumbnail** (and stores the link in **Canva Design**).
+Uses the **same Canva integration** as publishing (`CANVA_*` secrets →
+`credentials/canva-token.json`).
+
+Drive TN templates are **not** used at ingest; they are only used later when
+generating the translated thumbnail at publish time.
 
 | Secret | Description |
 |--------|-------------|
@@ -209,25 +215,35 @@ When a video folder has no direct thumbnail image, ingest can export the design 
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json`. |
 | `CANVA_TOKEN_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets: Read and write** on this repo. After CI refreshes the Canva token, the app updates `CANVA_TOKEN_JSON` automatically. |
 
-If Canva secrets are missing, ingest still works for folders with a thumbnail image file in Drive. Canva-only thumbnails are skipped with an error on that record.
+If Canva secrets are missing, ingest can still fall back to a public share preview when possible; otherwise that record errors.
 
 ### Approved review thumbnails
 
-When ingest finds **no Drive TN marker and no Canva link**, it does **not** write
-Original Video Thumbnail to Airtable. If the original-platform still matches the
-catalog video aspect ratio, the file is uploaded to the Drive review folder and
-one review email is sent for that ingest run.
+When ingest finds **no Canva link**, it does **not** write Original Video Thumbnail
+to Airtable. If the original-platform thumb still matches the catalog video aspect
+ratio, the file is uploaded to the Drive review folder and one review email is
+sent for that ingest run.
 
 Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
 
 Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. Optional overrides: `THUMBNAIL_REVIEW_DRIVE_FOLDER_ID`, `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`. Review emails need `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, and `NOTIFY_EMAIL` on the orchestrator / ingest job.
+
+### Missing prepared thumbnail on Editing done
+
+When the daily orchestrator detects videos that newly entered **Editing done**
+and have an **Original Video Thumbnail** but no matching design/file in the Canva
+catalog or Drive override **Thumbnails** folder, it sends one digest email to
+`NOTIFY_EMAIL` for all such videos in that run. Each entry includes the title,
+translated name, and **Canva Design** and/or a Drive **TN template** file link (when a template
+image is present in the Video Folder).
 
 ### Missing prepared thumbnail on publish schedule
 
 When the daily orchestrator schedules tomorrow's video and that record has an
 **Original Video Thumbnail** but no matching design/file in the Canva catalog
 folder or Drive override **Thumbnails** folder, it emails `NOTIFY_EMAIL` with
-the title, translated name, and Airtable **Canva Design** link (when set).
+the title, translated name, and Airtable **Canva Design** / Drive TN template
+links (when set).
 Scheduling still proceeds; the email is informational. Needs the same
 `GMAIL_SMTP_*` / `NOTIFY_EMAIL` env as other catalog alerts, plus Canva secrets
 when checking the Canva catalog.

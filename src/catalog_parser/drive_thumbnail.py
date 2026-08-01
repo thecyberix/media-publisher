@@ -306,19 +306,11 @@ def resolve_original_video_thumbnail(
     original_video_url: str | None = None,
     canva_client: CanvaClient | None = None,
 ) -> tuple[list[dict[str, str]] | None, str | None]:
-    root_file = pick_root_thumbnail_marker(drive_service, folder_id)
-    if root_file is not None:
-        source_url = str(original_video_url or "").strip()
-        if not source_url:
-            raise DriveThumbnailError(
-                f"Found root thumbnail marker {root_file.get('name')!r} "
-                "but no Original Video URL (ctLink) was provided"
-            )
-        try:
-            return _resolve_original_platform_attachment(source_url)
-        except Exception as exc:
-            raise DriveThumbnailError(str(exc)) from exc
+    """Resolve an Original Video Thumbnail attachment for ingest.
 
+    Drive TN templates are ignored here (used only later for translated TN render).
+    Canva designs are preferred when present.
+    """
     fields: dict[str, str | None]
     try:
         fields = read_drive_fields_from_folder(
@@ -339,13 +331,8 @@ def resolve_original_video_thumbnail(
     if canva_url is None:
         return None, None
 
-    source_url = str(original_video_url or "").strip()
-    if not source_url:
-        raise DriveThumbnailError(
-            f"Found Canva link {canva_url!r} but no Original Video URL (ctLink) was provided"
-        )
     try:
-        return _resolve_original_platform_attachment(source_url)
+        return _resolve_canva_attachment(canva_url, canva_client=canva_client)
     except Exception as exc:
         raise DriveThumbnailError(str(exc)) from exc
 
@@ -355,13 +342,45 @@ def has_original_video_thumbnail_source(
     docs_service: Resource | None,
     folder_id: str,
 ) -> bool:
-    if pick_root_thumbnail_marker(drive_service, folder_id) is not None:
-        return True
+    """True when a Canva design is available for direct Original Thumbnail ingest."""
     try:
         fields = read_drive_fields_from_folder(drive_service, docs_service, folder_id)
     except Exception:
         fields = {}
     return _discover_canva_url(drive_service, docs_service, folder_id, fields) is not None
+
+
+def _download_http_url(url: str, destination: Path) -> None:
+    import urllib.error
+    import urllib.request
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; media-publisher/1.0)"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            destination.write_bytes(response.read())
+    except urllib.error.URLError as exc:
+        raise DriveThumbnailError(f"Failed to download thumbnail from {url!r}: {exc}") from exc
+
+
+def download_canva_thumbnail(
+    canva_url: str,
+    destination: Path,
+    *,
+    canva_client: CanvaClient | None = None,
+) -> str:
+    """Write a Canva design export/preview image to ``destination``; return source label."""
+    attachment, source = _resolve_canva_attachment(canva_url, canva_client=canva_client)
+    if not attachment:
+        raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
+    url = attachment[0].get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise DriveThumbnailError(f"Canva thumbnail attachment missing URL for {canva_url!r}")
+    _download_http_url(url.strip(), destination)
+    return source
 
 
 def download_original_platform_thumbnail(
@@ -431,23 +450,45 @@ def _stage_original_thumbnail_for_ingest(
     destination: Path,
     updated: dict[str, Any],
     thumbnail_field: str,
+    canva_client: CanvaClient | None = None,
 ) -> None:
-    """Stage original-platform thumbnail for Airtable upload or Drive review.
+    """Stage original thumbnail for Airtable upload or Drive review.
 
-    Direct Airtable upload is only allowed when Drive has a TN marker or Canva
-    link. Otherwise matching-aspect originals are queued for human review.
+    Priority:
+    1. Canva link → Canva design export/preview (direct Airtable upload)
+    2. Otherwise matching-aspect original-platform thumbs are queued for review
+
+    Drive TN templates are ignored at ingest (used later for translated TN render).
     """
-    download_original_platform_thumbnail(source_url, destination)
     updated[thumbnail_field] = None
     updated.pop(f"{thumbnail_field}Error", None)
 
-    if has_original_video_thumbnail_source(drive_service, docs_service, folder_id):
+    fields: dict[str, str | None]
+    try:
+        fields = read_drive_fields_from_folder(drive_service, docs_service, folder_id)
+    except Exception:
+        fields = {}
+    canva_url = _discover_canva_url(
+        drive_service,
+        docs_service,
+        folder_id,
+        fields,
+        original_video_url=source_url,
+    )
+    if canva_url is not None:
+        source = download_canva_thumbnail(
+            canva_url,
+            destination,
+            canva_client=canva_client,
+        )
         updated["_originalThumbnailPath"] = str(destination)
         updated.pop("_thumbnailReviewPath", None)
-        updated[f"{thumbnail_field}Source"] = "original-platform:local-upload"
-        print(f"  -> staged for Airtable upload: {destination.name}")
+        updated[f"{thumbnail_field}Source"] = source
+        updated["_canvaDesignUrl"] = canva_url
+        print(f"  -> staged Canva design for Airtable upload: {destination.name}")
         return
 
+    download_original_platform_thumbnail(source_url, destination)
     if _original_thumbnail_matches_video_aspect(drive_service, folder_id, destination):
         updated["_thumbnailReviewPath"] = str(destination)
         updated.pop("_originalThumbnailPath", None)
@@ -528,6 +569,7 @@ def enrich_records_with_original_video_thumbnails(
                         destination=destination,
                         updated=updated,
                         thumbnail_field=thumbnail_field,
+                        canva_client=canva_client,
                     )
                 except DriveThumbnailError as primary_exc:
                     peer_yt = None
@@ -553,6 +595,7 @@ def enrich_records_with_original_video_thumbnails(
                         destination=destination,
                         updated=updated,
                         thumbnail_field=thumbnail_field,
+                        canva_client=canva_client,
                     )
                     updated["_originalThumbnailFallbackCtLink"] = peer_yt
                     updated.pop(f"{thumbnail_field}Error", None)
@@ -581,6 +624,23 @@ def enrich_records_with_original_video_thumbnails(
                 updated[thumbnail_field] = attachment
                 updated[f"{thumbnail_field}Source"] = source
                 updated.pop(f"{thumbnail_field}Error", None)
+                if isinstance(source, str) and source.startswith("canva-"):
+                    # Best-effort: rediscover URL for Airtable Canva Design field.
+                    try:
+                        fields = read_drive_fields_from_folder(
+                            drive_service, docs_service, folder_id
+                        )
+                    except Exception:
+                        fields = {}
+                    canva_url = _discover_canva_url(
+                        drive_service,
+                        docs_service,
+                        folder_id,
+                        fields,
+                        original_video_url=source_url,
+                    )
+                    if canva_url:
+                        updated["_canvaDesignUrl"] = canva_url
                 if attachment:
                     print(f"  -> {thumbnail_field}: {source}")
                 else:

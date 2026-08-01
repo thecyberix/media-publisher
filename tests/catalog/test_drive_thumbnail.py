@@ -34,74 +34,50 @@ class DriveThumbnailTests(unittest.TestCase):
         assert image is not None
         self.assertEqual(image["id"], "img-2")
 
-    def test_resolve_original_video_thumbnail_uses_platform_for_root_marker(self) -> None:
+    def test_resolve_original_video_thumbnail_ignores_drive_tn_without_canva(self) -> None:
         drive_service = MagicMock()
         with patch(
-            "catalog_parser.drive_thumbnail.pick_root_thumbnail_marker",
-            return_value={"id": "tn-1", "name": "TN_sample.psd", "mimeType": "image/vnd.adobe.photoshop"},
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value=None,
+        ):
+            attachment, source = resolve_original_video_thumbnail(
+                drive_service,
+                None,
+                "folder-id",
+                original_video_url="https://youtu.be/abc123",
+            )
+        self.assertIsNone(attachment)
+        self.assertIsNone(source)
+
+    def test_resolve_original_video_thumbnail_uses_canva_for_canva_link(self) -> None:
+        drive_service = MagicMock()
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value="https://www.canva.com/design/abc/view",
         ):
             with patch(
-                "catalog_parser.drive_thumbnail._resolve_original_platform_attachment",
+                "catalog_parser.drive_thumbnail._resolve_canva_attachment",
                 return_value=(
                     build_airtable_attachment(
-                        "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
-                        filename="original-youtube.jpg",
+                        "https://export.canva.com/thumb.jpg",
+                        filename="canva-export.jpg",
                     ),
-                    "original-platform:youtube-direct:maxresdefault",
+                    "canva-export",
                 ),
-            ):
+            ) as canva_mock:
                 attachment, source = resolve_original_video_thumbnail(
                     drive_service,
                     None,
                     "folder-id",
                     original_video_url="https://youtu.be/abc123",
+                    canva_client=MagicMock(),
                 )
 
-        self.assertEqual(source, "original-platform:youtube-direct:maxresdefault")
-        self.assertEqual(
-            attachment,
-            [
-                {
-                    "url": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
-                    "filename": "original-youtube.jpg",
-                }
-            ],
-        )
+        canva_mock.assert_called_once()
+        self.assertEqual(source, "canva-export")
+        self.assertEqual(attachment[0]["url"], "https://export.canva.com/thumb.jpg")
 
-    def test_resolve_original_video_thumbnail_uses_platform_for_canva_link(self) -> None:
-        drive_service = MagicMock()
-        with patch(
-            "catalog_parser.drive_thumbnail.pick_root_thumbnail_marker",
-            return_value=None,
-        ):
-            with patch(
-                "catalog_parser.drive_thumbnail._discover_canva_url",
-                return_value="https://canva.com/design/abc/view",
-            ):
-                with patch(
-                    "catalog_parser.drive_thumbnail._resolve_original_platform_attachment",
-                    return_value=(
-                        build_airtable_attachment(
-                            "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
-                            filename="original-youtube.jpg",
-                        ),
-                        "original-platform:youtube-direct:maxresdefault",
-                    ),
-                ):
-                    attachment, source = resolve_original_video_thumbnail(
-                        drive_service,
-                        None,
-                        "folder-id",
-                        original_video_url="https://youtu.be/abc123",
-                    )
-
-        self.assertEqual(source, "original-platform:youtube-direct:maxresdefault")
-        self.assertEqual(
-            attachment[0]["url"],
-            "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
-        )
-
-    def test_enrich_records_stages_local_thumbnail_when_staging_dir_set(self) -> None:
+    def test_enrich_records_queues_review_even_when_drive_tn_present(self) -> None:
         import tempfile
 
         drive_service = MagicMock()
@@ -114,27 +90,71 @@ class DriveThumbnailTests(unittest.TestCase):
             }
         ]
         with patch(
-            "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
-            side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
-            or dest.write_bytes(b"jpg"),
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value=None,
         ):
             with patch(
-                "catalog_parser.drive_thumbnail.has_original_video_thumbnail_source",
-                return_value=True,
+                "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
+                or dest.write_bytes(b"jpg"),
+            ):
+                with patch(
+                    "catalog_parser.drive_thumbnail._original_thumbnail_matches_video_aspect",
+                    return_value=True,
+                ):
+                    enriched = enrich_records_with_original_video_thumbnails(
+                        records,
+                        drive_service,
+                        None,
+                        staging_dir=staging_dir,
+                    )
+
+        self.assertIsNone(enriched[0]["ytThumbnail"])
+        self.assertNotIn("_originalThumbnailPath", enriched[0])
+        self.assertIn("_thumbnailReviewPath", enriched[0])
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "original-platform:review-queue")
+
+    def test_enrich_records_stages_canva_thumbnail_when_canva_link(self) -> None:
+        import tempfile
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value="https://www.canva.com/design/abc/view",
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_thumbnail",
+                side_effect=lambda _url, dest, canva_client=None: (
+                    dest.parent.mkdir(parents=True, exist_ok=True),
+                    dest.write_bytes(b"canva"),
+                    "canva-export",
+                )[-1],
             ):
                 enriched = enrich_records_with_original_video_thumbnails(
                     records,
                     drive_service,
                     None,
                     staging_dir=staging_dir,
+                    canva_client=MagicMock(),
                 )
 
         self.assertIsNone(enriched[0]["ytThumbnail"])
         self.assertIn("_originalThumbnailPath", enriched[0])
-        self.assertNotIn("_thumbnailReviewPath", enriched[0])
-        self.assertEqual(enriched[0]["ytThumbnailSource"], "original-platform:local-upload")
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-export")
+        self.assertEqual(
+            enriched[0]["_canvaDesignUrl"],
+            "https://www.canva.com/design/abc/view",
+        )
 
-    def test_enrich_records_stages_review_queue_without_tn_or_canva(self) -> None:
+    def test_enrich_records_stages_review_queue_without_canva(self) -> None:
         import tempfile
 
         drive_service = MagicMock()
@@ -147,13 +167,13 @@ class DriveThumbnailTests(unittest.TestCase):
             }
         ]
         with patch(
-            "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
-            side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
-            or dest.write_bytes(b"jpg"),
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value=None,
         ):
             with patch(
-                "catalog_parser.drive_thumbnail.has_original_video_thumbnail_source",
-                return_value=False,
+                "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
+                or dest.write_bytes(b"jpg"),
             ):
                 with patch(
                     "catalog_parser.drive_thumbnail._original_thumbnail_matches_video_aspect",
@@ -184,13 +204,13 @@ class DriveThumbnailTests(unittest.TestCase):
             }
         ]
         with patch(
-            "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
-            side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
-            or dest.write_bytes(b"jpg"),
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value=None,
         ):
             with patch(
-                "catalog_parser.drive_thumbnail.has_original_video_thumbnail_source",
-                return_value=False,
+                "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                side_effect=lambda _url, dest: dest.parent.mkdir(parents=True, exist_ok=True)
+                or dest.write_bytes(b"jpg"),
             ):
                 with patch(
                     "catalog_parser.drive_thumbnail._original_thumbnail_matches_video_aspect",
@@ -264,25 +284,30 @@ class DriveThumbnailTests(unittest.TestCase):
             side_effect=fake_download,
         ):
             with patch(
-                "catalog_parser.drive_thumbnail.has_original_video_thumbnail_source",
-                return_value=True,
+                "catalog_parser.drive_thumbnail._discover_canva_url",
+                return_value=None,
             ):
-                enriched = enrich_records_with_original_video_thumbnails(
-                    [ig_record],
-                    drive_service,
-                    None,
-                    staging_dir=staging_dir,
-                    catalog_peers=peers,
-                )
+                with patch(
+                    "catalog_parser.drive_thumbnail._original_thumbnail_matches_video_aspect",
+                    return_value=True,
+                ):
+                    enriched = enrich_records_with_original_video_thumbnails(
+                        [ig_record],
+                        drive_service,
+                        None,
+                        staging_dir=staging_dir,
+                        catalog_peers=peers,
+                    )
 
-        self.assertIn("_originalThumbnailPath", enriched[0])
+        self.assertIn("_thumbnailReviewPath", enriched[0])
+        self.assertNotIn("_originalThumbnailPath", enriched[0])
         self.assertEqual(
             enriched[0]["_originalThumbnailFallbackCtLink"],
             "https://youtu.be/abc123XYZ01",
         )
         self.assertEqual(
             enriched[0]["ytThumbnailSource"],
-            "original-platform:local-upload:peer-youtube",
+            "original-platform:review-queue:peer-youtube",
         )
 
 

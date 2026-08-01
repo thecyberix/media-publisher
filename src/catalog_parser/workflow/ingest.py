@@ -240,7 +240,11 @@ def ingest_batch(
         title = record.get("ctTitle") or "Untitled"
         if dry_run:
             emit(f"  would ingest: {title}")
-        record["_airtable_fields"] = dict(airtable_fields)
+        extras = dict(airtable_fields)
+        canva_design = record.get("_canvaDesignUrl")
+        if isinstance(canva_design, str) and canva_design.strip():
+            extras["Canva Design"] = canva_design.strip()
+        record["_airtable_fields"] = extras
 
     if dry_run:
         status_label = airtable_fields.get(FIELD_STATUS, "unknown status")
@@ -288,7 +292,7 @@ def ingest_batch(
                 record_id=record_id,
                 title=str(title),
                 local_path=path,
-                reason="no TN image or Canva link; original-platform aspect matches",
+                reason="no Canva link; original-platform aspect matches",
             )
         )
         emit(f"  queued for thumbnail review: {title}")

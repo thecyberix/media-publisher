@@ -134,12 +134,27 @@ def instagram_schedule_excluded(fields: dict[str, Any]) -> bool:
     return is_video_type(fields)
 
 
+def append_template_links(
+    lines: list[str],
+    *,
+    canva_design: str | None,
+    tn_template: str | None,
+) -> None:
+    if canva_design:
+        lines.append(f"   Canva design: {canva_design}")
+    if tn_template:
+        lines.append(f"   Drive TN template: {tn_template}")
+    if not canva_design and not tn_template:
+        lines.append("   Canva design / Drive TN template: (not set)")
+
+
 def format_missing_prepared_thumbnail_email(
     *,
     title: str,
     translated: str | None,
     canva_design: str | None,
     target_date: date,
+    tn_template: str | None = None,
 ) -> tuple[str, str]:
     subject = (
         f"Scheduled for {target_date.isoformat()} — missing prepared thumbnail"
@@ -155,10 +170,7 @@ def format_missing_prepared_thumbnail_email(
     ]
     if translated:
         lines.append(f"   Translated: {translated}")
-    if canva_design:
-        lines.append(f"   Canva design: {canva_design}")
-    else:
-        lines.append("   Canva design: (not set)")
+    append_template_links(lines, canva_design=canva_design, tn_template=tn_template)
     body = "\n".join(lines).rstrip() + "\n"
     return subject, body
 
@@ -169,6 +181,7 @@ def send_missing_prepared_thumbnail_email(
     translated: str | None,
     canva_design: str | None,
     target_date: date,
+    tn_template: str | None = None,
 ) -> bool:
     scripts_dir = Path(__file__).resolve().parents[3] / "scripts" / "catalog"
     if str(scripts_dir) not in sys.path:
@@ -187,6 +200,7 @@ def send_missing_prepared_thumbnail_email(
         translated=translated,
         canva_design=canva_design,
         target_date=target_date,
+        tn_template=tn_template,
     )
     send_email(
         smtp_user=smtp_user,
@@ -219,24 +233,20 @@ def _optional_canva_client(project_root: Path) -> Any | None:
         return None
 
 
-def _notify_if_missing_prepared_thumbnail(
+def prepared_thumbnail_is_missing(
     *,
     fields: dict[str, Any],
     drive_service: Any,
-    target_date: date,
-    dry_run: bool,
+    project_root: Path | None,
     log: Callable[[str], None],
-    project_root: Path | None = None,
-) -> bool:
-    """Email when Original Video Thumbnail is set but Canva/Drive prepared thumb is missing."""
+    log_prefix: str = "  prepared thumbnail:",
+) -> bool | None:
+    """Return True when prepared thumb is missing, False when found, None if unchecked."""
     if not has_original_video_thumbnail(fields):
-        return False
+        return None
 
     title = _field_text(fields.get(FIELD_TITLE)) or "Untitled"
-    translated = _field_text(fields.get(FIELD_VIDEO_NAME_TRANSLATED))
-    canva_design = _field_text(fields.get(FIELD_CANVA_DESIGN))
     video_format = video_format_from_type(fields.get(FIELD_TYPE))
-
     root = project_root or Path(__file__).resolve().parents[3]
     from media_publisher.sources.google_drive import GoogleDriveClient
     from media_publisher.sources.publish_media import has_prepared_publish_thumbnail
@@ -274,10 +284,10 @@ def _notify_if_missing_prepared_thumbnail(
     checked_any = bool(override_root_folder_id) or canva_client is not None
     if not checked_any:
         log(
-            "  prepared thumbnail: skipped check "
+            f"{log_prefix} skipped check "
             "(Drive override folder / Canva client unavailable)"
         )
-        return False
+        return None
 
     try:
         prepared = has_prepared_publish_thumbnail(
@@ -292,17 +302,46 @@ def _notify_if_missing_prepared_thumbnail(
             short_catalog_url=short_catalog_url,
         )
     except Exception as exc:
-        log(f"  prepared thumbnail: check failed ({exc})")
-        return False
+        log(f"{log_prefix} check failed ({exc})")
+        return None
 
     if prepared:
-        log("  prepared thumbnail: found in Canva catalog or Drive Thumbnails")
+        log(f"{log_prefix} found in Canva catalog or Drive Thumbnails")
         return False
 
     log(
-        "  prepared thumbnail: missing in Canva catalog and Drive Thumbnails "
+        f"{log_prefix} missing in Canva catalog and Drive Thumbnails "
         f"for {title!r}"
     )
+    return True
+
+
+def _notify_if_missing_prepared_thumbnail(
+    *,
+    fields: dict[str, Any],
+    drive_service: Any,
+    target_date: date,
+    dry_run: bool,
+    log: Callable[[str], None],
+    project_root: Path | None = None,
+) -> bool:
+    """Email when Original Video Thumbnail is set but Canva/Drive prepared thumb is missing."""
+    missing = prepared_thumbnail_is_missing(
+        fields=fields,
+        drive_service=drive_service,
+        project_root=project_root,
+        log=log,
+    )
+    if missing is not True:
+        return False
+
+    title = _field_text(fields.get(FIELD_TITLE)) or "Untitled"
+    translated = _field_text(fields.get(FIELD_VIDEO_NAME_TRANSLATED))
+    canva_design = _field_text(fields.get(FIELD_CANVA_DESIGN))
+    from media_publisher.sources.tn_publish import resolve_tn_template_drive_url
+
+    tn_template = resolve_tn_template_drive_url(drive_service, fields)
+
     if dry_run:
         log("  prepared thumbnail: would email notification (dry-run)")
         return False
@@ -312,6 +351,7 @@ def _notify_if_missing_prepared_thumbnail(
         translated=translated,
         canva_design=canva_design,
         target_date=target_date,
+        tn_template=tn_template,
     )
     if sent:
         log("  prepared thumbnail: notification email sent")

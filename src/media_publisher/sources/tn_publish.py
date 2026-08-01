@@ -74,6 +74,43 @@ def _is_image_file(name: str, mime_type: str) -> bool:
     return Path(name).suffix.casefold() in IMAGE_EXTENSIONS
 
 
+def _tn_template_sort_key(row: object) -> tuple[int, str]:
+    name = getattr(row, "name", "").casefold()
+    return (0 if name.endswith(".psd") else 1, name)
+
+
+def find_tn_template_in_folder(
+    drive: GoogleDriveClient,
+    folder_id: str,
+):
+    """Return a root-level TN template image in ``folder_id``, preferring PSDs."""
+    children = drive.list_children(folder_id)
+    images = [item for item in children if _is_image_file(item.name, item.mime_type)]
+    if not images:
+        return None
+    return sorted(images, key=_tn_template_sort_key)[0]
+
+
+def resolve_tn_template_drive_url(
+    drive_service: Any,
+    record_fields: dict[str, Any],
+) -> str | None:
+    """Drive file view URL for a TN template in Video Folder, if one exists."""
+    folder_id = parse_folder_id(record_fields.get(FIELD_VIDEO_FOLDER))
+    if folder_id is None:
+        return None
+    try:
+        drive = GoogleDriveClient(drive_service)
+        template = find_tn_template_in_folder(drive, folder_id)
+    except Exception:
+        return None
+    if template is None:
+        return None
+    from catalog_parser.drive_docs import drive_file_view_url
+
+    return drive_file_view_url(template.id)
+
+
 def _translated_caption_lines(record_fields: dict[str, Any]) -> list[str] | None:
     caption_translated = record_fields.get(FIELD_VIDEO_CAPTION_TRANSLATED)
     if not isinstance(caption_translated, str) or not caption_translated.strip():
@@ -173,14 +210,10 @@ def generate_catalog_tn_thumbnail(
     if not images:
         raise TnPublishError(f"No TN template images in Drive folder for {title!r}")
 
-    def template_sort_key(row) -> tuple[int, str]:
-        name = row.name.casefold()
-        return (0 if name.endswith(".psd") else 1, name)
-
     matched_layer: ImageSize | None = None
     cached_path: Path | None = None
 
-    for child in sorted(images, key=template_sort_key):
+    for child in sorted(images, key=_tn_template_sort_key):
         cache_path = settings.cache_dir / safe_cache_name(child.name)
         if not cache_path.exists():
             settings.cache_dir.mkdir(parents=True, exist_ok=True)
