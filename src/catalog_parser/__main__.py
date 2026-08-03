@@ -188,6 +188,7 @@ def build_eligible_catalog_records(
     canva_client: CanvaClient | None,
     require_mixable_media: bool,
     thumbnail_staging_dir: Path | None = None,
+    video_type: str | None = None,
 ) -> tuple[list[dict], int]:
     eligible: list[dict] = []
     scanned = 0
@@ -324,6 +325,7 @@ def build_eligible_catalog_records(
             drive_service=drive_service if require_mixable_media else None,
             require_smartcat=smartcat_enabled,
             require_mixable_media=require_mixable_media,
+            video_type=video_type,
         ):
             eligible.append(record)
             title = normalize_title(record.get("ctTitle"))
@@ -349,6 +351,7 @@ def build_eligible_catalog_records(
                 drive_service=drive_service if require_mixable_media else None,
                 require_smartcat=smartcat_enabled,
                 require_mixable_media=require_mixable_media,
+                video_type=video_type,
             ):
                 print(f"  -> skipped: {reason}")
 
@@ -932,6 +935,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             docs_service=docs_service,
             canva_client=canva_client,
             require_mixable_media=require_mixable_media,
+            video_type=video_type,
         )
         if len(records) < target_count:
             print(

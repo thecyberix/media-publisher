@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from catalog_parser.airtable import (
@@ -13,6 +13,7 @@ from catalog_parser.airtable import (
     AirtableError,
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_TITLE,
+    FIELD_TYPE,
     FIELD_VIDEO_FOLDER,
 )
 from catalog_parser.auth import get_drive_service_noninteractive
@@ -90,6 +91,26 @@ def main() -> int:
             value=args.title,
         )
         if not record_id:
+            # Allow truncated titles from chat/logs (prefix / substring match).
+            escaped = args.title.replace('"', '\\"')
+            formula = f'FIND("{escaped}", {{{FIELD_TITLE}}}) > 0'
+            matches = airtable.list_records(filter_formula=formula)
+            if len(matches) == 1:
+                record_id = matches[0].get("id")
+                if not isinstance(record_id, str) or not record_id:
+                    record_id = None
+            elif len(matches) > 1:
+                titles = []
+                for item in matches[:8]:
+                    fields = item.get("fields", {})
+                    title = fields.get(FIELD_TITLE) if isinstance(fields, dict) else None
+                    titles.append(title if isinstance(title, str) else item.get("id"))
+                raise AirtableError(
+                    f"Multiple Airtable records match title containing {args.title!r}: "
+                    + "; ".join(str(t) for t in titles)
+                    + ". Use --record-id instead."
+                )
+        if not record_id:
             raise AirtableError(f"No Airtable record found with {FIELD_TITLE!r}={args.title!r}")
 
     record = airtable.get_record(record_id)
@@ -107,6 +128,8 @@ def main() -> int:
     title = fields.get(FIELD_TITLE)
     if not isinstance(title, str) or not title.strip():
         raise AirtableError(f"Airtable field {FIELD_TITLE!r} is missing or empty")
+    print(f"Record: {record_id}")
+    print(f"Title: {title}")
     output_name = _sanitize_mp4_name(title)
 
     output_drive_folder = args.output_drive_folder
@@ -117,7 +140,9 @@ def main() -> int:
         raise RuntimeError(f"Could not parse output Drive folder id from {output_drive_folder!r}")
 
     drive = get_drive_service_noninteractive()
-    check = check_mixable_media(drive, pkg_folder_id)
+    record_type = fields.get(FIELD_TYPE)
+    video_type = record_type if isinstance(record_type, str) and record_type.strip() else None
+    check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)
     print(format_mix_media_check(check))
     if not check.ok:
         raise RuntimeError(check.error or "Folder is not mixable")
@@ -130,6 +155,7 @@ def main() -> int:
         work_dir=args.work_dir,
         ffmpeg_path=args.ffmpeg,
         dry_run=args.dry_run,
+        video_type=video_type,
     )
     local_path = (args.work_dir / output_name).resolve()
     if args.dry_run:

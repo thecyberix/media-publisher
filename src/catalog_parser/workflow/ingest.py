@@ -223,6 +223,7 @@ def ingest_batch(
         "canva_client": canva_client,
         "require_mixable_media": True,
         "thumbnail_staging_dir": staging_dir,
+        "video_type": video_type,
     }
 
     eligible, scanned = build_eligible_catalog_records(candidates, **enrich_kwargs)

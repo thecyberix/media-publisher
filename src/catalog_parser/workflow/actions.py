@@ -13,6 +13,7 @@ from catalog_parser.airtable import (
     FIELD_TIMING_EDITOR,
     FIELD_TITLE,
     FIELD_TRANSLATOR,
+    FIELD_TYPE,
 )
 from catalog_parser.auth import get_drive_service_noninteractive
 from catalog_parser.drive_docs import extract_drive_folder_id
@@ -125,9 +126,11 @@ def _combine_media(
         return ActionResult(action=action, success=False, message="Could not parse Drive folder id")
 
     output_name = title if title.casefold().endswith(".mp4") else f"{title}.mp4"
+    record_type = fields.get(FIELD_TYPE)
+    video_type = record_type if isinstance(record_type, str) and record_type.strip() else None
     if dry_run:
         drive = get_drive_service_noninteractive()
-        check = check_mixable_media(drive, pkg_folder_id)
+        check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)
         if not check.ok:
             return ActionResult(
                 action=action,
@@ -149,6 +152,7 @@ def _combine_media(
         output_name=output_name,
         work_dir=work_dir,
         dry_run=False,
+        video_type=video_type,
     )
     drive_url = f"https://drive.google.com/file/d/{created.id}/view"
     airtable.update_record_fields(

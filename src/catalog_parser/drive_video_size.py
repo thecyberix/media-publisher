@@ -66,9 +66,15 @@ def video_size_from_drive_file(
 def video_size_from_pkg_folder(
     drive_service: Resource,
     pkg_folder_id: str,
+    *,
+    video_type: str | None = None,
 ) -> tuple[int, int] | None:
     try:
-        media = find_video_and_audio_subfolder(drive_service, pkg_folder_id)
+        media = find_video_and_audio_subfolder(
+            drive_service,
+            pkg_folder_id,
+            video_type=video_type,
+        )
     except Exception:
         return None
     return video_size_from_drive_file(

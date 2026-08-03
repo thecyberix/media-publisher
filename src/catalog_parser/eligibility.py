@@ -88,6 +88,7 @@ def is_catalog_eligible(
     drive_service: Resource | None = None,
     require_smartcat: bool = True,
     require_mixable_media: bool = True,
+    video_type: str | None = None,
 ) -> bool:
     if require_smartcat and not needs_bulgarian_translation(record):
         return False
@@ -111,7 +112,11 @@ def is_catalog_eligible(
     if require_mixable_media:
         if drive_service is None:
             return False
-        if not record_has_mixable_media(drive_service, record):
+        if not record_has_mixable_media(
+            drive_service,
+            record,
+            video_type=video_type,
+        ):
             return False
     return True
 
@@ -126,6 +131,7 @@ def explain_catalog_eligibility(
     drive_service: Resource | None = None,
     require_smartcat: bool = True,
     require_mixable_media: bool = True,
+    video_type: str | None = None,
 ) -> list[str]:
     reasons: list[str] = []
 
@@ -171,7 +177,11 @@ def explain_catalog_eligibility(
                 if folder_id is None:
                     reasons.append("Drive mix: could not parse pkgLink folder id")
                 else:
-                    check = check_mixable_media(drive_service, folder_id)
+                    check = check_mixable_media(
+                        drive_service,
+                        folder_id,
+                        video_type=video_type,
+                    )
                     if not check.ok:
                         detail = check.error or "unknown error"
                         reasons.append(f"Drive mix: {detail}")

@@ -93,7 +93,7 @@ def main() -> int:
             failures += 1
             continue
 
-        check = check_mixable_media(drive, pkg_folder_id)
+        check = check_mixable_media(drive, pkg_folder_id, video_type="Reel")
         print(f"  {format_mix_media_check(check)}", flush=True)
         if not check.ok:
             print("  FAIL: not mixable")
@@ -110,6 +110,7 @@ def main() -> int:
                 output_name=output_name,
                 work_dir=work_dir,
                 dry_run=False,
+                video_type="Reel",
             )
         except Exception as exc:
             print(f"  FAIL: {exc}")

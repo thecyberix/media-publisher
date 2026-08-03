@@ -44,6 +44,91 @@ class DriveMixStructureTests(unittest.TestCase):
         )
         self.assertEqual(picked.id, "reel")
 
+    def test_pick_merge_video_selects_horizontal_for_video_type(self) -> None:
+        drive = MagicMock()
+        sizes = {
+            "yt": (1920, 1080),
+            "reel": (1080, 1920),
+            "fb": (1920, 1080),
+        }
+
+        def size_for(_service: object, file_id: str) -> tuple[int, int] | None:
+            return sizes.get(file_id)
+
+        with patch(
+            "catalog_parser.drive_video_size.video_size_from_drive_file_metadata",
+            side_effect=size_for,
+        ):
+            picked = _pick_merge_video(
+                [
+                    self._media(
+                        "Copy of YT_Ask-your-burning-questions-EOE - All Video.mp4",
+                        file_id="yt",
+                    ),
+                    self._media(
+                        "Copy of REEL_Ask your burning questions-EOE - All Video.mp4",
+                        file_id="reel",
+                    ),
+                    self._media(
+                        "Copy of FB_Ask your burning questions-EOE - All Video.mp4",
+                        file_id="fb",
+                    ),
+                ],
+                drive_service=drive,
+                required_orientation="horizontal",
+            )
+        self.assertEqual(picked.id, "fb")
+
+    def test_pick_merge_video_selects_vertical_for_reel_type(self) -> None:
+        drive = MagicMock()
+        sizes = {
+            "yt": (1920, 1080),
+            "reel": (1080, 1920),
+            "fb": (1920, 1080),
+        }
+
+        def size_for(_service: object, file_id: str) -> tuple[int, int] | None:
+            return sizes.get(file_id)
+
+        with patch(
+            "catalog_parser.drive_video_size.video_size_from_drive_file_metadata",
+            side_effect=size_for,
+        ):
+            picked = _pick_merge_video(
+                [
+                    self._media(
+                        "Copy of YT_Ask-your-burning-questions-EOE - All Video.mp4",
+                        file_id="yt",
+                    ),
+                    self._media(
+                        "Copy of REEL_Ask your burning questions-EOE - All Video.mp4",
+                        file_id="reel",
+                    ),
+                    self._media(
+                        "Copy of FB_Ask your burning questions-EOE - All Video.mp4",
+                        file_id="fb",
+                    ),
+                ],
+                drive_service=drive,
+                required_orientation="vertical",
+            )
+        self.assertEqual(picked.id, "reel")
+
+    def test_pick_merge_video_rejects_wrong_orientation_only(self) -> None:
+        drive = MagicMock()
+
+        with patch(
+            "catalog_parser.drive_video_size.video_size_from_drive_file_metadata",
+            return_value=(1080, 1920),
+        ):
+            with self.assertRaises(DriveCombineError) as ctx:
+                _pick_merge_video(
+                    [self._media("All Video.mp4", file_id="vertical")],
+                    drive_service=drive,
+                    required_orientation="horizontal",
+                )
+        self.assertIn("horizontal", str(ctx.exception))
+
     def test_pick_merge_video_uses_non_ref_non_ocd_fallback(self) -> None:
         picked = _pick_merge_video(
             [
