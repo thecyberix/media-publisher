@@ -27,7 +27,6 @@ from media_publisher.sources.airtable import (
     catalog_title,
     has_original_video_thumbnail,
 )
-from media_publisher.sources.canva import FIELD_CANVA_DESIGN
 from media_publisher.sources.google_drive import GoogleDriveClient
 
 STATUS_KEYS = ("Editing done", "Synchronization done")
@@ -143,10 +142,8 @@ def main() -> int:
 
         caption = fields.get(FIELD_VIDEO_CAPTION_TRANSLATED)
         has_caption = isinstance(caption, str) and bool(caption.strip())
-        canva_field = fields.get(FIELD_CANVA_DESIGN)
-        has_canva_field = isinstance(canva_field, str) and bool(canva_field.strip())
 
-        has_canva_doc = False
+        has_canva = False
         folder_id = parse_folder_id(fields.get(FIELD_VIDEO_FOLDER))
         if folder_id:
             if folder_id not in folder_cache:
@@ -170,9 +167,8 @@ def main() -> int:
                         )
                     except Exception:
                         canva_cache[doc_id] = False
-                has_canva_doc = canva_cache[doc_id]
+                has_canva = canva_cache[doc_id]
 
-        has_canva = has_canva_field or has_canva_doc
         if has_caption and has_canva:
             continue
 

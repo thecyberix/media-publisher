@@ -298,6 +298,36 @@ def _discover_canva_url(
     return None
 
 
+def resolve_canva_design_drive_url(
+    drive_service: Any,
+    record_fields: dict[str, Any],
+    *,
+    docs_service: Any | None = None,
+) -> str | None:
+    """Canva design URL from package docs in Video Folder, if one exists."""
+    folder_value = record_fields.get("Video Folder")
+    if folder_value is None:
+        return None
+    folder_id = extract_drive_folder_id(str(folder_value))
+    if not folder_id:
+        return None
+
+    original = record_fields.get("Original Video")
+    original_video_url = (
+        original.strip() if isinstance(original, str) and original.strip() else None
+    )
+
+    try:
+        urls = _collect_canva_urls_from_folder_documents(
+            drive_service,
+            docs_service,
+            folder_id,
+        )
+        return select_canva_url(urls, original_video_url=original_video_url)
+    except Exception:
+        return None
+
+
 def resolve_original_video_thumbnail(
     drive_service: Resource,
     docs_service: Resource | None,
@@ -484,7 +514,6 @@ def _stage_original_thumbnail_for_ingest(
         updated["_originalThumbnailPath"] = str(destination)
         updated.pop("_thumbnailReviewPath", None)
         updated[f"{thumbnail_field}Source"] = source
-        updated["_canvaDesignUrl"] = canva_url
         print(f"  -> staged Canva design for Airtable upload: {destination.name}")
         return
 
@@ -624,23 +653,6 @@ def enrich_records_with_original_video_thumbnails(
                 updated[thumbnail_field] = attachment
                 updated[f"{thumbnail_field}Source"] = source
                 updated.pop(f"{thumbnail_field}Error", None)
-                if isinstance(source, str) and source.startswith("canva-"):
-                    # Best-effort: rediscover URL for Airtable Canva Design field.
-                    try:
-                        fields = read_drive_fields_from_folder(
-                            drive_service, docs_service, folder_id
-                        )
-                    except Exception:
-                        fields = {}
-                    canva_url = _discover_canva_url(
-                        drive_service,
-                        docs_service,
-                        folder_id,
-                        fields,
-                        original_video_url=source_url,
-                    )
-                    if canva_url:
-                        updated["_canvaDesignUrl"] = canva_url
                 if attachment:
                     print(f"  -> {thumbnail_field}: {source}")
                 else:

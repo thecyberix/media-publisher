@@ -31,7 +31,6 @@ FIELD_SG_IG_DATE = "SG-IG-Date published"
 FIELD_SG_YT_PUBLISHED = "SG-YT-Published video"
 FIELD_SG_FB_PUBLISHED = "SG-FB-Published video"
 FIELD_SG_IG_PUBLISHED = "SG-IG-Published video"
-FIELD_CANVA_DESIGN = "Canva Design"
 
 PLATFORM_DATE_FIELDS = (FIELD_SG_YT_DATE, FIELD_SG_FB_DATE, FIELD_SG_IG_DATE)
 PLATFORM_PUBLISHED_FIELDS = (
@@ -324,6 +323,7 @@ def _notify_if_missing_prepared_thumbnail(
     dry_run: bool,
     log: Callable[[str], None],
     project_root: Path | None = None,
+    docs_service: Any | None = None,
 ) -> bool:
     """Email when Original Video Thumbnail is set but Canva/Drive prepared thumb is missing."""
     missing = prepared_thumbnail_is_missing(
@@ -337,9 +337,14 @@ def _notify_if_missing_prepared_thumbnail(
 
     title = _field_text(fields.get(FIELD_TITLE)) or "Untitled"
     translated = _field_text(fields.get(FIELD_VIDEO_NAME_TRANSLATED))
-    canva_design = _field_text(fields.get(FIELD_CANVA_DESIGN))
+    from catalog_parser.drive_thumbnail import resolve_canva_design_drive_url
     from media_publisher.sources.tn_publish import resolve_tn_template_drive_url
 
+    canva_design = resolve_canva_design_drive_url(
+        drive_service,
+        fields,
+        docs_service=docs_service,
+    )
     tn_template = resolve_tn_template_drive_url(drive_service, fields)
 
     if dry_run:
@@ -545,6 +550,7 @@ def schedule_tomorrow_publish(
     target_date: date | None = None,
     log: Callable[[str], None] | None = None,
     project_root: Path | None = None,
+    docs_service: Any | None = None,
 ) -> ScheduleTomorrowResult:
     """Pick one catalog record for tomorrow and set SG publish dates."""
     from zoneinfo import ZoneInfo
@@ -616,6 +622,7 @@ def schedule_tomorrow_publish(
             dry_run=True,
             log=emit,
             project_root=project_root,
+            docs_service=docs_service,
         )
         return ScheduleTomorrowResult(
             success=True,
@@ -648,6 +655,7 @@ def schedule_tomorrow_publish(
         dry_run=False,
         log=emit,
         project_root=project_root,
+        docs_service=docs_service,
     )
     if not combined_ok:
         return ScheduleTomorrowResult(

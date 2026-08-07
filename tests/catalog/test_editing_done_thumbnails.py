@@ -21,7 +21,6 @@ from catalog_parser.workflow.editing_done_thumbnails import (
     format_editing_done_missing_prepared_thumbnails_email,
     notify_editing_done_missing_prepared_thumbnails,
 )
-from catalog_parser.workflow.publish_schedule import FIELD_CANVA_DESIGN
 from media_publisher.sources.google_drive import DriveFile
 from media_publisher.sources.tn_publish import find_tn_template_in_folder
 
@@ -133,7 +132,6 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
                     FIELD_TITLE: "Needs thumb",
                     FIELD_VIDEO_NAME_TRANSLATED: "Трябва",
                     FIELD_VIDEO_FOLDER: "https://drive.google.com/drive/folders/abc",
-                    FIELD_CANVA_DESIGN: "https://www.canva.com/design/XYZ",
                     "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
                 },
             }
@@ -142,6 +140,10 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
             patch(
                 "catalog_parser.workflow.editing_done_thumbnails.prepared_thumbnail_is_missing",
                 return_value=True,
+            ),
+            patch(
+                "catalog_parser.drive_thumbnail.resolve_canva_design_drive_url",
+                return_value="https://www.canva.com/design/XYZ",
             ),
             patch(
                 "media_publisher.sources.tn_publish.resolve_tn_template_drive_url",

@@ -90,6 +90,7 @@ def run_workflow(
         drive_service=drive_service,
         dry_run=dry_run,
         log=print,
+        docs_service=docs_service,
     )
     print(f"Editing-done thumbnails: {editing_done_thumb_result.message}")
 
@@ -205,6 +206,7 @@ def run_workflow(
         dry_run=dry_run,
         log=print,
         project_root=project_root,
+        docs_service=docs_service,
     )
     print(f"Publish schedule: {schedule_result.message}")
     if not schedule_result.success:

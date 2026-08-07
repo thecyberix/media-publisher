@@ -149,10 +149,7 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertIsNone(enriched[0]["ytThumbnail"])
         self.assertIn("_originalThumbnailPath", enriched[0])
         self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-export")
-        self.assertEqual(
-            enriched[0]["_canvaDesignUrl"],
-            "https://www.canva.com/design/abc/view",
-        )
+        self.assertNotIn("_canvaDesignUrl", enriched[0])
 
     def test_enrich_records_stages_review_queue_without_canva(self) -> None:
         import tempfile

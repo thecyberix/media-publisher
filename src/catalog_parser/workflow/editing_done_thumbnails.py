@@ -16,7 +16,6 @@ from catalog_parser.airtable import (
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
 from catalog_parser.workflow.publish_schedule import (
-    FIELD_CANVA_DESIGN,
     append_template_links,
     has_original_video_thumbnail,
     prepared_thumbnail_is_missing,
@@ -147,7 +146,9 @@ def collect_editing_done_missing_prepared_thumbnails(
     drive_service: Any,
     project_root: Path,
     log: Callable[[str], None] = print,
+    docs_service: Any | None = None,
 ) -> list[EditingDoneThumbCandidate]:
+    from catalog_parser.drive_thumbnail import resolve_canva_design_drive_url
     from media_publisher.sources.tn_publish import resolve_tn_template_drive_url
 
     candidates: list[EditingDoneThumbCandidate] = []
@@ -172,7 +173,11 @@ def collect_editing_done_missing_prepared_thumbnails(
                 record_id=record_id,
                 title=_field_text(fields.get(FIELD_TITLE)) or record_id,
                 translated=_field_text(fields.get(FIELD_VIDEO_NAME_TRANSLATED)),
-                canva_design=_field_text(fields.get(FIELD_CANVA_DESIGN)),
+                canva_design=resolve_canva_design_drive_url(
+                    drive_service,
+                    fields,
+                    docs_service=docs_service,
+                ),
                 tn_template=resolve_tn_template_drive_url(drive_service, fields),
             )
         )
@@ -187,6 +192,7 @@ def notify_editing_done_missing_prepared_thumbnails(
     dry_run: bool = False,
     log: Callable[[str], None] = print,
     previous_records: list[dict[str, Any]] | None = None,
+    docs_service: Any | None = None,
 ) -> EditingDoneThumbNotifyResult:
     """Email a digest for newly Editing-done videos that still need prepared thumbs."""
     if previous_records is None:
@@ -223,6 +229,7 @@ def notify_editing_done_missing_prepared_thumbnails(
         drive_service=drive_service,
         project_root=project_root,
         log=log,
+        docs_service=docs_service,
     )
     if not candidates:
         return EditingDoneThumbNotifyResult(

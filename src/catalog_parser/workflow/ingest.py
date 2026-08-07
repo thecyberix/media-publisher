@@ -254,9 +254,6 @@ def ingest_batch(
         if dry_run:
             emit(f"  would ingest: {title}")
         extras = dict(airtable_fields)
-        canva_design = record.get("_canvaDesignUrl")
-        if isinstance(canva_design, str) and canva_design.strip():
-            extras["Canva Design"] = canva_design.strip()
         record["_airtable_fields"] = extras
 
     if dry_run:

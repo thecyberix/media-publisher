@@ -201,7 +201,7 @@ Alert emails go to the repository variable `NOTIFY_EMAIL`. Also set:
 ### Optional: Canva thumbnail export during ingest
 
 When package docs include a Canva link, ingest exports that design and uses it as
-Airtable **Original Video Thumbnail** (and stores the link in **Canva Design**).
+Airtable **Original Video Thumbnail**.
 Uses the **same Canva integration** as publishing (`CANVA_*` secrets →
 `credentials/canva-token.json`).
 
@@ -234,16 +234,16 @@ When the daily orchestrator detects videos that newly entered **Editing done**
 and have an **Original Video Thumbnail** but no matching design/file in the Canva
 catalog or Drive override **Thumbnails** folder, it sends one digest email to
 `NOTIFY_EMAIL` for all such videos in that run. Each entry includes the title,
-translated name, and **Canva Design** and/or a Drive **TN template** file link (when a template
-image is present in the Video Folder).
+translated name, and a Canva design link and/or Drive **TN template** file link
+when found (live lookup in the Video Folder package docs / root images).
 
 ### Missing prepared thumbnail on publish schedule
 
 When the daily orchestrator schedules tomorrow's video and that record has an
 **Original Video Thumbnail** but no matching design/file in the Canva catalog
 folder or Drive override **Thumbnails** folder, it emails `NOTIFY_EMAIL` with
-the title, translated name, and Airtable **Canva Design** / Drive TN template
-links (when set).
+the title, translated name, and Canva design / Drive TN template links (live
+lookup in the Video Folder when available).
 Scheduling still proceeds; the email is informational. Needs the same
 `GMAIL_SMTP_*` / `NOTIFY_EMAIL` env as other catalog alerts, plus Canva secrets
 when checking the Canva catalog.

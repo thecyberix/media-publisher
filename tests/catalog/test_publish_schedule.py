@@ -209,7 +209,7 @@ class PublishScheduleTests(unittest.TestCase):
                     FIELD_VIDEO_NAME_TRANSLATED: "Needs tr",
                     FIELD_TYPE: TYPE_REEL,
                     "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
-                    "Canva Design": "https://www.canva.com/design/XYZ",
+                    "Video Folder": "https://drive.google.com/drive/folders/abc",
                 },
             },
         ]
@@ -242,7 +242,7 @@ class PublishScheduleTests(unittest.TestCase):
             FIELD_VIDEO_NAME_TRANSLATED: "Needs tr",
             FIELD_TYPE: TYPE_REEL,
             "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
-            "Canva Design": "https://www.canva.com/design/XYZ",
+            "Video Folder": "https://drive.google.com/drive/folders/abc",
         }
         logs: list[str] = []
 
@@ -255,16 +255,20 @@ class PublishScheduleTests(unittest.TestCase):
                 return_value=MagicMock(),
             ):
                 with patch(
-                    "catalog_parser.workflow.publish_schedule.send_missing_prepared_thumbnail_email",
-                    return_value=True,
-                ) as send_mock:
-                    notified = _notify_if_missing_prepared_thumbnail(
-                        fields=fields,
-                        drive_service=MagicMock(),
-                        target_date=date(2026, 7, 21),
-                        dry_run=False,
-                        log=logs.append,
-                    )
+                    "catalog_parser.drive_thumbnail.resolve_canva_design_drive_url",
+                    return_value="https://www.canva.com/design/XYZ",
+                ):
+                    with patch(
+                        "catalog_parser.workflow.publish_schedule.send_missing_prepared_thumbnail_email",
+                        return_value=True,
+                    ) as send_mock:
+                        notified = _notify_if_missing_prepared_thumbnail(
+                            fields=fields,
+                            drive_service=MagicMock(),
+                            target_date=date(2026, 7, 21),
+                            dry_run=False,
+                            log=logs.append,
+                        )
 
         self.assertTrue(notified)
         send_mock.assert_called_once()

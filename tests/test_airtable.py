@@ -97,25 +97,6 @@ class AirtableMappingTests(unittest.TestCase):
         self.assertEqual(job.title, "")
         self.assertEqual(job.metadata[FIELD_TITLE], "Sample Title")
 
-    def test_record_to_publish_job_maps_canva_design(self) -> None:
-        job = record_to_publish_job(
-            AirtableRecord(
-                id="recABC",
-                fields={
-                    FIELD_TITLE: "Sample Title",
-                    "Canva Design": "https://www.canva.com/design/DAGabc123/view",
-                },
-            )
-        )
-        self.assertEqual(
-            job.metadata["canva_design_id"],
-            "https://www.canva.com/design/DAGabc123/view",
-        )
-        self.assertEqual(
-            job.metadata["Canva Design"],
-            "https://www.canva.com/design/DAGabc123/view",
-        )
-
 
 class CatalogScheduleTests(unittest.TestCase):
     def test_catalog_instagram_schedule_excluded(self) -> None:

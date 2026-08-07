@@ -68,7 +68,6 @@ EXPORT_POLL_INTERVAL_SECONDS = 2.0
 EXPORT_POLL_MAX_ATTEMPTS = 60
 
 METADATA_CANVA_DESIGN_ID = "canva_design_id"
-FIELD_CANVA_DESIGN = "Canva Design"
 
 CANVA_DESIGN_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?canva\.com/design/([A-Za-z0-9_-]+)",

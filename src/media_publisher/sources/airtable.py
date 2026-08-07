@@ -13,7 +13,6 @@ from typing import Any, Iterator
 from media_publisher.timezones import get_timezone
 
 from media_publisher.models import PlatformName, PlatformScheduleTask, PublishJob, VideoFormat
-from media_publisher.sources.canva import FIELD_CANVA_DESIGN, METADATA_CANVA_DESIGN_ID
 
 DEFAULT_API_BASE = "https://api.airtable.com/v0"
 DEFAULT_CONTENT_API_BASE = "https://content.airtable.com/v0"
@@ -251,13 +250,9 @@ def record_to_quote_job(record: AirtableRecord) -> PublishJob:
     description = _field_text(fields.get(FIELD_VIDEO_DESCRIPTION_TRANSLATED)) or ""
 
     metadata: dict[str, str] = {FIELD_TITLE: original_title}
-    canva_design = _field_text(fields.get(FIELD_CANVA_DESIGN))
-    if canva_design:
-        metadata[METADATA_CANVA_DESIGN_ID] = canva_design
 
     for key in (
         FIELD_TYPE,
-        FIELD_CANVA_DESIGN,
         FIELD_VIDEO_NAME_TRANSLATED,
         FIELD_VIDEO_DESCRIPTION_TRANSLATED,
     ):
@@ -284,16 +279,12 @@ def record_to_publish_job(record: AirtableRecord) -> PublishJob:
     video_url = _field_text(fields.get(FIELD_ORIGINAL_VIDEO))
 
     metadata: dict[str, str] = {FIELD_TITLE: original_title}
-    canva_design = _field_text(fields.get(FIELD_CANVA_DESIGN))
-    if canva_design:
-        metadata[METADATA_CANVA_DESIGN_ID] = canva_design
 
     for key in (
         FIELD_TYPE,
         FIELD_DURATION,
         FIELD_VIDEO_FOLDER,
         FIELD_TRANSLATION_RESOURCES,
-        FIELD_CANVA_DESIGN,
         FIELD_VIDEO_NAME_TRANSLATED,
         FIELD_VIDEO_DESCRIPTION_TRANSLATED,
         FIELD_YT_TITLE,
@@ -485,10 +476,7 @@ def record_schedule_tasks(
         return []
     if videos_only and is_quote:
         return []
-    if is_quote:
-        if not _field_text(record.fields.get(FIELD_CANVA_DESIGN)):
-            return []
-    elif not has_video_name_translated(record.fields):
+    if not is_quote and not has_video_name_translated(record.fields):
         return []
 
     tasks: list[PlatformScheduleTask] = []

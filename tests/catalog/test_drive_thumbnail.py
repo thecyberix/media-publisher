@@ -10,6 +10,7 @@ from catalog_parser.drive_thumbnail import (
     enrich_records_with_original_video_thumbnails,
     find_peer_youtube_ct_link,
     find_thumbnail_image_in_folder,
+    resolve_canva_design_drive_url,
     resolve_original_video_thumbnail,
 )
 
@@ -149,10 +150,7 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertIsNone(enriched[0]["ytThumbnail"])
         self.assertIn("_originalThumbnailPath", enriched[0])
         self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-export")
-        self.assertEqual(
-            enriched[0]["_canvaDesignUrl"],
-            "https://www.canva.com/design/abc/view",
-        )
+        self.assertNotIn("_canvaDesignUrl", enriched[0])
 
     def test_enrich_records_stages_review_queue_without_canva(self) -> None:
         import tempfile
@@ -309,6 +307,31 @@ class DriveThumbnailTests(unittest.TestCase):
             enriched[0]["ytThumbnailSource"],
             "original-platform:review-queue:peer-youtube",
         )
+
+    def test_resolve_canva_design_drive_url_from_folder_docs(self) -> None:
+        fields = {
+            "Video Folder": "https://drive.google.com/drive/folders/folder123",
+            "Original Video": "https://youtu.be/abc123XYZ01",
+        }
+        with patch(
+            "catalog_parser.drive_thumbnail._collect_canva_urls_from_folder_documents",
+            return_value=["https://www.canva.com/design/DAGabc/view"],
+        ) as collect_mock:
+            with patch(
+                "catalog_parser.drive_thumbnail.select_canva_url",
+                return_value="https://www.canva.com/design/DAGabc/view",
+            ) as select_mock:
+                url = resolve_canva_design_drive_url(MagicMock(), fields)
+
+        self.assertEqual(url, "https://www.canva.com/design/DAGabc/view")
+        collect_mock.assert_called_once()
+        select_mock.assert_called_once_with(
+            ["https://www.canva.com/design/DAGabc/view"],
+            original_video_url="https://youtu.be/abc123XYZ01",
+        )
+
+    def test_resolve_canva_design_drive_url_without_folder(self) -> None:
+        self.assertIsNone(resolve_canva_design_drive_url(MagicMock(), {}))
 
 
 if __name__ == "__main__":
