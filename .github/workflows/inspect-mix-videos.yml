@@ -1,0 +1,80 @@
+name: Inspect mix videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      folder_id:
+        description: Drive package folder id
+        required: true
+        type: string
+      video_type:
+        description: Video type for required orientation
+        required: true
+        type: choice
+        options:
+          - Reel
+          - Video
+          - Short
+        default: Reel
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+      - name: Inspect Drive videos
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from catalog_parser.auth import get_drive_service_noninteractive
+          from catalog_parser.drive_mix import (
+              _is_all_video_name,
+              _is_ocd_video_name,
+              _is_ref_video_name,
+              _list_videos_in_folder_tree,
+              _pick_single_child_folder,
+              check_mixable_media,
+              format_mix_media_check,
+              orientation_from_size,
+              required_orientation_for_video_type,
+          )
+          from catalog_parser.drive_video_size import video_size_from_drive_file_metadata
+
+          folder_id = "${{ inputs.folder_id }}"
+          video_type = "${{ inputs.video_type }}"
+          required = required_orientation_for_video_type(video_type)
+          drive = get_drive_service_noninteractive()
+          print(f"pkg_folder={folder_id}")
+          print(f"video_type={video_type} required_orientation={required}")
+          audio_folder = _pick_single_child_folder(drive, folder_id)
+          print(f"audio_subfolder={audio_folder}")
+          videos = _list_videos_in_folder_tree(drive, audio_folder)
+          print(f"videos_found={len(videos)}")
+          for video in sorted(videos, key=lambda item: item.name.casefold()):
+              size = video_size_from_drive_file_metadata(drive, video.id)
+              orientation = orientation_from_size(*size) if size else None
+              flags = []
+              if _is_all_video_name(video.name):
+                  flags.append("all-video")
+              if _is_ref_video_name(video.name):
+                  flags.append("ref")
+              if _is_ocd_video_name(video.name):
+                  flags.append("ocd")
+              flag_text = ",".join(flags) if flags else "-"
+              size_text = f"{size[0]}x{size[1]}" if size else "no-metadata"
+              match = "MATCH" if orientation == required else "no"
+              print(
+                  f"  [{match}] {video.name!r} id={video.id} "
+                  f"size={size_text} orientation={orientation} flags={flag_text}"
+              )
+          check = check_mixable_media(drive, folder_id, video_type=video_type)
+          print(format_mix_media_check(check))
+          PY
