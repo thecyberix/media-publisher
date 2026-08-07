@@ -137,9 +137,15 @@ def _video_orientation(
     video: DriveMediaFile,
 ) -> VideoOrientation | None:
     # Lazy import avoids a circular dependency with drive_video_size.
-    from catalog_parser.drive_video_size import video_size_from_drive_file_metadata
+    # Prefer Drive videoMediaMetadata; if missing, download and ffprobe
+    # (shared by ingest eligibility and combine).
+    from catalog_parser.drive_video_size import video_size_from_drive_file
 
-    size = video_size_from_drive_file_metadata(drive_service, video.id)
+    size = video_size_from_drive_file(
+        drive_service,
+        video.id,
+        file_name=video.name,
+    )
     if size is None:
         return None
     return orientation_from_size(*size)

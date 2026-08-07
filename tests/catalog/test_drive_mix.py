@@ -52,11 +52,16 @@ class DriveMixStructureTests(unittest.TestCase):
             "fb": (1920, 1080),
         }
 
-        def size_for(_service: object, file_id: str) -> tuple[int, int] | None:
+        def size_for(
+            _service: object,
+            file_id: str,
+            *,
+            file_name: str | None = None,
+        ) -> tuple[int, int] | None:
             return sizes.get(file_id)
 
         with patch(
-            "catalog_parser.drive_video_size.video_size_from_drive_file_metadata",
+            "catalog_parser.drive_video_size.video_size_from_drive_file",
             side_effect=size_for,
         ):
             picked = _pick_merge_video(
@@ -87,11 +92,16 @@ class DriveMixStructureTests(unittest.TestCase):
             "fb": (1920, 1080),
         }
 
-        def size_for(_service: object, file_id: str) -> tuple[int, int] | None:
+        def size_for(
+            _service: object,
+            file_id: str,
+            *,
+            file_name: str | None = None,
+        ) -> tuple[int, int] | None:
             return sizes.get(file_id)
 
         with patch(
-            "catalog_parser.drive_video_size.video_size_from_drive_file_metadata",
+            "catalog_parser.drive_video_size.video_size_from_drive_file",
             side_effect=size_for,
         ):
             picked = _pick_merge_video(
@@ -118,7 +128,7 @@ class DriveMixStructureTests(unittest.TestCase):
         drive = MagicMock()
 
         with patch(
-            "catalog_parser.drive_video_size.video_size_from_drive_file_metadata",
+            "catalog_parser.drive_video_size.video_size_from_drive_file",
             return_value=(1080, 1920),
         ):
             with self.assertRaises(DriveCombineError) as ctx:
@@ -128,6 +138,22 @@ class DriveMixStructureTests(unittest.TestCase):
                     required_orientation="horizontal",
                 )
         self.assertIn("horizontal", str(ctx.exception))
+
+    def test_pick_merge_video_uses_probe_fallback_when_metadata_missing(self) -> None:
+        drive = MagicMock()
+
+        with patch(
+            "catalog_parser.drive_video_size.video_size_from_drive_file",
+            return_value=(1080, 1920),
+        ) as size_mock:
+            picked = _pick_merge_video(
+                [self._media("All Video.mp4", file_id="all")],
+                drive_service=drive,
+                required_orientation="vertical",
+            )
+        self.assertEqual(picked.id, "all")
+        size_mock.assert_called_once()
+        self.assertEqual(size_mock.call_args.kwargs.get("file_name"), "All Video.mp4")
 
     def test_pick_merge_video_uses_non_ref_non_ocd_fallback(self) -> None:
         picked = _pick_merge_video(

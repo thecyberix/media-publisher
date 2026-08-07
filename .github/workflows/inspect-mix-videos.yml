@@ -27,6 +27,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          install-ffmpeg: "true"
       - name: Inspect Drive videos
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -46,7 +48,7 @@ jobs:
               orientation_from_size,
               required_orientation_for_video_type,
           )
-          from catalog_parser.drive_video_size import video_size_from_drive_file_metadata
+          from catalog_parser.drive_video_size import video_size_from_drive_file
 
           folder_id = "${{ inputs.folder_id }}"
           video_type = "${{ inputs.video_type }}"
@@ -59,7 +61,9 @@ jobs:
           videos = _list_videos_in_folder_tree(drive, audio_folder)
           print(f"videos_found={len(videos)}")
           for video in sorted(videos, key=lambda item: item.name.casefold()):
-              size = video_size_from_drive_file_metadata(drive, video.id)
+              size = video_size_from_drive_file(
+                  drive, video.id, file_name=video.name
+              )
               orientation = orientation_from_size(*size) if size else None
               flags = []
               if _is_all_video_name(video.name):
@@ -69,7 +73,7 @@ jobs:
               if _is_ocd_video_name(video.name):
                   flags.append("ocd")
               flag_text = ",".join(flags) if flags else "-"
-              size_text = f"{size[0]}x{size[1]}" if size else "no-metadata"
+              size_text = f"{size[0]}x{size[1]}" if size else "no-size"
               match = "MATCH" if orientation == required else "no"
               print(
                   f"  [{match}] {video.name!r} id={video.id} "
