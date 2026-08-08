@@ -1,10 +1,13 @@
 """Per-cue RAG translator for English→Bulgarian subtitles (OpenAI + Anthropic)."""
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import requests
@@ -65,6 +68,26 @@ METADATA_DESCRIPTION_SYSTEM_PROMPT = (
     "paragraph breaks. Do not invent links, hashtags, or calls to action that are "
     "not in the source. Preserve meaning; do not add explanations. Return only "
     "the Bulgarian description text."
+)
+
+METADATA_CAPTION_SYSTEM_PROMPT = (
+    "You are a professional thumbnail caption translator for Sadhguru / Isha "
+    "content. Translate English overlay caption lines into natural Bulgarian that "
+    "matches the tone and phrasing of the provided example title translations. "
+    "Preserve the same number of lines and line breaks as the English source. "
+    "Do not add credits, hashtags, logos, or explanations. Return only the "
+    "Bulgarian caption text."
+)
+
+CAPTION_EXTRACT_PROMPT = (
+    "Extract the English overlay caption text from this video thumbnail image.\n"
+    "Return ONLY a JSON array of strings, one string per visual caption line "
+    "from top to bottom (e.g. [\"Line one\", \"Line two\"]).\n"
+    "Preserve the capitalization of each line as shown in the image.\n"
+    "Prefer complete caption lines over omitting part of the headline; a little "
+    "extra overlay text is better than missing title lines.\n"
+    "Ignore watermarks, logos, channel names, and non-caption UI chrome.\n"
+    "If there is no readable caption text, return []."
 )
 
 # Reel/Short subtitles are always displayed in ALL CAPS; long-form Video uses
@@ -189,6 +212,78 @@ def match_source_newlines(source: str, translation: str) -> str:
     # Drop blank lines the model invents between subtitle rows.
     lines = [line.strip() for line in tr.split("\n")]
     return "\n".join(line for line in lines if line)
+
+
+def _line_is_all_caps(line: str) -> bool:
+    letters = [ch for ch in line if ch.isalpha()]
+    return bool(letters) and all(ch.isupper() for ch in letters)
+
+
+def _line_is_title_case(line: str) -> bool:
+    words = [word for word in re.split(r"\s+", line.strip()) if word]
+    if len(words) < 2:
+        return False
+    titled = 0
+    for word in words:
+        letters = [ch for ch in word if ch.isalpha()]
+        if not letters:
+            continue
+        if letters[0].isupper() and all(ch.islower() for ch in letters[1:]):
+            titled += 1
+    return titled >= max(2, (len(words) + 1) // 2)
+
+
+def _to_title_case_words(line: str) -> str:
+    parts: list[str] = []
+    for word in re.split(r"(\s+)", line):
+        if not word or word.isspace():
+            parts.append(word)
+            continue
+        letters = [ch for ch in word if ch.isalpha()]
+        if not letters:
+            parts.append(word)
+            continue
+        # Title-case alphabetic runs inside the token.
+        chars = list(word)
+        seen_letter = False
+        for index, ch in enumerate(chars):
+            if ch.isalpha():
+                chars[index] = ch.upper() if not seen_letter else ch.lower()
+                seen_letter = True
+        parts.append("".join(chars))
+    return "".join(parts)
+
+
+def match_source_line_casing(source: str, translation: str) -> str:
+    """Match per-line casing style of the English caption source."""
+    src = (source or "").replace("\r\n", "\n").replace("\r", "\n")
+    tr = (translation or "").replace("\r\n", "\n").replace("\r", "\n")
+    src_lines = [line for line in src.split("\n") if line.strip()]
+    tr_lines = [line.strip() for line in tr.split("\n") if line.strip()]
+    if not src_lines or not tr_lines:
+        return tr.strip()
+
+    # Align counts: pad/truncate translation lines to source line count.
+    if len(tr_lines) < len(src_lines):
+        joined = " ".join(tr_lines)
+        tr_lines = [joined] + [""] * (len(src_lines) - 1)
+        tr_lines = tr_lines[: len(src_lines)]
+    elif len(tr_lines) > len(src_lines):
+        head = tr_lines[: len(src_lines) - 1]
+        tail = " ".join(tr_lines[len(src_lines) - 1 :])
+        tr_lines = head + [tail]
+
+    out: list[str] = []
+    for src_line, tr_line in zip(src_lines, tr_lines, strict=True):
+        if not tr_line:
+            continue
+        if _line_is_all_caps(src_line):
+            out.append(tr_line.upper())
+        elif _line_is_title_case(src_line):
+            out.append(_to_title_case_words(tr_line))
+        else:
+            out.append(tr_line)
+    return "\n".join(out)
 
 
 def _ensure_bg_opening_quote(text: str) -> str:
@@ -507,6 +602,192 @@ def chat_completion(
     return _openai_chat_completion(messages, config, session=http)
 
 
+def _guess_image_media_type(path: Path | None, raw: bytes) -> str:
+    if path is not None:
+        guessed, _ = mimetypes.guess_type(str(path))
+        if guessed and guessed.startswith("image/"):
+            return guessed
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith(b"RIFF") and b"WEBP" in raw[:16]:
+        return "image/webp"
+    return "image/jpeg"
+
+
+def chat_completion_with_image(
+    prompt: str,
+    image_bytes: bytes,
+    config: ChatConfig,
+    *,
+    media_type: str = "image/jpeg",
+    session: requests.Session | None = None,
+) -> str:
+    """Multimodal chat: text prompt + one image."""
+    if not image_bytes:
+        raise ValueError("image_bytes is required")
+    http = session or requests.Session()
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    if config.provider == "anthropic":
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": encoded,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        return _anthropic_messages_multimodal(messages, config, session=http)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media_type};base64,{encoded}",
+                    },
+                },
+            ],
+        }
+    ]
+    return _openai_chat_completion_multimodal(messages, config, session=http)
+
+
+def _openai_chat_completion_multimodal(
+    messages: list[dict[str, Any]],
+    config: ChatConfig,
+    *,
+    session: requests.Session,
+) -> str:
+    url = f"{config.base_url.rstrip('/')}/chat/completions"
+    response = session.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {config.api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config.model,
+            "temperature": config.temperature,
+            "messages": messages,
+        },
+        timeout=config.timeout_seconds,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"OpenAI Chat Completions HTTP {response.status_code}: {response.text[:500]}"
+        )
+    payload = response.json()
+    try:
+        content = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"Unexpected OpenAI chat response: {payload!r}") from exc
+    if not isinstance(content, str):
+        raise RuntimeError(f"OpenAI chat response content is not a string: {content!r}")
+    return content.strip()
+
+
+def _anthropic_messages_multimodal(
+    messages: list[dict[str, Any]],
+    config: ChatConfig,
+    *,
+    session: requests.Session,
+) -> str:
+    url = f"{config.base_url.rstrip('/')}/v1/messages"
+    body: dict[str, Any] = {
+        "model": config.model,
+        "max_tokens": min(config.max_tokens, 1024),
+        "temperature": config.temperature,
+        "messages": messages,
+    }
+    response = session.post(
+        url,
+        headers={
+            "x-api-key": config.api_key,
+            "anthropic-version": config.anthropic_version,
+            "Content-Type": "application/json",
+        },
+        json=body,
+        timeout=config.timeout_seconds,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Anthropic Messages HTTP {response.status_code}: {response.text[:500]}"
+        )
+    payload = response.json()
+    try:
+        content = payload["content"]
+    except (KeyError, TypeError) as exc:
+        raise RuntimeError(f"Unexpected Anthropic response: {payload!r}") from exc
+    return _anthropic_text_from_content(content)
+
+
+def parse_caption_lines_json(raw: str) -> list[str]:
+    """Parse vision caption extraction output into non-empty lines."""
+    cleaned = _strip_code_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, list):
+            lines = [
+                item.strip()
+                for item in parsed
+                if isinstance(item, str) and item.strip()
+            ]
+            return lines
+    except json.JSONDecodeError:
+        pass
+    extracted = _extract_json_string_array(cleaned)
+    if extracted is not None:
+        return [item.strip() for item in extracted if item.strip()]
+    # Fallback: plain lines
+    return [line.strip() for line in cleaned.splitlines() if line.strip()]
+
+
+def extract_caption_lines_from_image(
+    image_bytes: bytes,
+    config: ChatConfig,
+    *,
+    media_type: str = "image/jpeg",
+    session: requests.Session | None = None,
+) -> list[str]:
+    raw = chat_completion_with_image(
+        CAPTION_EXTRACT_PROMPT,
+        image_bytes,
+        config,
+        media_type=media_type,
+        session=session,
+    )
+    return parse_caption_lines_json(raw)
+
+
+def extract_caption_lines_from_image_path(
+    path: Path,
+    config: ChatConfig,
+    *,
+    session: requests.Session | None = None,
+) -> list[str]:
+    raw = path.read_bytes()
+    media_type = _guess_image_media_type(path, raw)
+    return extract_caption_lines_from_image(
+        raw,
+        config,
+        media_type=media_type,
+        session=session,
+    )
+
+
 def _strip_code_fence(text: str) -> str:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -723,7 +1004,7 @@ def build_metadata_messages(
     en_text: str,
     examples: list[CorpusHit],
     *,
-    kind: Literal["title", "description"],
+    kind: Literal["title", "description", "caption"],
 ) -> list[dict[str, str]]:
     if kind == "title":
         system = METADATA_TITLE_SYSTEM_PROMPT
@@ -738,6 +1019,14 @@ def build_metadata_messages(
         instructions = (
             "Translate the English YouTube description into Bulgarian.\n"
             "Preserve paragraph breaks. Do not invent links or hashtags.\n\n"
+        )
+    elif kind == "caption":
+        system = METADATA_CAPTION_SYSTEM_PROMPT
+        field_label = "caption"
+        instructions = (
+            "Translate the English thumbnail caption into Bulgarian.\n"
+            "Preserve the exact number of lines and line breaks.\n"
+            "Do not add credits, hashtags, or logos.\n\n"
         )
     else:
         raise ValueError(f"Unsupported metadata kind: {kind!r}")
@@ -757,7 +1046,7 @@ def build_metadata_messages(
 def translate_metadata_field(
     en_text: str,
     *,
-    kind: Literal["title", "description"],
+    kind: Literal["title", "description", "caption"],
     index: RetrievalIndex,
     config: ChatConfig,
     top_k: int = DEFAULT_METADATA_TOP_K,
@@ -770,7 +1059,7 @@ def translate_metadata_field(
     examples = index.retrieve(text, k=top_k)
     messages = build_metadata_messages(text, examples, kind=kind)
     field_config = config
-    if kind == "title" and config.max_tokens > DEFAULT_METADATA_TITLE_MAX_TOKENS:
+    if kind in {"title", "caption"} and config.max_tokens > DEFAULT_METADATA_TITLE_MAX_TOKENS:
         field_config = ChatConfig(
             api_key=config.api_key,
             provider=config.provider,
@@ -799,6 +1088,9 @@ def translate_metadata_field(
     translated = chat_completion(messages, field_config, session=session).strip()
     if not translated:
         raise RuntimeError(f"Empty {kind} translation returned by model")
+    if kind == "caption":
+        translated = match_source_newlines(text, translated)
+        translated = match_source_line_casing(text, translated)
     return translated
 
 

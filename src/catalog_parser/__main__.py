@@ -284,6 +284,9 @@ def build_eligible_catalog_records(
             )[0]
 
         from catalog_parser.translation.prefill import ai_prefill_enabled
+        from catalog_parser.translation.caption_prefill import (
+            translate_record_caption_if_needed,
+        )
         from catalog_parser.translation.metadata_prefill import (
             translate_record_metadata_if_needed,
         )
@@ -315,6 +318,30 @@ def build_eligible_catalog_records(
                     )
             except Exception as exc:  # noqa: BLE001
                 print(f"  -> AI metadata translate failed (continuing): {exc}")
+
+            try:
+                caption = translate_record_caption_if_needed(
+                    record,
+                    project_root=PROJECT_ROOT,
+                    drive_service=drive_service if drive_docs_enabled else None,
+                )
+                if caption.skipped and not caption.errors:
+                    print("  -> AI caption translate skipped")
+                elif caption.caption_translated:
+                    source = caption.source or "unknown"
+                    print(f"  -> AI caption translated (source={source})")
+                    if caption.errors:
+                        print(
+                            "  -> AI caption partial errors: "
+                            + "; ".join(caption.errors)
+                        )
+                elif caption.errors:
+                    print(
+                        "  -> AI caption translate failed (continuing): "
+                        + "; ".join(caption.errors)
+                    )
+            except Exception as exc:  # noqa: BLE001
+                print(f"  -> AI caption translate failed (continuing): {exc}")
 
         if is_catalog_eligible(
             record,

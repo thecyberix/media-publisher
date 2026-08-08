@@ -40,6 +40,7 @@ class AirtableMappingTests(unittest.TestCase):
 
     def test_catalog_record_maps_bg_title_and_description(self) -> None:
         from catalog_parser.airtable import (
+            FIELD_VIDEO_CAPTION_TRANSLATED,
             FIELD_VIDEO_DESCRIPTION_TRANSLATED,
             FIELD_VIDEO_NAME_TRANSLATED,
         )
@@ -51,12 +52,14 @@ class AirtableMappingTests(unittest.TestCase):
                 "ytDescription": "English description",
                 "bgTitle": "Българско заглавие",
                 "bgDescription": "Българско описание",
+                "bgCaption": "БЪДЕТЕ\nРАДОСТНИ",
             }
         )
         self.assertEqual(fields[FIELD_VIDEO_NAME_TRANSLATED], "Българско заглавие")
         self.assertEqual(
             fields[FIELD_VIDEO_DESCRIPTION_TRANSLATED], "Българско описание"
         )
+        self.assertEqual(fields[FIELD_VIDEO_CAPTION_TRANSLATED], "БЪДЕТЕ\nРАДОСТНИ")
         self.assertEqual(fields["Original Video Name"], "YT English Title")
         self.assertEqual(fields["Original Video Description"], "English description")
 
@@ -240,6 +243,15 @@ class AirtableSyncTests(unittest.TestCase):
         with patch(
             "catalog_parser.airtable.load_existing_titles_for_ingest",
             return_value={"already there"},
+        ), patch(
+            "catalog_parser.airtable.load_existing_video_folder_ids_for_ingest",
+            return_value=set(),
+        ), patch(
+            "catalog_parser.airtable.load_existing_original_video_names_for_ingest",
+            return_value=set(),
+        ), patch(
+            "catalog_parser.airtable.load_existing_original_video_keys_for_ingest",
+            return_value=set(),
         ):
             with patch.object(client, "create_records", return_value=["recNEW"]) as create_mock:
                 created, skipped = client.sync_catalog_records(records)

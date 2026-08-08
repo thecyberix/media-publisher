@@ -218,6 +218,9 @@ def catalog_record_to_airtable_fields(record: dict[str, Any]) -> dict[str, Any]:
     bg_description = record.get("bgDescription")
     if isinstance(bg_description, str) and bg_description.strip():
         fields[FIELD_VIDEO_DESCRIPTION_TRANSLATED] = bg_description.strip()
+    bg_caption = record.get("bgCaption")
+    if isinstance(bg_caption, str) and bg_caption.strip():
+        fields[FIELD_VIDEO_CAPTION_TRANSLATED] = bg_caption.strip()
     yt_thumbnail = record.get("ytThumbnail")
     if isinstance(yt_thumbnail, list) and yt_thumbnail and not record.get("_originalThumbnailPath"):
         fields[FIELD_ORIGINAL_VIDEO_THUMBNAIL] = yt_thumbnail

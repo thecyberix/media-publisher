@@ -243,6 +243,31 @@ class RagTranslateTests(unittest.TestCase):
             "РЕД ЕДИН\nРЕД ДВА",
         )
 
+        from catalog_parser.translation.rag_translate import (
+            match_source_line_casing,
+            parse_caption_lines_json,
+        )
+
+        self.assertEqual(
+            match_source_line_casing(
+                "BE JOYFUL\nALWAYS",
+                "бъдете радостни\nвинаги",
+            ),
+            "БЪДЕТЕ РАДОСТНИ\nВИНАГИ",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "Be Joyful Always",
+                "бъдете радостни винаги",
+            ),
+            "Бъдете Радостни Винаги",
+        )
+        self.assertEqual(
+            parse_caption_lines_json('["Line one", "Line two"]'),
+            ["Line one", "Line two"],
+        )
+        self.assertEqual(parse_caption_lines_json("[]"), [])
+
         sources = [
             'I said, "ma\'am, i am well!',
             'How are you?"',
@@ -549,6 +574,13 @@ class RagTranslateTests(unittest.TestCase):
             kind="description",
         )
         self.assertIn("paragraph", desc_messages[1]["content"].lower())
+        caption_messages = build_metadata_messages(
+            "BE JOYFUL\nALWAYS",
+            [],
+            kind="caption",
+        )
+        self.assertIn("caption", caption_messages[1]["content"].lower())
+        self.assertIn("line", caption_messages[1]["content"].lower())
 
 
 if __name__ == "__main__":
