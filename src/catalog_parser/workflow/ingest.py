@@ -260,7 +260,8 @@ def ingest_batch(
     if dry_run:
         status_label = airtable_fields.get(FIELD_STATUS, "unknown status")
         emit(f"Dry-run: would create {len(eligible)} Airtable row(s) with status {status_label!r}.")
-        return []
+        # Placeholder ids so callers can report how many rows would be created.
+        return [f"dry-run-{index}" for index in range(1, len(eligible) + 1)]
 
     created_ids = airtable.create_records(eligible)
     review_items: list[Any] = []

@@ -186,13 +186,6 @@ def _ingest_for_translator(
         return ActionResult(action=action, success=False, message="Missing translator_name")
     if action.ingest_type is None or action.ingest_count is None:
         return ActionResult(action=action, success=False, message="Missing ingest_type/ingest_count")
-    if dry_run:
-        return ActionResult(
-            action=action,
-            success=True,
-            message=f"Would ingest {action.ingest_count} {action.ingest_type}(s) for translator {action.translator_name!r}",
-        )
-
     created_ids = ingest_batch_for_translator(
         airtable,
         translator_name=action.translator_name,
@@ -203,7 +196,19 @@ def _ingest_for_translator(
         token_path=token_path,
         use_console=use_console,
         table_cache=table_cache,
+        dry_run=dry_run,
     )
+    if dry_run:
+        return ActionResult(
+            action=action,
+            success=True,
+            message=(
+                f"Would ingest {len(created_ids)} {action.ingest_type}(s) "
+                f"for translator {action.translator_name!r}"
+                if created_ids
+                else f"No eligible catalog row found for {action.translator_name!r}"
+            ),
+        )
     if not created_ids:
         return ActionResult(
             action=action,
