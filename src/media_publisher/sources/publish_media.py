@@ -10,7 +10,7 @@ Publishing uses a translated thumbnail only when Original Video Thumbnail is set
 Video source for publishing (independent of thumbnail logic):
 
 1. Drive override folder (Videos subfolder), by Title — delete on success
-2. When Translation resources are empty: Combined Media File (generate via Drive mix if missing)
+2. When Translation resources are empty: Combined Media File (must already exist)
 3. Otherwise: HappyScribe download with burned subtitles (handled by the publish pipeline)
 """
 from __future__ import annotations
@@ -25,8 +25,6 @@ from media_publisher.sources.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_TITLE,
-    FIELD_TYPE,
-    FIELD_VIDEO_FOLDER,
     has_original_video_thumbnail,
 )
 from media_publisher.sources.canva import (
@@ -103,7 +101,7 @@ def extract_drive_file_id(value: str) -> str | None:
 
 
 class CombinedMediaError(Exception):
-    """Raised when Combined Media File cannot be resolved or generated."""
+    """Raised when Combined Media File cannot be resolved for publish."""
 
 
 def combined_media_file_id_from_fields(record_fields: dict[str, Any]) -> str | None:
@@ -126,81 +124,30 @@ def combined_media_cleanup_from_fields(
     return PublishMediaCleanup(combined_media_file_id=file_id)
 
 
-def _combined_media_output_name(title: str) -> str:
-    cleaned = title.strip()
-    if cleaned.casefold().endswith(".mp4"):
-        return cleaned
-    return f"{cleaned}.mp4"
-
-
-def ensure_combined_media_for_publish(
+def resolve_combined_media_for_publish(
     *,
-    record_id: str,
     record_fields: dict[str, Any],
     drive: GoogleDriveClient,
-    airtable: Any,
     download_dir: Path,
-    work_dir: Path,
-    output_drive_folder: str,
-    ffmpeg_path: str | None = None,
 ) -> PublishVideoResult:
-    """Return a local Combined Media File, generating and uploading it when missing."""
-    from catalog_parser.drive_mix import DriveCombineError, mix_folder_media_to_drive
-    from media_publisher.sources.tn_publish import parse_folder_id
-
+    """Download an existing Combined Media File for publish (no generation)."""
     title = record_fields.get(FIELD_TITLE)
     if not isinstance(title, str) or not title.strip():
         raise CombinedMediaError(f"Missing {FIELD_TITLE!r} for Combined Media File")
 
-    output_name = _combined_media_output_name(title)
-    destination = download_dir / "combined" / _sanitize_filename(output_name)
     existing_id = combined_media_file_id_from_fields(record_fields)
-    if existing_id:
-        drive.download_file(existing_id, destination)
-        return PublishVideoResult(
-            path=destination,
-            source="combined-media",
-            cleanup=PublishMediaCleanup(combined_media_file_id=existing_id),
-        )
+    if not existing_id:
+        raise CombinedMediaError(f"Missing {FIELD_COMBINED_MEDIA_FILE!r}")
 
-    video_folder = record_fields.get(FIELD_VIDEO_FOLDER)
-    pkg_folder_id = parse_folder_id(video_folder)
-    if pkg_folder_id is None:
-        raise CombinedMediaError(
-            f"Missing or invalid {FIELD_VIDEO_FOLDER!r}; cannot generate Combined Media File"
-        )
-
-    output_parent_id = parse_folder_id(output_drive_folder)
-    if output_parent_id is None:
-        raise CombinedMediaError(
-            "OUTPUT_DRIVE_FOLDER is required to generate Combined Media File"
-        )
-
-    record_type = record_fields.get(FIELD_TYPE)
-    video_type = (
-        record_type if isinstance(record_type, str) and record_type.strip() else None
-    )
-    work_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        created = mix_folder_media_to_drive(
-            drive.drive_service,
-            pkg_folder_id=pkg_folder_id,
-            output_parent_id=output_parent_id,
-            output_name=output_name,
-            work_dir=work_dir,
-            ffmpeg_path=ffmpeg_path,
-            video_type=video_type,
-        )
-    except DriveCombineError as exc:
-        raise CombinedMediaError(str(exc)) from exc
-
-    drive_url = f"https://drive.google.com/file/d/{created.id}/view"
-    airtable.update_record(record_id, {FIELD_COMBINED_MEDIA_FILE: drive_url})
-    drive.download_file(created.id, destination)
+    output_name = title.strip()
+    if not output_name.casefold().endswith(".mp4"):
+        output_name = f"{output_name}.mp4"
+    destination = download_dir / "combined" / _sanitize_filename(output_name)
+    drive.download_file(existing_id, destination)
     return PublishVideoResult(
         path=destination,
-        source="combined-media-generated",
-        cleanup=PublishMediaCleanup(combined_media_file_id=created.id),
+        source="combined-media",
+        cleanup=PublishMediaCleanup(combined_media_file_id=existing_id),
     )
 
 

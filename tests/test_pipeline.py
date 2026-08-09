@@ -483,7 +483,7 @@ class PublishPipelineTests(unittest.TestCase):
             "list_search_transcriptions",
             return_value=[],
         ), patch(
-            "media_publisher.pipeline.ensure_combined_media_for_publish",
+            "media_publisher.pipeline.resolve_combined_media_for_publish",
             return_value=PublishVideoResult(
                 path=video_path,
                 source="combined-media",

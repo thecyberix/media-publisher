@@ -19,7 +19,6 @@ from media_publisher.publishers.youtube import YouTubePublishError, publish_to_y
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
-    FIELD_COMBINED_MEDIA_FILE,
     FIELD_TITLE,
     FIELD_TRANSLATION_RESOURCES,
     FIELD_VIDEO_NAME_TRANSLATED,
@@ -42,8 +41,8 @@ from media_publisher.sources.publish_media import (
     CombinedMediaError,
     PublishMediaCleanup,
     apply_publish_media_cleanup,
-    ensure_combined_media_for_publish,
     merge_publish_media_cleanup,
+    resolve_combined_media_for_publish,
     resolve_publish_thumbnail,
     resolve_publish_video,
 )
@@ -113,7 +112,6 @@ class PublishPipelineSettings:
     google_drive_service_account: Path | None = None
     publish_media_download_dir: Path | None = None
     tn_publish_settings: TnPublishSettings | None = None
-    output_drive_folder: str = ""
 
 
 def group_tasks_by_record(
@@ -381,30 +379,15 @@ def run_publish_pipeline(
                     raise CombinedMediaError(
                         "Google Drive client required for Combined Media File"
                     )
-                combined = ensure_combined_media_for_publish(
-                    record_id=record_id,
+                combined = resolve_combined_media_for_publish(
                     record_fields=record_fields,
                     drive=drive_client,
-                    airtable=airtable,
                     download_dir=media_download_dir,
-                    work_dir=(
-                        settings.project_root
-                        / "downloads"
-                        / "combined-media-work"
-                        / record_id
-                    ),
-                    output_drive_folder=settings.output_drive_folder,
-                    ffmpeg_path=settings.ffmpeg_path,
                 )
                 video_path = combined.path
                 publish_cleanup = merge_publish_media_cleanup(
                     publish_cleanup, combined.cleanup
                 )
-                if combined.cleanup and combined.cleanup.combined_media_file_id:
-                    record_fields[FIELD_COMBINED_MEDIA_FILE] = (
-                        "https://drive.google.com/file/d/"
-                        f"{combined.cleanup.combined_media_file_id}/view"
-                    )
                 print_line(f"  Video ({combined.source}): {video_path}")
             except (CombinedMediaError, GoogleDriveError) as exc:
                 message = str(exc)

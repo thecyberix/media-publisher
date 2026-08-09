@@ -7,20 +7,19 @@ from media_publisher.models import PublishJob
 from media_publisher.sources.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_TITLE,
-    FIELD_TYPE,
-    FIELD_VIDEO_FOLDER,
 )
 from media_publisher.sources.google_drive import DriveFile
 from media_publisher.sources.publish_media import (
+    CombinedMediaError,
     DriveFileMove,
     PublishMediaCleanup,
     apply_publish_media_cleanup,
     combined_media_cleanup_from_fields,
     drive_override_thumbnail_exists,
-    ensure_combined_media_for_publish,
     has_prepared_publish_thumbnail,
     merge_publish_media_cleanup,
     resolve_canva_catalog_thumbnail,
+    resolve_combined_media_for_publish,
     resolve_drive_override_thumbnail,
     resolve_publish_thumbnail,
     resolve_publish_video,
@@ -61,7 +60,7 @@ class PublishMediaResolutionTests(unittest.TestCase):
         assert cleanup is not None
         self.assertEqual(cleanup.combined_media_file_id, "abc123")
 
-    def test_ensure_combined_media_downloads_existing_file(self) -> None:
+    def test_resolve_combined_media_downloads_existing_file(self) -> None:
         drive = MagicMock()
 
         def _write_download(_file_id, dest):
@@ -70,13 +69,10 @@ class PublishMediaResolutionTests(unittest.TestCase):
             return dest
 
         drive.download_file.side_effect = _write_download
-        airtable = MagicMock()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             download_dir = Path(tmpdir) / "dl"
-            work_dir = Path(tmpdir) / "work"
-            result = ensure_combined_media_for_publish(
-                record_id="rec1",
+            result = resolve_combined_media_for_publish(
                 record_fields={
                     FIELD_TITLE: "Launch video",
                     FIELD_COMBINED_MEDIA_FILE: (
@@ -84,63 +80,23 @@ class PublishMediaResolutionTests(unittest.TestCase):
                     ),
                 },
                 drive=drive,
-                airtable=airtable,
                 download_dir=download_dir,
-                work_dir=work_dir,
-                output_drive_folder="https://drive.google.com/drive/folders/out123",
             )
             self.assertEqual(result.source, "combined-media")
             assert result.path is not None
             self.assertEqual(result.path.read_bytes(), b"combined")
             assert result.cleanup is not None
             self.assertEqual(result.cleanup.combined_media_file_id, "file123")
-            airtable.update_record.assert_not_called()
 
-    def test_ensure_combined_media_generates_when_missing(self) -> None:
+    def test_resolve_combined_media_requires_existing_file(self) -> None:
         drive = MagicMock()
-        airtable = MagicMock()
-        created = MagicMock(id="newfile")
-
-        def _write_download(_file_id, dest):
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(b"generated")
-            return dest
-
-        drive.download_file.side_effect = _write_download
-
-        with tempfile.TemporaryDirectory() as tmpdir, patch(
-            "catalog_parser.drive_mix.mix_folder_media_to_drive",
-            return_value=created,
-        ) as mix_mock:
-            download_dir = Path(tmpdir) / "dl"
-            work_dir = Path(tmpdir) / "work"
-            result = ensure_combined_media_for_publish(
-                record_id="rec1",
-                record_fields={
-                    FIELD_TITLE: "Launch video",
-                    FIELD_TYPE: "Reel",
-                    FIELD_VIDEO_FOLDER: (
-                        "https://drive.google.com/drive/folders/pkg123"
-                    ),
-                },
+        with self.assertRaises(CombinedMediaError):
+            resolve_combined_media_for_publish(
+                record_fields={FIELD_TITLE: "Launch video"},
                 drive=drive,
-                airtable=airtable,
-                download_dir=download_dir,
-                work_dir=work_dir,
-                output_drive_folder="https://drive.google.com/drive/folders/out123",
+                download_dir=Path("."),
             )
-            self.assertEqual(result.source, "combined-media-generated")
-            assert result.path is not None
-            self.assertEqual(result.path.read_bytes(), b"generated")
-            mix_mock.assert_called_once()
-            airtable.update_record.assert_called_once_with(
-                "rec1",
-                {
-                    FIELD_COMBINED_MEDIA_FILE: (
-                        "https://drive.google.com/file/d/newfile/view"
-                    )
-                },
-            )
+        drive.download_file.assert_not_called()
 
     def test_resolve_publish_video_uses_drive_override(self) -> None:
         drive = MagicMock()

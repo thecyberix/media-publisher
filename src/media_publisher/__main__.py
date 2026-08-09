@@ -1372,7 +1372,6 @@ def build_publish_pipeline_settings(
             output_dir=PROJECT_ROOT / settings.tn_render_output_dir,
             english_override_file=PROJECT_ROOT / settings.tn_english_override_file,
         ),
-        output_drive_folder=settings.output_drive_folder,
     )
 
 

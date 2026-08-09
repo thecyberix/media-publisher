@@ -65,7 +65,6 @@ class Settings:
     thumbnail_review_drive_folder_id: str = "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN"
     thumbnail_review_approved_subfolder: str = "Approved"
     publish_media_download_dir: str = "downloads/publish-media"
-    output_drive_folder: str = ""
     meta_access_token: str | None = None
     meta_page_id: str | None = None
     meta_instagram_account_id: str | None = None
@@ -283,7 +282,6 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "downloads/publish-media",
         ).strip()
         or "downloads/publish-media",
-        output_drive_folder=os.getenv("OUTPUT_DRIVE_FOLDER", "").strip() or "",
         meta_access_token=optional("META_ACCESS_TOKEN"),
         meta_page_id=optional("META_PAGE_ID"),
         meta_instagram_account_id=optional("META_INSTAGRAM_ACCOUNT_ID"),
