@@ -173,36 +173,170 @@ class DriveMixStructureTests(unittest.TestCase):
                 ]
             )
 
-    def test_find_video_and_audio_subfolder_requires_single_folder(self) -> None:
+    def test_find_video_and_audio_prefers_stems_over_tn_sibling(self) -> None:
         drive = MagicMock()
+        folder_children = {
+            "pkg-folder": [
+                {
+                    "id": "stems",
+                    "name": "Stems",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+                {
+                    "id": "tn",
+                    "name": "TN",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+            ],
+            "stems": [
+                {
+                    "id": "video-file",
+                    "name": "All Video.mp4",
+                    "mimeType": "video/mp4",
+                },
+                {
+                    "id": "a1",
+                    "name": "All Dialogue.wav",
+                    "mimeType": "audio/wav",
+                },
+            ],
+            "tn": [
+                {
+                    "id": "psd",
+                    "name": "TN_Title.psd",
+                    "mimeType": "image/x-photoshop",
+                },
+            ],
+        }
 
-        def files_list(**kwargs: object) -> MagicMock:
-            query = kwargs.get("q", "")
-            if "pkg-folder" in query:
-                return MagicMock(
-                    execute=MagicMock(
-                        return_value={
-                            "files": [
-                                {
-                                    "id": "audios-1",
-                                    "name": "Audios",
-                                    "mimeType": "application/vnd.google-apps.folder",
-                                },
-                                {
-                                    "id": "audios-2",
-                                    "name": "Other",
-                                    "mimeType": "application/vnd.google-apps.folder",
-                                },
-                            ]
-                        }
-                    )
-                )
-            raise AssertionError(f"Unexpected query: {query!r}")
+        def list_children(_service: object, folder_id: str) -> list[dict]:
+            return folder_children[folder_id]
 
-        drive.files.return_value.list.side_effect = files_list
+        with patch(
+            "catalog_parser.drive_mix.list_folder_children",
+            side_effect=list_children,
+        ), patch(
+            "catalog_parser.drive_mix.resolve_drive_item",
+            side_effect=lambda _service, item: item,
+        ):
+            media = find_video_and_audio_subfolder(drive, "pkg-folder")
 
-        with self.assertRaises(Exception):
-            find_video_and_audio_subfolder(drive, "pkg-folder")
+        self.assertEqual(media.audio_folder_id, "stems")
+        self.assertEqual(media.video.name, "All Video.mp4")
+        self.assertEqual([audio.name for audio in media.audios], ["All Dialogue.wav"])
+
+    def test_find_video_and_audio_finds_nested_stems(self) -> None:
+        drive = MagicMock()
+        folder_children = {
+            "pkg-folder": [
+                {
+                    "id": "ocd",
+                    "name": "OCD-25533-Working",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+                {
+                    "id": "tn",
+                    "name": "TN",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+            ],
+            "ocd": [
+                {
+                    "id": "stems",
+                    "name": "Stems",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+            ],
+            "stems": [
+                {
+                    "id": "mp4",
+                    "name": "ILP and GLP Mp4",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+                {
+                    "id": "a1",
+                    "name": "All Dialogue.wav",
+                    "mimeType": "audio/wav",
+                },
+                {
+                    "id": "a2",
+                    "name": "All Music.wav",
+                    "mimeType": "audio/wav",
+                },
+            ],
+            "mp4": [
+                {
+                    "id": "video-file",
+                    "name": "All_Video.mp4",
+                    "mimeType": "video/mp4",
+                },
+            ],
+            "tn": [],
+        }
+
+        def list_children(_service: object, folder_id: str) -> list[dict]:
+            return folder_children[folder_id]
+
+        with patch(
+            "catalog_parser.drive_mix.list_folder_children",
+            side_effect=list_children,
+        ), patch(
+            "catalog_parser.drive_mix.resolve_drive_item",
+            side_effect=lambda _service, item: item,
+        ):
+            media = find_video_and_audio_subfolder(drive, "pkg-folder")
+
+        self.assertEqual(media.audio_folder_id, "stems")
+        self.assertEqual(media.video.name, "All_Video.mp4")
+        self.assertEqual(
+            [audio.name for audio in media.audios],
+            ["All Dialogue.wav", "All Music.wav"],
+        )
+
+    def test_find_video_and_audio_ambiguous_when_multiple_audio_folders(self) -> None:
+        drive = MagicMock()
+        folder_children = {
+            "pkg-folder": [
+                {
+                    "id": "audios-1",
+                    "name": "Take 1",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+                {
+                    "id": "audios-2",
+                    "name": "Take 2",
+                    "mimeType": FOLDER_MIME_TYPE,
+                },
+            ],
+            "audios-1": [
+                {
+                    "id": "a1",
+                    "name": "dialogue.wav",
+                    "mimeType": "audio/wav",
+                },
+            ],
+            "audios-2": [
+                {
+                    "id": "a2",
+                    "name": "music.wav",
+                    "mimeType": "audio/wav",
+                },
+            ],
+        }
+
+        def list_children(_service: object, folder_id: str) -> list[dict]:
+            return folder_children[folder_id]
+
+        with patch(
+            "catalog_parser.drive_mix.list_folder_children",
+            side_effect=list_children,
+        ), patch(
+            "catalog_parser.drive_mix.resolve_drive_item",
+            side_effect=lambda _service, item: item,
+        ):
+            with self.assertRaises(DriveCombineError) as ctx:
+                find_video_and_audio_subfolder(drive, "pkg-folder")
+        self.assertIn("Ambiguous audio folders", str(ctx.exception))
 
     def test_check_mixable_media_success(self) -> None:
         drive = MagicMock()

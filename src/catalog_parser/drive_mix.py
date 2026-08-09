@@ -63,25 +63,6 @@ def _drive_file(item: dict[str, Any], *, parent_id: str) -> DriveMediaFile | Non
     )
 
 
-def _pick_single_child_folder(
-    drive_service: Resource,
-    parent_folder_id: str,
-) -> str:
-    subfolders: list[str] = []
-    for item in list_folder_children(drive_service, parent_folder_id):
-        resolved = resolve_drive_item(drive_service, item)
-        if resolved.get("mimeType") != FOLDER_MIME_TYPE:
-            continue
-        folder_id = resolved.get("id")
-        if isinstance(folder_id, str) and folder_id:
-            subfolders.append(folder_id)
-    if len(subfolders) != 1:
-        raise DriveCombineError(
-            f"Expected exactly 1 audio subfolder under {parent_folder_id!r}, found {len(subfolders)}"
-        )
-    return subfolders[0]
-
-
 def _list_audio_files(
     drive_service: Resource,
     audio_folder_id: str,
@@ -97,6 +78,102 @@ def _list_audio_files(
             files.append(media)
     files.sort(key=lambda f: f.name.casefold())
     return files
+
+
+def _is_stems_folder_name(name: str) -> bool:
+    normalized = name.casefold().strip()
+    if normalized == "stems":
+        return True
+    return (
+        normalized.endswith("_stems")
+        or normalized.endswith("-stems")
+        or normalized.endswith(" stems")
+    )
+
+
+@dataclass(frozen=True)
+class _AudioFolderCandidate:
+    folder_id: str
+    name: str
+    depth: int
+
+
+def _collect_folders_with_direct_audio(
+    drive_service: Resource,
+    folder_id: str,
+    *,
+    folder_name: str = "",
+    max_depth: int = 3,
+    depth: int = 0,
+) -> list[_AudioFolderCandidate]:
+    """Return folders (within max_depth) that contain direct audio file children."""
+    found: list[_AudioFolderCandidate] = []
+    if depth > 0 and _list_audio_files(drive_service, folder_id):
+        found.append(
+            _AudioFolderCandidate(
+                folder_id=folder_id,
+                name=folder_name or folder_id,
+                depth=depth,
+            )
+        )
+
+    if depth >= max_depth:
+        return found
+
+    for item in list_folder_children(drive_service, folder_id):
+        resolved = resolve_drive_item(drive_service, item)
+        if resolved.get("mimeType") != FOLDER_MIME_TYPE:
+            continue
+        child_id = resolved.get("id")
+        child_name = resolved.get("name")
+        if not isinstance(child_id, str) or not child_id:
+            continue
+        name = child_name if isinstance(child_name, str) else child_id
+        found.extend(
+            _collect_folders_with_direct_audio(
+                drive_service,
+                child_id,
+                folder_name=name,
+                max_depth=max_depth,
+                depth=depth + 1,
+            )
+        )
+    return found
+
+
+def _pick_audio_folder(
+    drive_service: Resource,
+    pkg_folder_id: str,
+) -> str:
+    """Pick the folder that holds stem/audio files under a package.
+
+    Real packages often have ``Stems`` plus a sibling ``TN`` folder, or nest
+    ``Stems`` under an OCD working folder. Prefer the unique folder that
+    contains audio files; if several do, prefer a Stems-named folder.
+    """
+    # Package root itself may hold audio (legacy layout).
+    if _list_audio_files(drive_service, pkg_folder_id):
+        return pkg_folder_id
+
+    candidates = _collect_folders_with_direct_audio(drive_service, pkg_folder_id)
+    if not candidates:
+        raise DriveCombineError(
+            f"No audio files found under package folder {pkg_folder_id!r}"
+        )
+    if len(candidates) == 1:
+        return candidates[0].folder_id
+
+    stems = [item for item in candidates if _is_stems_folder_name(item.name)]
+    pool = stems or candidates
+    min_depth = min(item.depth for item in pool)
+    pool = [item for item in pool if item.depth == min_depth]
+    if len(pool) == 1:
+        return pool[0].folder_id
+
+    names = sorted({item.name for item in pool}, key=str.casefold)
+    raise DriveCombineError(
+        f"Ambiguous audio folders under {pkg_folder_id!r}: {names}"
+    )
 
 
 def _is_ref_video_name(name: str) -> bool:
@@ -274,7 +351,7 @@ def find_video_and_audio_subfolder(
     *,
     video_type: str | None = None,
 ) -> MixedMediaInput:
-    audio_folder_id = _pick_single_child_folder(drive_service, pkg_folder_id)
+    audio_folder_id = _pick_audio_folder(drive_service, pkg_folder_id)
     audios = _list_audio_files(drive_service, audio_folder_id)
     if not audios:
         raise DriveCombineError(f"No audio files found in audio subfolder {audio_folder_id!r}")
