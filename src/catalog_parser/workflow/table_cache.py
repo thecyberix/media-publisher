@@ -12,11 +12,12 @@ from catalog_parser.airtable import (
     FIELD_ORIGINAL_VIDEO,
     FIELD_ORIGINAL_VIDEO_NAME,
     FIELD_TITLE,
+    FIELD_TYPE,
     FIELD_VIDEO_FOLDER,
     catalog_record_to_airtable_fields,
     normalize_original_video_key,
     normalize_original_video_name_key,
-    normalize_title,
+    title_identity_keys,
 )
 from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.workflow.status_history import record_status_history_from_snapshots
@@ -130,16 +131,24 @@ class TableCache:
                 return record
         return None
 
-    def existing_titles(self) -> set[str]:
-        titles: set[str] = set()
+    def existing_title_keys(self) -> set[str]:
+        """Typed title identity keys (``{type}\\t{title}``)."""
+        keys: set[str] = set()
         for record in self._records:
             fields = record.get("fields")
             if not isinstance(fields, dict):
                 continue
-            title = normalize_title(fields.get(FIELD_TITLE))
-            if title:
-                titles.add(title)
-        return titles
+            keys.update(
+                title_identity_keys(
+                    fields.get(FIELD_TITLE),
+                    fields.get(FIELD_TYPE),
+                )
+            )
+        return keys
+
+    def existing_titles(self) -> set[str]:
+        """Backward-compatible alias for :meth:`existing_title_keys`."""
+        return self.existing_title_keys()
 
     def existing_video_folder_ids(self) -> set[str]:
         folder_ids: set[str] = set()

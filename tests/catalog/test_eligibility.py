@@ -3,7 +3,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+from catalog_parser.airtable import make_title_identity_key
 from catalog_parser.eligibility import (
+    airtable_identity_collision_reasons,
     explain_catalog_eligibility,
     is_catalog_eligible,
     is_not_duplicate_original_video,
@@ -11,6 +13,8 @@ from catalog_parser.eligibility import (
     is_not_duplicate_yt_title,
     is_not_in_airtable,
     needs_bulgarian_translation,
+    smartcat_ready_for_ingest,
+    smartcat_translation_completed,
 )
 
 
@@ -25,11 +29,28 @@ class EligibilityTests(unittest.TestCase):
         self.assertFalse(needs_bulgarian_translation({"pkgBgSrtLk": ""}))
 
     def test_is_not_in_airtable(self) -> None:
+        existing = {make_title_identity_key("existing title", "Reel")}
         self.assertTrue(
-            is_not_in_airtable({"ctTitle": "New Title"}, {"existing title"})
+            is_not_in_airtable(
+                {"ctTitle": "New Title", "ctDuration": 60},
+                existing,
+                video_type="Reel",
+            )
         )
         self.assertFalse(
-            is_not_in_airtable({"ctTitle": "Existing Title"}, {"existing title"})
+            is_not_in_airtable(
+                {"ctTitle": "Existing Title", "ctDuration": 60},
+                existing,
+                video_type="Reel",
+            )
+        )
+        # Same title, different type is allowed.
+        self.assertTrue(
+            is_not_in_airtable(
+                {"ctTitle": "Existing Title", "ctDuration": 300},
+                existing,
+                video_type="Video",
+            )
         )
 
     def test_is_not_duplicate_video_folder(self) -> None:
@@ -93,8 +114,9 @@ class EligibilityTests(unittest.TestCase):
         self.assertFalse(
             is_catalog_eligible(
                 base_record,
-                {"eligible reel"},
+                {make_title_identity_key("eligible reel", "Reel")},
                 drive_service=drive,
+                video_type="Reel",
             )
         )
 
@@ -212,12 +234,63 @@ class EligibilityTests(unittest.TestCase):
             {
                 "ctTitle": "Sample",
                 "pkgSmLk": "https://ea.smartcat.com/projects/x/files",
-                "pkgBgSrtLkSkipReason": "Bulgarian subtitles already completed in Smartcat",
+                "pkgBgSrtLkSkipReason": "No Bulgarian target language on document",
             },
             set(),
             drive_service=MagicMock(),
+            require_mixable_media=False,
         )
-        self.assertIn("Smartcat: Bulgarian subtitles already completed in Smartcat", reasons)
+        self.assertIn("Smartcat: No Bulgarian target language on document", reasons)
+
+    def test_smartcat_completed_is_ready_for_ingest(self) -> None:
+        record = {
+            "pkgBgSrtLkSkipReason": "Bulgarian subtitles already completed in Smartcat",
+        }
+        self.assertTrue(smartcat_translation_completed(record))
+        self.assertTrue(smartcat_ready_for_ingest(record))
+        self.assertTrue(
+            is_catalog_eligible(
+                {
+                    "ctTitle": "Completed Video",
+                    "ctDuration": 400,
+                    **record,
+                    "pkgLink": "https://drive.google.com/drive/folders/pkg",
+                },
+                set(),
+                require_mixable_media=False,
+                video_type="Video",
+            )
+        )
+
+    def test_airtable_identity_collision_reasons_title_and_folder(self) -> None:
+        reasons = airtable_identity_collision_reasons(
+            {
+                "ctTitle": "Farm vs Supermarket",
+                "ctDuration": 400,
+                "pkgLink": "https://drive.google.com/drive/folders/pkg1",
+                "ctLink": "https://youtu.be/abc12345678",
+            },
+            {make_title_identity_key("farm vs supermarket", "Video")},
+            existing_folder_ids={"pkg1"},
+            existing_original_video_keys={"yt:abc12345678"},
+            video_type="Video",
+        )
+        self.assertIn("Already in Airtable (duplicate title for this Type)", reasons)
+        self.assertIn("Already in Airtable (duplicate Video Folder)", reasons)
+        self.assertIn("Already in Airtable (duplicate Original Video)", reasons)
+
+    def test_airtable_identity_allows_same_title_different_type(self) -> None:
+        reasons = airtable_identity_collision_reasons(
+            {
+                "ctTitle": "Farm vs Supermarket",
+                "ctDuration": 400,
+                "pkgLink": "https://drive.google.com/drive/folders/new-pkg",
+            },
+            {make_title_identity_key("farm vs supermarket", "Reel")},
+            existing_folder_ids=set(),
+            video_type="Video",
+        )
+        self.assertEqual(reasons, [])
 
 
 if __name__ == "__main__":

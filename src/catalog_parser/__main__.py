@@ -6,14 +6,19 @@ import os
 import sys
 from pathlib import Path
 
-from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ingest, normalize_title
+from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ingest
 from catalog_parser.eligibility import (
+    airtable_identity_collision_reasons,
     catalog_original_video_key,
     catalog_video_folder_id,
     catalog_yt_title_key,
     explain_catalog_eligibility,
     is_catalog_eligible,
+    register_title_identity,
+    smartcat_ready_for_ingest,
+    smartcat_translation_completed,
 )
+from catalog_parser.drive_mix import record_has_mixable_media
 from catalog_parser.auth import (
     DEFAULT_AUTH_PORT,
     get_docs_service,
@@ -204,6 +209,133 @@ def build_eligible_catalog_records(
         else set()
     )
 
+    def _print_skip_reasons(reasons: list[str]) -> None:
+        for reason in reasons:
+            print(f"  -> skipped: {reason}")
+
+    def _identity_reasons(record: dict) -> list[str]:
+        return airtable_identity_collision_reasons(
+            record,
+            existing_titles,
+            existing_folder_ids=folder_ids,
+            existing_original_video_names=original_video_names,
+            existing_original_video_keys=original_video_keys,
+            video_type=video_type,
+        )
+
+    def _mark_eligible(record: dict) -> None:
+        eligible.append(record)
+        register_title_identity(existing_titles, record, video_type=video_type)
+        folder_id = catalog_video_folder_id(record)
+        if folder_id:
+            folder_ids.add(folder_id)
+        yt_title_key = catalog_yt_title_key(record)
+        if yt_title_key:
+            original_video_names.add(yt_title_key)
+        original_video_key = catalog_original_video_key(record)
+        if original_video_key:
+            original_video_keys.add(original_video_key)
+        print(f"  -> eligible ({len(eligible)}/{target_count})")
+
+    def _run_ai_enrichment(record: dict) -> dict:
+        """Smartcat subtitle prefill + metadata/caption translate for survivors only."""
+        if smartcat_enabled and record.get("pkgBgSrtLk"):
+            from catalog_parser.translation.prefill import (
+                ai_prefill_enabled,
+                prefill_record_if_needed,
+            )
+
+            if ai_prefill_enabled():
+                try:
+                    from catalog_parser.smartcat_export import (
+                        build_cookie_client_from_env,
+                    )
+
+                    cookie_client = build_cookie_client_from_env(
+                        project_root=PROJECT_ROOT
+                    )
+                    prefill = prefill_record_if_needed(
+                        record,
+                        cookie_client,
+                        project_root=PROJECT_ROOT,
+                    )
+                    if prefill.skipped:
+                        print("  -> AI prefill skipped (already has translation)")
+                    elif prefill.ok:
+                        print(
+                            f"  -> AI prefill wrote {prefill.written_segments} "
+                            f"segment(s) from {prefill.source_cues} cue(s)"
+                        )
+                    else:
+                        print(
+                            f"  -> AI prefill failed (continuing): {prefill.error}"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  -> AI prefill failed (continuing): {exc}")
+
+        from catalog_parser.translation.prefill import ai_prefill_enabled
+        from catalog_parser.translation.caption_prefill import (
+            translate_record_caption_if_needed,
+        )
+        from catalog_parser.translation.metadata_prefill import (
+            translate_record_metadata_if_needed,
+        )
+
+        if not ai_prefill_enabled():
+            return record
+
+        try:
+            meta = translate_record_metadata_if_needed(
+                record,
+                project_root=PROJECT_ROOT,
+            )
+            if meta.skipped and not meta.errors:
+                print("  -> AI metadata translate skipped")
+            elif meta.title_translated or meta.description_translated:
+                parts: list[str] = []
+                if meta.title_translated:
+                    parts.append("title")
+                if meta.description_translated:
+                    parts.append("description")
+                print(f"  -> AI metadata translated {', '.join(parts)}")
+                if meta.errors:
+                    print(
+                        "  -> AI metadata partial errors: "
+                        + "; ".join(meta.errors)
+                    )
+            elif meta.errors:
+                print(
+                    "  -> AI metadata translate failed (continuing): "
+                    + "; ".join(meta.errors)
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  -> AI metadata translate failed (continuing): {exc}")
+
+        try:
+            caption = translate_record_caption_if_needed(
+                record,
+                project_root=PROJECT_ROOT,
+                drive_service=drive_service if drive_docs_enabled else None,
+            )
+            if caption.skipped and not caption.errors:
+                print("  -> AI caption translate skipped")
+            elif caption.caption_translated:
+                source = caption.source or "unknown"
+                print(f"  -> AI caption translated (source={source})")
+                if caption.errors:
+                    print(
+                        "  -> AI caption partial errors: "
+                        + "; ".join(caption.errors)
+                    )
+            elif caption.errors:
+                print(
+                    "  -> AI caption translate failed (continuing): "
+                    + "; ".join(caption.errors)
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  -> AI caption translate failed (continuing): {exc}")
+        return record
+
     def process_candidate(candidate: dict) -> None:
         nonlocal scanned
         if len(eligible) >= target_count:
@@ -214,6 +346,12 @@ def build_eligible_catalog_records(
         label = record.get("ctTitle")
         label_text = label if isinstance(label, str) and label else f"row {scanned}"
         print(f"Candidate {scanned}: {label_text}")
+
+        # Cheap Airtable identity checks before Smartcat / Drive / AI.
+        early_dupes = _identity_reasons(record)
+        if early_dupes:
+            _print_skip_reasons(early_dupes)
+            return
 
         if smartcat_enabled:
             if smartcat_api:
@@ -229,44 +367,34 @@ def build_eligible_catalog_records(
                 )
             if record.get("pkgBgSrtLk"):
                 print("  -> Smartcat editor link resolved")
-                from catalog_parser.translation.prefill import (
-                    ai_prefill_enabled,
-                    prefill_record_if_needed,
+            elif smartcat_translation_completed(record):
+                print(
+                    "  -> Smartcat: Bulgarian subtitles already completed "
+                    "(will ingest as Translation done)"
                 )
-
-                if ai_prefill_enabled():
-                    try:
-                        from catalog_parser.smartcat_export import (
-                            build_cookie_client_from_env,
-                        )
-
-                        cookie_client = build_cookie_client_from_env(
-                            project_root=PROJECT_ROOT
-                        )
-                        prefill = prefill_record_if_needed(
-                            record,
-                            cookie_client,
-                            project_root=PROJECT_ROOT,
-                        )
-                        if prefill.skipped:
-                            print("  -> AI prefill skipped (already has translation)")
-                        elif prefill.ok:
-                            print(
-                                f"  -> AI prefill wrote {prefill.written_segments} "
-                                f"segment(s) from {prefill.source_cues} cue(s)"
-                            )
-                        else:
-                            print(
-                                f"  -> AI prefill failed (continuing): {prefill.error}"
-                            )
-                    except Exception as exc:  # noqa: BLE001
-                        print(f"  -> AI prefill failed (continuing): {exc}")
+                record["_smartcat_completed"] = True
             elif record.get("pkgBgSrtLkSkipReason"):
                 print(f"  -> Smartcat: {record['pkgBgSrtLkSkipReason']}")
             elif record.get("pkgBgSrtLkError"):
                 print(f"  -> Smartcat error: {record['pkgBgSrtLkError']}")
-            elif smartcat_enabled:
+            else:
                 print("  -> Smartcat: no editor link")
+
+            if not smartcat_ready_for_ingest(record):
+                _print_skip_reasons(
+                    explain_catalog_eligibility(
+                        record,
+                        existing_titles,
+                        existing_folder_ids=folder_ids,
+                        existing_original_video_names=original_video_names,
+                        existing_original_video_keys=original_video_keys,
+                        drive_service=None,
+                        require_smartcat=True,
+                        require_mixable_media=False,
+                        video_type=video_type,
+                    )
+                )
+                return
 
         if drive_docs_enabled:
             record = enrich_records_with_yt_titles(
@@ -274,6 +402,11 @@ def build_eligible_catalog_records(
                 drive_service,
                 docs_service,
             )[0]
+            # ytTitle may unlock Original Video Name collisions — check before thumbs/AI.
+            post_drive_dupes = _identity_reasons(record)
+            if post_drive_dupes:
+                _print_skip_reasons(post_drive_dupes)
+                return
             record = enrich_records_with_original_video_thumbnails(
                 [record],
                 drive_service,
@@ -283,65 +416,28 @@ def build_eligible_catalog_records(
                 catalog_peers=candidates,
             )[0]
 
-        from catalog_parser.translation.prefill import ai_prefill_enabled
-        from catalog_parser.translation.caption_prefill import (
-            translate_record_caption_if_needed,
-        )
-        from catalog_parser.translation.metadata_prefill import (
-            translate_record_metadata_if_needed,
-        )
-
-        if ai_prefill_enabled():
-            try:
-                meta = translate_record_metadata_if_needed(
-                    record,
-                    project_root=PROJECT_ROOT,
-                )
-                if meta.skipped and not meta.errors:
-                    print("  -> AI metadata translate skipped")
-                elif meta.title_translated or meta.description_translated:
-                    parts: list[str] = []
-                    if meta.title_translated:
-                        parts.append("title")
-                    if meta.description_translated:
-                        parts.append("description")
-                    print(f"  -> AI metadata translated {', '.join(parts)}")
-                    if meta.errors:
-                        print(
-                            "  -> AI metadata partial errors: "
-                            + "; ".join(meta.errors)
-                        )
-                elif meta.errors:
-                    print(
-                        "  -> AI metadata translate failed (continuing): "
-                        + "; ".join(meta.errors)
+        if require_mixable_media:
+            if drive_service is None or not record_has_mixable_media(
+                drive_service,
+                record,
+                video_type=video_type,
+            ):
+                _print_skip_reasons(
+                    explain_catalog_eligibility(
+                        record,
+                        existing_titles,
+                        existing_folder_ids=folder_ids,
+                        existing_original_video_names=original_video_names,
+                        existing_original_video_keys=original_video_keys,
+                        drive_service=drive_service,
+                        require_smartcat=False,
+                        require_mixable_media=True,
+                        video_type=video_type,
                     )
-            except Exception as exc:  # noqa: BLE001
-                print(f"  -> AI metadata translate failed (continuing): {exc}")
-
-            try:
-                caption = translate_record_caption_if_needed(
-                    record,
-                    project_root=PROJECT_ROOT,
-                    drive_service=drive_service if drive_docs_enabled else None,
                 )
-                if caption.skipped and not caption.errors:
-                    print("  -> AI caption translate skipped")
-                elif caption.caption_translated:
-                    source = caption.source or "unknown"
-                    print(f"  -> AI caption translated (source={source})")
-                    if caption.errors:
-                        print(
-                            "  -> AI caption partial errors: "
-                            + "; ".join(caption.errors)
-                        )
-                elif caption.errors:
-                    print(
-                        "  -> AI caption translate failed (continuing): "
-                        + "; ".join(caption.errors)
-                    )
-            except Exception as exc:  # noqa: BLE001
-                print(f"  -> AI caption translate failed (continuing): {exc}")
+                return
+
+        record = _run_ai_enrichment(record)
 
         if is_catalog_eligible(
             record,
@@ -354,33 +450,21 @@ def build_eligible_catalog_records(
             require_mixable_media=require_mixable_media,
             video_type=video_type,
         ):
-            eligible.append(record)
-            title = normalize_title(record.get("ctTitle"))
-            if title:
-                existing_titles.add(title)
-            folder_id = catalog_video_folder_id(record)
-            if folder_id:
-                folder_ids.add(folder_id)
-            yt_title_key = catalog_yt_title_key(record)
-            if yt_title_key:
-                original_video_names.add(yt_title_key)
-            original_video_key = catalog_original_video_key(record)
-            if original_video_key:
-                original_video_keys.add(original_video_key)
-            print(f"  -> eligible ({len(eligible)}/{target_count})")
+            _mark_eligible(record)
         else:
-            for reason in explain_catalog_eligibility(
-                record,
-                existing_titles,
-                existing_folder_ids=folder_ids,
-                existing_original_video_names=original_video_names,
-                existing_original_video_keys=original_video_keys,
-                drive_service=drive_service if require_mixable_media else None,
-                require_smartcat=smartcat_enabled,
-                require_mixable_media=require_mixable_media,
-                video_type=video_type,
-            ):
-                print(f"  -> skipped: {reason}")
+            _print_skip_reasons(
+                explain_catalog_eligibility(
+                    record,
+                    existing_titles,
+                    existing_folder_ids=folder_ids,
+                    existing_original_video_names=original_video_names,
+                    existing_original_video_keys=original_video_keys,
+                    drive_service=drive_service if require_mixable_media else None,
+                    require_smartcat=smartcat_enabled,
+                    require_mixable_media=require_mixable_media,
+                    video_type=video_type,
+                )
+            )
 
     smartcat_session: SmartcatWebSession | None = None
     if smartcat_enabled and not smartcat_api and web_client is not None:

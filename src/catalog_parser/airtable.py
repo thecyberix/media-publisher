@@ -141,6 +141,59 @@ def normalize_title_variants(value: Any) -> set[str]:
     return variants
 
 
+# Title dedup is scoped by Type. Archive titles without a type use ANY.
+TITLE_KEY_ANY_TYPE = "*"
+
+
+def normalize_type_key(video_type: Any) -> str:
+    if not isinstance(video_type, str) or not video_type.strip():
+        return TITLE_KEY_ANY_TYPE
+    return video_type.strip().casefold()
+
+
+def make_title_identity_key(title: str, video_type: Any = None) -> str:
+    return f"{normalize_type_key(video_type)}\t{title}"
+
+
+def resolve_record_type_key(
+    record: dict[str, Any],
+    *,
+    video_type: str | None = None,
+) -> str:
+    if isinstance(video_type, str) and video_type.strip():
+        return normalize_type_key(video_type)
+    duration = parse_duration(record.get("ctDuration"))
+    if duration is not None:
+        return normalize_type_key(duration_to_type(duration))
+    return TITLE_KEY_ANY_TYPE
+
+
+def title_identity_keys(
+    title_value: Any,
+    video_type: Any = None,
+) -> set[str]:
+    """Typed title keys for one catalog/Airtable title value."""
+    keys: set[str] = set()
+    type_key = normalize_type_key(video_type)
+    for variant in normalize_title_variants(title_value):
+        keys.add(make_title_identity_key(variant, type_key))
+    return keys
+
+
+def title_identity_collides(
+    existing_title_keys: set[str],
+    title_value: Any,
+    video_type: Any = None,
+) -> bool:
+    """True when title is taken for this type (or as an any-type archive key)."""
+    for variant in normalize_title_variants(title_value):
+        if make_title_identity_key(variant, video_type) in existing_title_keys:
+            return True
+        if make_title_identity_key(variant, TITLE_KEY_ANY_TYPE) in existing_title_keys:
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class AirtableArchiveSource:
     base_id: str
@@ -294,7 +347,33 @@ class AirtableClient:
         return json.loads(payload.decode("utf-8"))
 
     def list_existing_titles(self) -> set[str]:
-        return self.list_title_variants(title_fields=(FIELD_TITLE,))
+        """Return typed title identity keys (``{type}\\t{title}``)."""
+        keys: set[str] = set()
+        offset: str | None = None
+        while True:
+            query: dict[str, Any] = {
+                "pageSize": "100",
+                "fields[]": [FIELD_TITLE, FIELD_TYPE],
+            }
+            if offset:
+                query["offset"] = offset
+            response = self._request("GET", self._table_url(), query=query)
+            for item in response.get("records", []):
+                if not isinstance(item, dict):
+                    continue
+                fields = item.get("fields")
+                if not isinstance(fields, dict):
+                    continue
+                keys.update(
+                    title_identity_keys(
+                        fields.get(FIELD_TITLE),
+                        fields.get(FIELD_TYPE),
+                    )
+                )
+            offset = response.get("offset")
+            if not offset:
+                break
+        return keys
 
     def list_existing_video_folder_ids(self) -> set[str]:
         folder_ids: set[str] = set()
@@ -652,7 +731,8 @@ class AirtableClient:
             if not title:
                 skipped += 1
                 continue
-            if title in existing_titles:
+            type_key = resolve_record_type_key(record)
+            if title_identity_collides(existing_titles, record.get("ctTitle"), type_key):
                 skipped += 1
                 continue
             folder_id = extract_drive_folder_id(str(record.get("pkgLink") or ""))
@@ -671,7 +751,7 @@ class AirtableClient:
                 skipped += 1
                 continue
             to_create.append(record)
-            existing_titles.add(title)
+            existing_titles.update(title_identity_keys(record.get("ctTitle"), type_key))
             if folder_id:
                 existing_folder_ids.add(folder_id)
             if yt_title_key:
@@ -694,7 +774,7 @@ def load_existing_titles_for_ingest(
     from catalog_parser.workflow.archive_title_cache import load_archive_titles
 
     if table_cache is not None:
-        titles = table_cache.existing_titles()
+        titles = table_cache.existing_title_keys()
     else:
         titles = airtable.list_existing_titles()
 
@@ -714,13 +794,13 @@ def load_existing_titles_for_ingest(
 
     if filtered_sources:
         root = project_root or Path(__file__).resolve().parents[2]
-        titles.update(
-            load_archive_titles(
-                airtable,
-                filtered_sources,
-                project_root=root,
-            )
-        )
+        # Archive rows are type-unknown: block that title for every ingest type.
+        for archive_title in load_archive_titles(
+            airtable,
+            filtered_sources,
+            project_root=root,
+        ):
+            titles.update(title_identity_keys(archive_title, TITLE_KEY_ANY_TYPE))
     return titles
 
 

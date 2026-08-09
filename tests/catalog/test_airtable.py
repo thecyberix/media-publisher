@@ -90,7 +90,15 @@ class AirtableMappingTests(unittest.TestCase):
 
     def test_load_existing_titles_for_ingest_merges_archive_titles(self) -> None:
         client = AirtableClient("pat-test", "app-current", "Catalog")
-        cache = type("Cache", (), {"existing_titles": lambda self: {"current title"}})()
+        cache = type(
+            "Cache",
+            (),
+            {
+                "existing_title_keys": lambda self: {
+                    "reel\tcurrent title",
+                }
+            },
+        )()
 
         with patch(
             "catalog_parser.workflow.archive_title_cache.load_archive_titles",
@@ -109,7 +117,8 @@ class AirtableMappingTests(unittest.TestCase):
                 project_root=Path("."),
             )
 
-        self.assertEqual(titles, {"current title", "archived title"})
+        self.assertIn("reel\tcurrent title", titles)
+        self.assertIn("*\tarchived title", titles)
         archive_mock.assert_called_once()
 
     def test_normalize_original_video_name_strips_sadhguru_suffix(self) -> None:
@@ -242,7 +251,7 @@ class AirtableSyncTests(unittest.TestCase):
 
         with patch(
             "catalog_parser.airtable.load_existing_titles_for_ingest",
-            return_value={"already there"},
+            return_value={"*\talready there"},
         ), patch(
             "catalog_parser.airtable.load_existing_video_folder_ids_for_ingest",
             return_value=set(),

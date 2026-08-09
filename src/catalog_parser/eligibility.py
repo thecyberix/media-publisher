@@ -6,15 +6,35 @@ from catalog_parser.airtable import (
     normalize_original_video_key,
     normalize_original_video_name_key,
     normalize_title,
+    resolve_record_type_key,
+    title_identity_collides,
+    title_identity_keys,
 )
 from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.drive_mix import check_mixable_media, record_has_mixable_media
 from googleapiclient.discovery import Resource
 
+_SMARTCAT_COMPLETED_MARKER = "already completed"
+
 
 def needs_bulgarian_translation(record: dict[str, Any]) -> bool:
     pkg_bg_srt_link = record.get("pkgBgSrtLk")
     return isinstance(pkg_bg_srt_link, str) and bool(pkg_bg_srt_link.strip())
+
+
+def smartcat_translation_completed(record: dict[str, Any]) -> bool:
+    """True when Smartcat has finished BG subs (no open editor link)."""
+    if needs_bulgarian_translation(record):
+        return False
+    skip_reason = record.get("pkgBgSrtLkSkipReason")
+    if not isinstance(skip_reason, str):
+        return False
+    return _SMARTCAT_COMPLETED_MARKER in skip_reason.casefold()
+
+
+def smartcat_ready_for_ingest(record: dict[str, Any]) -> bool:
+    """Open editor (needs translation) or already-completed BG subs."""
+    return needs_bulgarian_translation(record) or smartcat_translation_completed(record)
 
 
 def catalog_video_folder_id(record: dict[str, Any]) -> str | None:
@@ -38,11 +58,18 @@ def catalog_original_video_key(record: dict[str, Any]) -> str | None:
 def is_not_in_airtable(
     record: dict[str, Any],
     existing_titles: set[str],
+    *,
+    video_type: str | None = None,
 ) -> bool:
     title = normalize_title(record.get("ctTitle"))
     if not title:
         return False
-    return title not in existing_titles
+    type_key = resolve_record_type_key(record, video_type=video_type)
+    return not title_identity_collides(
+        existing_titles,
+        record.get("ctTitle"),
+        type_key,
+    )
 
 
 def is_not_duplicate_video_folder(
@@ -78,6 +105,37 @@ def is_not_duplicate_original_video(
     return key not in existing_original_video_keys
 
 
+def airtable_identity_collision_reasons(
+    record: dict[str, Any],
+    existing_titles: set[str],
+    *,
+    existing_folder_ids: set[str] | None = None,
+    existing_original_video_names: set[str] | None = None,
+    existing_original_video_keys: set[str] | None = None,
+    video_type: str | None = None,
+) -> list[str]:
+    """Cheap Airtable identity collisions (sheet fields only; no Smartcat/Drive)."""
+    reasons: list[str] = []
+    if not is_not_in_airtable(record, existing_titles, video_type=video_type):
+        reasons.append("Already in Airtable (duplicate title for this Type)")
+    if existing_folder_ids is not None and not is_not_duplicate_video_folder(
+        record,
+        existing_folder_ids,
+    ):
+        reasons.append("Already in Airtable (duplicate Video Folder)")
+    if (
+        existing_original_video_names is not None
+        and not is_not_duplicate_yt_title(record, existing_original_video_names)
+    ):
+        reasons.append("Already in Airtable (duplicate Original Video Name)")
+    if (
+        existing_original_video_keys is not None
+        and not is_not_duplicate_original_video(record, existing_original_video_keys)
+    ):
+        reasons.append("Already in Airtable (duplicate Original Video)")
+    return reasons
+
+
 def is_catalog_eligible(
     record: dict[str, Any],
     existing_titles: set[str],
@@ -90,23 +148,15 @@ def is_catalog_eligible(
     require_mixable_media: bool = True,
     video_type: str | None = None,
 ) -> bool:
-    if require_smartcat and not needs_bulgarian_translation(record):
+    if require_smartcat and not smartcat_ready_for_ingest(record):
         return False
-    if not is_not_in_airtable(record, existing_titles):
-        return False
-    if existing_folder_ids is not None and not is_not_duplicate_video_folder(
+    if airtable_identity_collision_reasons(
         record,
-        existing_folder_ids,
-    ):
-        return False
-    if (
-        existing_original_video_names is not None
-        and not is_not_duplicate_yt_title(record, existing_original_video_names)
-    ):
-        return False
-    if (
-        existing_original_video_keys is not None
-        and not is_not_duplicate_original_video(record, existing_original_video_keys)
+        existing_titles,
+        existing_folder_ids=existing_folder_ids,
+        existing_original_video_names=existing_original_video_names,
+        existing_original_video_keys=existing_original_video_keys,
+        video_type=video_type,
     ):
         return False
     if require_mixable_media:
@@ -135,7 +185,7 @@ def explain_catalog_eligibility(
 ) -> list[str]:
     reasons: list[str] = []
 
-    if require_smartcat and not needs_bulgarian_translation(record):
+    if require_smartcat and not smartcat_ready_for_ingest(record):
         skip_reason = record.get("pkgBgSrtLkSkipReason")
         error = record.get("pkgBgSrtLkError")
         if isinstance(skip_reason, str) and skip_reason.strip():
@@ -147,23 +197,16 @@ def explain_catalog_eligibility(
         else:
             reasons.append("Smartcat: no Bulgarian SRT editor link resolved")
 
-    if not is_not_in_airtable(record, existing_titles):
-        reasons.append("Already in Airtable (duplicate title)")
-    elif existing_folder_ids is not None and not is_not_duplicate_video_folder(
-        record,
-        existing_folder_ids,
-    ):
-        reasons.append("Already in Airtable (duplicate Video Folder)")
-    elif (
-        existing_original_video_names is not None
-        and not is_not_duplicate_yt_title(record, existing_original_video_names)
-    ):
-        reasons.append("Already in Airtable (duplicate Original Video Name)")
-    elif (
-        existing_original_video_keys is not None
-        and not is_not_duplicate_original_video(record, existing_original_video_keys)
-    ):
-        reasons.append("Already in Airtable (duplicate Original Video)")
+    reasons.extend(
+        airtable_identity_collision_reasons(
+            record,
+            existing_titles,
+            existing_folder_ids=existing_folder_ids,
+            existing_original_video_names=existing_original_video_names,
+            existing_original_video_keys=existing_original_video_keys,
+            video_type=video_type,
+        )
+    )
 
     if require_mixable_media:
         if drive_service is None:
@@ -187,3 +230,13 @@ def explain_catalog_eligibility(
                         reasons.append(f"Drive mix: {detail}")
 
     return reasons
+
+
+def register_title_identity(
+    existing_titles: set[str],
+    record: dict[str, Any],
+    *,
+    video_type: str | None = None,
+) -> None:
+    type_key = resolve_record_type_key(record, video_type=video_type)
+    existing_titles.update(title_identity_keys(record.get("ctTitle"), type_key))
