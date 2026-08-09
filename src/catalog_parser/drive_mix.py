@@ -553,3 +553,54 @@ def mix_folder_media_to_drive(
         mime_type="video/mp4",
     )
 
+
+def upload_package_video_to_drive(
+    drive_service: Resource,
+    *,
+    pkg_folder_id: str,
+    output_parent_id: str,
+    output_name: str,
+    work_dir: Path,
+    dry_run: bool = False,
+    video_type: str | None = None,
+) -> DriveMediaFile:
+    """Upload the selected package video as Combined Media (no audio mix).
+
+    Used for packages that already ship a finished video and have no stem audio.
+    """
+    required_orientation = (
+        required_orientation_for_video_type(video_type) if video_type else None
+    )
+    videos = _list_videos_in_folder_tree(drive_service, pkg_folder_id)
+    video = _pick_merge_video(
+        videos,
+        drive_service=drive_service,
+        required_orientation=required_orientation,
+    )
+    if dry_run:
+        return DriveMediaFile(
+            id="dry-run",
+            name=output_name,
+            mime_type=video.mime_type or "video/mp4",
+            parent_id=output_parent_id,
+        )
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    local_source = download_drive_file(
+        drive_service,
+        video.id,
+        work_dir / _sanitize_local_filename(video.name),
+    )
+    output_path = work_dir / _sanitize_local_filename(output_name)
+    if output_path.resolve() != local_source.resolve():
+        output_path.write_bytes(local_source.read_bytes())
+
+    verify_drive_output_folder_access(drive_service, output_parent_id)
+    return upload_drive_file(
+        drive_service,
+        output_parent_id,
+        output_path,
+        name=output_name,
+        mime_type="video/mp4",
+    )
+

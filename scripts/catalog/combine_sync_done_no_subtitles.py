@@ -33,6 +33,7 @@ from catalog_parser.drive_mix import (
     check_mixable_media,
     format_mix_media_check,
     mix_folder_media_to_drive,
+    upload_package_video_to_drive,
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
 
@@ -161,30 +162,46 @@ def main() -> int:
 
         check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)
         print(f"  {format_mix_media_check(check)}", flush=True)
-        if not check.ok:
-            print("  FAIL: not mixable")
-            failures += 1
-            continue
 
         output_name = title if title.casefold().endswith(".mp4") else f"{title}.mp4"
         work_dir = args.work_dir / record_id
         try:
-            created = mix_folder_media_to_drive(
-                drive,
-                pkg_folder_id=pkg_folder_id,
-                output_parent_id=output_parent_id,
-                output_name=output_name,
-                work_dir=work_dir,
-                dry_run=args.dry_run,
-                video_type=video_type,
-            )
+            if check.ok:
+                created = mix_folder_media_to_drive(
+                    drive,
+                    pkg_folder_id=pkg_folder_id,
+                    output_parent_id=output_parent_id,
+                    output_name=output_name,
+                    work_dir=work_dir,
+                    dry_run=args.dry_run,
+                    video_type=video_type,
+                )
+                source_label = "mixed"
+            elif check.error and "No audio files found" in check.error:
+                created = upload_package_video_to_drive(
+                    drive,
+                    pkg_folder_id=pkg_folder_id,
+                    output_parent_id=output_parent_id,
+                    output_name=output_name,
+                    work_dir=work_dir,
+                    dry_run=args.dry_run,
+                    video_type=video_type,
+                )
+                source_label = "video-only"
+                print("  No stem audio — uploading selected package video", flush=True)
+            else:
+                print("  FAIL: not mixable")
+                failures += 1
+                continue
         except Exception as exc:
             print(f"  FAIL: {exc}")
             failures += 1
             continue
 
         if args.dry_run:
-            print(f"  DRY-RUN: would upload {output_name!r} as {created.id}")
+            print(
+                f"  DRY-RUN: would upload {output_name!r} as {created.id} ({source_label})"
+            )
             continue
 
         drive_url = f"https://drive.google.com/file/d/{created.id}/view"
@@ -192,7 +209,7 @@ def main() -> int:
             record_id,
             {FIELD_COMBINED_MEDIA_FILE: drive_url},
         )
-        print(f"  OK: {drive_url}", flush=True)
+        print(f"  OK ({source_label}): {drive_url}", flush=True)
 
     print()
     print(f"Done: {len(targets) - failures} succeeded, {failures} failed")
