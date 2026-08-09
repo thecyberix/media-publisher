@@ -47,10 +47,12 @@ def video_size_from_drive_file(
     *,
     file_name: str | None = None,
 ) -> tuple[int, int] | None:
-    size = video_size_from_drive_file_metadata(drive_service, file_id)
-    if size is not None:
-        return size
+    """Return width/height for a Drive video.
 
+    Prefer ffprobe on the downloaded file. Drive ``videoMediaMetadata`` is often
+    wrong for vertical phone footage (e.g. reports 1920x1080 for a 1080x1920
+    file), so metadata is only a fallback when probing fails.
+    """
     from media_publisher.video_duration import probe_local_video_size
 
     suffix = Path(file_name or "video.mp4").suffix or ".mp4"
@@ -59,8 +61,13 @@ def video_size_from_drive_file(
         try:
             download_drive_file(drive_service, file_id, destination)
         except Exception:
-            return None
-        return probe_local_video_size(destination)
+            destination = None
+        if destination is not None:
+            probed = probe_local_video_size(destination)
+            if probed is not None:
+                return probed
+
+    return video_size_from_drive_file_metadata(drive_service, file_id)
 
 
 def video_size_from_pkg_folder(

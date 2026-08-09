@@ -70,6 +70,32 @@ class DriveVideoSizeTests(unittest.TestCase):
             (1920, 1080),
         )
 
+    def test_video_size_from_drive_file_prefers_ffprobe_over_metadata(self) -> None:
+        from catalog_parser.drive_video_size import video_size_from_drive_file
+
+        drive_service = MagicMock()
+        drive_service.files().get().execute.return_value = {
+            "videoMediaMetadata": {"width": 1920, "height": 1080},
+        }
+        with patch(
+            "catalog_parser.drive_video_size.download_drive_file",
+            side_effect=lambda _drive, _file_id, destination: destination.write_bytes(
+                b"fake"
+            )
+            or destination,
+        ), patch(
+            "media_publisher.video_duration.probe_local_video_size",
+            return_value=(1080, 1920),
+        ):
+            self.assertEqual(
+                video_size_from_drive_file(
+                    drive_service,
+                    "file-1",
+                    file_name="phone.mp4",
+                ),
+                (1080, 1920),
+            )
+
     def test_video_size_from_pkg_folder(self) -> None:
         drive_service = MagicMock()
         with patch(
