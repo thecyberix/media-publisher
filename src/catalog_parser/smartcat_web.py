@@ -13,6 +13,7 @@ from catalog_parser.smartcat import (
     DEFAULT_UI_BASE,
     SmartcatError,
     build_smartcat_editor_link,
+    bulgarian_segments_have_translation,
     bulgarian_target_is_fully_done,
     get_language_target,
     language_matches,
@@ -230,14 +231,21 @@ class SmartcatWebClient:
                 f"Document {document.get('name')!r} has no Smartcat target for language {language!r}"
             )
 
-        # Skip only fully completed targets. Partially filled / AI-prefilled docs
-        # must still resolve an editor link so ingest can create the Airtable row.
+        # Skip when Bulgarian targets already have any translation text. Smartcat
+        # stage progress often stays at 0% even then, so inspect segment text.
         if bulgarian_target_is_fully_done(target):
             return None
 
         document_id = document.get("id")
         if not isinstance(document_id, str) or not document_id:
             raise SmartcatError(f"Matched Smartcat document is missing an id: {document!r}")
+
+        # Lazy import: smartcat_write → smartcat_export → smartcat_web.
+        from catalog_parser.smartcat_write import list_document_segments
+
+        segments = list_document_segments(self, document_id, language_id)
+        if bulgarian_segments_have_translation(segments, language_id):
+            return None
 
         return build_smartcat_editor_link(
             self.ui_base,

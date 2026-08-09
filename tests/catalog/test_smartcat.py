@@ -98,6 +98,20 @@ class SmartcatLinkParsingTests(unittest.TestCase):
         self.assertTrue(document_has_language_target(document, 1026))
         self.assertFalse(document_has_language_target(document, 9))
 
+    def test_bulgarian_segments_have_translation(self) -> None:
+        from catalog_parser.smartcat import bulgarian_segments_have_translation
+
+        empty = [
+            {"targets": [{"languageId": 1026, "text": ""}]},
+            {"targets": [{"languageId": 1026, "text": "  "}]},
+        ]
+        any_filled = [
+            {"targets": [{"languageId": 1026, "text": ""}]},
+            {"targets": [{"languageId": 1026, "text": "Едно"}]},
+        ]
+        self.assertFalse(bulgarian_segments_have_translation(empty, 1026))
+        self.assertTrue(bulgarian_segments_have_translation(any_filled, 1026))
+
     def test_bulgarian_target_needs_translation(self) -> None:
         empty_target = {
             "languageId": 1026,

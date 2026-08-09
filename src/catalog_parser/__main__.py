@@ -193,6 +193,7 @@ def build_eligible_catalog_records(
     require_mixable_media: bool,
     thumbnail_staging_dir: Path | None = None,
     video_type: str | None = None,
+    dry_run: bool = False,
 ) -> tuple[list[dict], int]:
     eligible: list[dict] = []
     scanned = 0
@@ -238,6 +239,10 @@ def build_eligible_catalog_records(
 
     def _run_ai_enrichment(record: dict) -> dict:
         """Smartcat subtitle prefill + metadata/caption translate for survivors only."""
+        if dry_run:
+            print("  -> AI prefill skipped (dry-run)")
+            return record
+
         if smartcat_enabled and record.get("pkgBgSrtLk"):
             from catalog_parser.translation.prefill import (
                 ai_prefill_enabled,
@@ -1041,6 +1046,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             canva_client=canva_client,
             require_mixable_media=require_mixable_media,
             video_type=video_type,
+            dry_run=bool(args.dry_run),
         )
         if len(records) < target_count:
             print(

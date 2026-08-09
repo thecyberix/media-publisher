@@ -224,6 +224,7 @@ def ingest_batch(
         "require_mixable_media": True,
         "thumbnail_staging_dir": staging_dir,
         "video_type": video_type,
+        "dry_run": dry_run,
     }
 
     eligible, scanned = build_eligible_catalog_records(candidates, **enrich_kwargs)

@@ -360,6 +360,27 @@ def bulgarian_target_is_fully_done(target: dict[str, Any]) -> bool:
     return progress >= 100.0
 
 
+def bulgarian_segments_have_translation(
+    segments: list[dict[str, Any]],
+    language_id: int,
+) -> bool:
+    """True when any segment already has non-empty Bulgarian target text.
+
+    Smartcat workflow progress often stays at 0% even when targets contain
+    translation, so ingest must inspect segment text rather than stage progress.
+    """
+    for segment in segments:
+        for item in segment.get("targets") or []:
+            if not isinstance(item, dict):
+                continue
+            if int(item.get("languageId") or 0) != int(language_id):
+                continue
+            if str(item.get("text") or "").strip():
+                return True
+            break
+    return False
+
+
 def language_matches(value: str | None, language: str) -> bool:
     if not value:
         return False
