@@ -35,7 +35,6 @@ from catalog_parser.drive_mix import (
     mix_folder_media_to_drive,
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
-from catalog_parser.workflow.config import load_workflow_config
 
 
 def _require_env(name: str) -> str:
@@ -92,19 +91,25 @@ def main() -> int:
         action="store_true",
         help="Also recombine records that already have Combined Media File.",
     )
+    parser.add_argument(
+        "--work-dir",
+        type=Path,
+        default=PROJECT_ROOT / "_tmp_drive_mix_sync_done",
+        help="Local work directory for downloads and ffmpeg output.",
+    )
     args = parser.parse_args()
 
-    config = load_workflow_config(PROJECT_ROOT)
     airtable = AirtableClient(
         token=_require_env("AIRTABLE_TOKEN"),
         base_id=_require_env("AIRTABLE_BASE_ID"),
         table_name=_require_env("AIRTABLE_TABLE_NAME"),
     )
     drive = get_drive_service_noninteractive()
-    output_parent_id = extract_drive_folder_id(config.output_drive_folder)
+    output_drive_folder = _require_env("OUTPUT_DRIVE_FOLDER")
+    output_parent_id = extract_drive_folder_id(output_drive_folder)
     if output_parent_id is None:
         raise RuntimeError(
-            f"Could not parse output Drive folder: {config.output_drive_folder!r}"
+            f"Could not parse output Drive folder: {output_drive_folder!r}"
         )
 
     records = airtable.list_records(filter_formula=_filter_formula())
@@ -162,7 +167,7 @@ def main() -> int:
             continue
 
         output_name = title if title.casefold().endswith(".mp4") else f"{title}.mp4"
-        work_dir = config.work_dir / record_id
+        work_dir = args.work_dir / record_id
         try:
             created = mix_folder_media_to_drive(
                 drive,
