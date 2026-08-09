@@ -42,13 +42,20 @@ jobs:
               _is_ocd_video_name,
               _is_ref_video_name,
               _list_videos_in_folder_tree,
-              _pick_single_child_folder,
+              _pick_audio_folder,
               check_mixable_media,
               format_mix_media_check,
               orientation_from_size,
               required_orientation_for_video_type,
           )
-          from catalog_parser.drive_video_size import video_size_from_drive_file
+          from catalog_parser.drive_video_size import (
+              video_size_from_drive_file,
+              video_size_from_drive_file_metadata,
+          )
+          from media_publisher.video_duration import probe_local_video_size
+          from catalog_parser.drive_combine import download_drive_file
+          import tempfile
+          from pathlib import Path
 
           folder_id = "${{ inputs.folder_id }}"
           video_type = "${{ inputs.video_type }}"
@@ -56,15 +63,29 @@ jobs:
           drive = get_drive_service_noninteractive()
           print(f"pkg_folder={folder_id}")
           print(f"video_type={video_type} required_orientation={required}")
-          audio_folder = _pick_single_child_folder(drive, folder_id)
+          audio_folder = _pick_audio_folder(drive, folder_id)
           print(f"audio_subfolder={audio_folder}")
           videos = _list_videos_in_folder_tree(drive, audio_folder)
           print(f"videos_found={len(videos)}")
           for video in sorted(videos, key=lambda item: item.name.casefold()):
+              meta = video_size_from_drive_file_metadata(drive, video.id)
               size = video_size_from_drive_file(
                   drive, video.id, file_name=video.name
               )
+              probed = None
+              # Always ffprobe so we can compare with Drive metadata.
+              suffix = Path(video.name).suffix or ".mp4"
+              with tempfile.TemporaryDirectory(prefix="inspect-probe-") as tmp:
+                  dest = Path(tmp) / f"probe{suffix}"
+                  try:
+                      download_drive_file(drive, video.id, dest)
+                      probed = probe_local_video_size(dest)
+                  except Exception as exc:
+                      print(f"  probe-failed {video.name!r}: {exc}")
               orientation = orientation_from_size(*size) if size else None
+              probe_orientation = (
+                  orientation_from_size(*probed) if probed else None
+              )
               flags = []
               if _is_all_video_name(video.name):
                   flags.append("all-video")
@@ -73,11 +94,15 @@ jobs:
               if _is_ocd_video_name(video.name):
                   flags.append("ocd")
               flag_text = ",".join(flags) if flags else "-"
+              meta_text = f"{meta[0]}x{meta[1]}" if meta else "no-meta"
               size_text = f"{size[0]}x{size[1]}" if size else "no-size"
+              probe_text = f"{probed[0]}x{probed[1]}" if probed else "no-probe"
               match = "MATCH" if orientation == required else "no"
               print(
                   f"  [{match}] {video.name!r} id={video.id} "
-                  f"size={size_text} orientation={orientation} flags={flag_text}"
+                  f"drive_meta={meta_text} used={size_text} "
+                  f"ffprobe={probe_text} orientation={orientation} "
+                  f"ffprobe_orientation={probe_orientation} flags={flag_text}"
               )
           check = check_mixable_media(drive, folder_id, video_type=video_type)
           print(format_mix_media_check(check))
