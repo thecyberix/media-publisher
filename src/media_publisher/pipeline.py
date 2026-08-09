@@ -19,6 +19,7 @@ from media_publisher.publishers.youtube import YouTubePublishError, publish_to_y
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
+    FIELD_COMBINED_MEDIA_FILE,
     FIELD_TITLE,
     FIELD_TRANSLATION_RESOURCES,
     FIELD_VIDEO_NAME_TRANSLATED,
@@ -38,9 +39,11 @@ from media_publisher.sources.happyscribe import (
 from media_publisher.sources.canva import CanvaClient, CanvaError
 from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
 from media_publisher.sources.publish_media import (
+    CombinedMediaError,
     PublishMediaCleanup,
-    merge_publish_media_cleanup,
     apply_publish_media_cleanup,
+    ensure_combined_media_for_publish,
+    merge_publish_media_cleanup,
     resolve_publish_thumbnail,
     resolve_publish_video,
 )
@@ -110,6 +113,7 @@ class PublishPipelineSettings:
     google_drive_service_account: Path | None = None
     publish_media_download_dir: Path | None = None
     tn_publish_settings: TnPublishSettings | None = None
+    output_drive_folder: str = ""
 
 
 def group_tasks_by_record(
@@ -273,10 +277,23 @@ def run_publish_pipeline(
 
         catalog_name = catalog_name_from_task(record_tasks[0])
         title = record_tasks[0].job.title
-        smartcat_url = record_tasks[0].job.metadata.get(FIELD_TRANSLATION_RESOURCES)
+        translation_resources = record_tasks[0].job.metadata.get(
+            FIELD_TRANSLATION_RESOURCES
+        )
+        smartcat_url = (
+            translation_resources.strip()
+            if isinstance(translation_resources, str) and translation_resources.strip()
+            else None
+        )
+        use_combined_media = smartcat_url is None
         record_fields = dict(record_tasks[0].record_fields)
         lookup_title = record_fields.get(FIELD_TITLE) or catalog_name
         print_line(f"Processing {record_id}\t{catalog_name}\t{title}")
+        if use_combined_media:
+            print_line(
+                "  No Translation resources — publishing Combined Media File "
+                "(no HappyScribe subtitles)"
+            )
 
         drive_client: GoogleDriveClient | None = None
         if settings.google_drive_service_account and settings.google_drive_service_account.exists():
@@ -358,6 +375,51 @@ def run_publish_pipeline(
                 )
                 print_line(f"  Video ({video_override.source}): {video_path}")
 
+        if video_path is None and use_combined_media:
+            try:
+                if drive_client is None:
+                    raise CombinedMediaError(
+                        "Google Drive client required for Combined Media File"
+                    )
+                combined = ensure_combined_media_for_publish(
+                    record_id=record_id,
+                    record_fields=record_fields,
+                    drive=drive_client,
+                    airtable=airtable,
+                    download_dir=media_download_dir,
+                    work_dir=(
+                        settings.project_root
+                        / "downloads"
+                        / "combined-media-work"
+                        / record_id
+                    ),
+                    output_drive_folder=settings.output_drive_folder,
+                    ffmpeg_path=settings.ffmpeg_path,
+                )
+                video_path = combined.path
+                publish_cleanup = merge_publish_media_cleanup(
+                    publish_cleanup, combined.cleanup
+                )
+                if combined.cleanup and combined.cleanup.combined_media_file_id:
+                    record_fields[FIELD_COMBINED_MEDIA_FILE] = (
+                        "https://drive.google.com/file/d/"
+                        f"{combined.cleanup.combined_media_file_id}/view"
+                    )
+                print_line(f"  Video ({combined.source}): {video_path}")
+            except (CombinedMediaError, GoogleDriveError) as exc:
+                message = str(exc)
+                print_line(f"  Combined media failed: {message}")
+                for task in record_tasks:
+                    results.append(
+                        PlatformPublishResult(
+                            record_id=record_id,
+                            platform=task.platform,
+                            title=title,
+                            error=message,
+                        )
+                    )
+                continue
+
         if video_path is None:
             try:
                 video_path = ensure_catalog_video_downloaded(
@@ -374,6 +436,7 @@ def run_publish_pipeline(
                     force_regenerate=settings.regenerate_videos,
                     use_web_export=settings.use_web_export,
                     smartcat_url=smartcat_url,
+                    burn_subtitles=True,
                 )
                 print_line(f"  Video: {video_path}")
             except (HappyScribeError, HappyScribeWebError) as exc:

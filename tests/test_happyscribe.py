@@ -393,6 +393,32 @@ class HappyScribeEnrichmentTests(unittest.TestCase):
             found = find_downloaded_video(download_dir, "Sample Title")
         self.assertEqual(found, subtitled)
 
+    def test_find_downloaded_video_plain_only_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            plain = download_dir / "Sample Title.mp4"
+            subtitled = download_dir / "Sample Title-subtitled.mp4"
+            plain.write_bytes(b"plain")
+            subtitled.write_bytes(b"subtitled")
+            found = find_downloaded_video(
+                download_dir,
+                "Sample Title",
+                subtitled=False,
+            )
+        self.assertEqual(found, plain)
+
+    def test_find_downloaded_video_subtitled_only_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            plain = download_dir / "Sample Title.mp4"
+            plain.write_bytes(b"plain")
+            found = find_downloaded_video(
+                download_dir,
+                "Sample Title",
+                subtitled=True,
+            )
+        self.assertIsNone(found)
+
     def test_find_downloaded_video_matches_case_insensitive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             download_dir = Path(tmpdir)

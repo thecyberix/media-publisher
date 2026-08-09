@@ -359,12 +359,27 @@ def ensure_catalog_video_downloaded(
     force_regenerate: bool = False,
     use_web_export: bool = False,
     smartcat_url: str | None = None,
+    burn_subtitles: bool | None = None,
 ) -> Path:
-    """Return a local subtitled video file for a catalog title, downloading if needed."""
+    """Return a local video file for a catalog title, downloading if needed.
+
+    When ``burn_subtitles`` is false (default when ``smartcat_url`` / Translation
+    resources is empty), downloads the HappyScribe source video without burning
+    subtitles. When true, burns HappyScribe subtitles into the MP4 as before.
+    """
+    if burn_subtitles is None:
+        burn_subtitles = bool(
+            isinstance(smartcat_url, str) and smartcat_url.strip()
+        )
+
     if force_regenerate:
         remove_downloaded_video(download_dir, catalog_name)
     else:
-        existing = find_downloaded_video(download_dir, catalog_name)
+        existing = find_downloaded_video(
+            download_dir,
+            catalog_name,
+            subtitled=burn_subtitles,
+        )
         if existing is not None:
             return existing
 
@@ -386,6 +401,10 @@ def ensure_catalog_video_downloaded(
             f"HappyScribe transcription {transcription.name!r} is not ready "
             f"(state={transcription.state!r})."
         )
+
+    if not burn_subtitles:
+        destination = video_destination_path(download_dir, catalog_name)
+        return client.download_video(transcription.id, destination)
 
     destination = burned_video_destination_path(download_dir, catalog_name)
     if use_web_export and browser_state_path.is_file():
@@ -419,23 +438,57 @@ def burned_video_destination_path(download_dir: Path, transcription_name: str) -
     return video_destination_path(download_dir, transcription_name, suffix="-subtitled")
 
 
-def remove_downloaded_video(download_dir: Path, catalog_name: str) -> None:
+def remove_downloaded_video(
+    download_dir: Path,
+    catalog_name: str,
+    *,
+    subtitled: bool | None = None,
+) -> None:
     """Delete a cached local video for a catalog title, if present."""
-    existing = find_downloaded_video(download_dir, catalog_name)
+    if subtitled is None:
+        for mode in (True, False):
+            existing = find_downloaded_video(
+                download_dir,
+                catalog_name,
+                subtitled=mode,
+            )
+            if existing is not None and existing.is_file():
+                existing.unlink()
+        return
+
+    existing = find_downloaded_video(
+        download_dir,
+        catalog_name,
+        subtitled=subtitled,
+    )
     if existing is not None and existing.is_file():
         existing.unlink()
 
 
-def find_downloaded_video(download_dir: Path, catalog_name: str) -> Path | None:
-    """Find a downloaded HappyScribe video file by catalog title."""
+def find_downloaded_video(
+    download_dir: Path,
+    catalog_name: str,
+    *,
+    subtitled: bool | None = None,
+) -> Path | None:
+    """Find a downloaded HappyScribe video file by catalog title.
+
+    ``subtitled`` selects cache variant:
+    - ``True``: burned ``*-subtitled.mp4`` only
+    - ``False``: plain source ``*.mp4`` only (never a burned export)
+    - ``None``: prefer burned, then plain (legacy lookup)
+    """
     if not download_dir.is_dir():
         return None
 
-    for builder in (
-        burned_video_destination_path,
-        lambda directory, name: video_destination_path(directory, name),
-    ):
-        candidate = builder(download_dir, catalog_name)
+    burned = burned_video_destination_path(download_dir, catalog_name)
+    plain = video_destination_path(download_dir, catalog_name)
+    if subtitled is True:
+        return burned if burned.is_file() else None
+    if subtitled is False:
+        return plain if plain.is_file() else None
+
+    for candidate in (burned, plain):
         if candidate.is_file():
             return candidate
 

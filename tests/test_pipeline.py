@@ -14,7 +14,12 @@ from media_publisher.pipeline import (
     group_tasks_by_record,
     run_publish_pipeline,
 )
-from media_publisher.sources.airtable import AirtableClient, AirtableRecord, FIELD_TITLE
+from media_publisher.sources.airtable import (
+    AirtableClient,
+    AirtableRecord,
+    FIELD_TITLE,
+    FIELD_TRANSLATION_RESOURCES,
+)
 from media_publisher.sources.happyscribe import (
     HappyScribeClient,
     HappyScribeLibraryLocation,
@@ -24,7 +29,12 @@ from media_publisher.sources.happyscribe import (
     normalize_name_for_catalog_match,
 )
 from media_publisher.sources.canva import CanvaError
-from media_publisher.sources.publish_media import PublishThumbnailResult
+from media_publisher.sources.publish_media import (
+    PublishThumbnailResult,
+    PublishVideoResult,
+)
+
+_SMARTCAT_URL = "https://ea.smartcat.com/editor/1"
 
 
 def _task(record_id: str, platform: str, title: str = "Translated title") -> PlatformScheduleTask:
@@ -32,7 +42,11 @@ def _task(record_id: str, platform: str, title: str = "Translated title") -> Pla
     job = PublishJob(
         title=title,
         video_format="short_form",
-        metadata={FIELD_TITLE: "Original catalog name", "Type": "Reel"},
+        metadata={
+            FIELD_TITLE: "Original catalog name",
+            "Type": "Reel",
+            FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+        },
         airtable_record_id=record_id,
     )
     return PlatformScheduleTask(
@@ -43,6 +57,7 @@ def _task(record_id: str, platform: str, title: str = "Translated title") -> Pla
         record_fields={
             FIELD_TITLE: "Original catalog name",
             "Type": "Reel",
+            FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
             "SG-YT-Date published": "2026-07-04",
             "SG-FB-Date published": "2026-07-04",
             "SG-IG-Date published": "2026-07-04",
@@ -165,6 +180,7 @@ class PipelineHelperTests(unittest.TestCase):
                 client=client,
                 location=location,
                 browser_state_path=download_dir / "session.json",
+                burn_subtitles=True,
             )
         self.assertEqual(path, existing)
 
@@ -197,10 +213,80 @@ class PipelineHelperTests(unittest.TestCase):
                     browser_state_path=download_dir / "missing-session.json",
                     transcriptions=[transcription],
                     force_regenerate=True,
+                    burn_subtitles=True,
                 )
             download_mock.assert_called_once()
             self.assertEqual(path.name, "Sample Title-subtitled.mp4")
             self.assertEqual(path.read_bytes(), b"new")
+
+    def test_ensure_catalog_video_downloaded_without_subtitles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            client = HappyScribeClient("hs-test")
+            location = HappyScribeLibraryLocation("1", "2")
+            transcription = HappyScribeTranscription(
+                id="tx1",
+                name="Sample Title",
+                state="automatic_done",
+            )
+
+            def write_video(_id, destination):
+                destination.write_bytes(b"plain")
+                return destination
+
+            with patch.object(
+                client,
+                "download_video",
+                side_effect=write_video,
+            ) as download_mock, patch.object(
+                client,
+                "download_video_with_burned_subtitles",
+            ) as burn_mock:
+                path = ensure_catalog_video_downloaded(
+                    "Sample Title",
+                    download_dir=download_dir,
+                    client=client,
+                    location=location,
+                    browser_state_path=download_dir / "missing-session.json",
+                    transcriptions=[transcription],
+                    smartcat_url=None,
+                )
+            download_mock.assert_called_once()
+            burn_mock.assert_not_called()
+            self.assertEqual(path.name, "Sample Title.mp4")
+            self.assertEqual(path.read_bytes(), b"plain")
+
+    def test_ensure_catalog_video_downloaded_ignores_cached_subtitled_when_no_burn(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir)
+            cached_sub = download_dir / "Sample Title-subtitled.mp4"
+            cached_sub.write_bytes(b"old-sub")
+            client = HappyScribeClient("hs-test")
+            location = HappyScribeLibraryLocation("1", "2")
+            transcription = HappyScribeTranscription(
+                id="tx1",
+                name="Sample Title",
+                state="automatic_done",
+            )
+
+            def write_video(_id, destination):
+                destination.write_bytes(b"plain")
+                return destination
+
+            with patch.object(client, "download_video", side_effect=write_video):
+                path = ensure_catalog_video_downloaded(
+                    "Sample Title",
+                    download_dir=download_dir,
+                    client=client,
+                    location=location,
+                    browser_state_path=download_dir / "missing-session.json",
+                    transcriptions=[transcription],
+                    burn_subtitles=False,
+                )
+            self.assertEqual(path.name, "Sample Title.mp4")
+            self.assertEqual(path.read_bytes(), b"plain")
 
 
 class PublishPipelineTests(unittest.TestCase):
@@ -267,7 +353,10 @@ class PublishPipelineTests(unittest.TestCase):
         job = PublishJob(
             title="Demo",
             video_format="short_form",
-            metadata={FIELD_TITLE: "Launch video"},
+            metadata={
+                FIELD_TITLE: "Launch video",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+            },
         )
         tasks = [
             PlatformScheduleTask(
@@ -308,6 +397,7 @@ class PublishPipelineTests(unittest.TestCase):
                 FIELD_TITLE: "Launch video",
                 "Type": "Reel",
                 "Video name translated": "Видео",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
                 "SG-YT-Date published": "2026-07-04",
             },
         )
@@ -322,7 +412,7 @@ class PublishPipelineTests(unittest.TestCase):
         ), patch(
             "media_publisher.pipeline.ensure_catalog_video_downloaded",
             return_value=video_path,
-        ), patch(
+        ) as ensure_video_mock, patch(
             "media_publisher.pipeline.resolve_publish_thumbnail",
             side_effect=lambda *args, **kwargs: PublishThumbnailResult(
                 path=thumbnail_path,
@@ -360,11 +450,86 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].success)
         publish_mock.assert_called_once()
+        ensure_video_mock.assert_called_once()
+        self.assertTrue(ensure_video_mock.call_args.kwargs["burn_subtitles"])
         self.assertEqual(update_mock.call_count, 1)
         update_mock.assert_called_once_with(
             "recABC",
             {"SG-YT-Published video": "https://www.youtube.com/watch?v=abc123", "SMedia Uploaded": ["SG YouTube"]},
         )
+
+    def test_run_publish_pipeline_uses_combined_media_without_translation_resources(
+        self,
+    ) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        happyscribe = HappyScribeClient("hs-test")
+        location = HappyScribeLibraryLocation("1", "2")
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                "Status": "5. Synchronization done",
+                FIELD_TITLE: "Launch video",
+                "Type": "Reel",
+                "Video name translated": "Видео",
+                "SG-YT-Date published": "2026-07-04",
+            },
+        )
+        settings = self._pipeline_settings()
+        video_path = Path("downloads/publish-media/combined/Launch video.mp4")
+        thumbnail_path = Path("downloads/canva/Launch video.png")
+
+        with patch.object(client, "list_records", return_value=[record]), patch.object(
+            happyscribe,
+            "list_search_transcriptions",
+            return_value=[],
+        ), patch(
+            "media_publisher.pipeline.ensure_combined_media_for_publish",
+            return_value=PublishVideoResult(
+                path=video_path,
+                source="combined-media",
+            ),
+        ) as combined_mock, patch(
+            "media_publisher.pipeline.ensure_catalog_video_downloaded",
+        ) as hs_mock, patch(
+            "media_publisher.pipeline.resolve_publish_thumbnail",
+            side_effect=lambda *args, **kwargs: PublishThumbnailResult(
+                path=thumbnail_path,
+                source="test",
+            ),
+        ), patch(
+            "media_publisher.pipeline.publish_platform_task",
+            return_value="https://www.youtube.com/watch?v=abc123",
+        ), patch(
+            "media_publisher.pipeline.GoogleDriveClient.from_service_account",
+            return_value=unittest.mock.Mock(),
+        ), patch.object(
+            client,
+            "update_record",
+            return_value=AirtableRecord(
+                id="recABC",
+                fields={
+                    "Status": "5. Synchronization done",
+                    "SG-YT-Published video": "url",
+                },
+            ),
+        ):
+            # Drive client is only created when the service-account path exists.
+            settings = replace(
+                settings,
+                google_drive_service_account=Path(__file__),
+            )
+            exit_code, results = run_publish_pipeline(
+                client,
+                happyscribe,
+                location,
+                settings,
+                print_line=lambda _: None,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(results[0].success)
+        combined_mock.assert_called_once()
+        hs_mock.assert_not_called()
 
     def test_run_publish_pipeline_fails_when_thumbnail_resolution_fails(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
@@ -486,7 +651,11 @@ class PublishPipelineTests(unittest.TestCase):
         long_job = PublishJob(
             title="Translated title",
             video_format="post",
-            metadata={FIELD_TITLE: "Original catalog name", "Type": "Video"},
+            metadata={
+                FIELD_TITLE: "Original catalog name",
+                "Type": "Video",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+            },
             airtable_record_id="recABC",
         )
         publish_at = datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc)
@@ -559,7 +728,11 @@ class PublishPipelineTests(unittest.TestCase):
         reel_job = PublishJob(
             title="Translated title",
             video_format="short_form",
-            metadata={FIELD_TITLE: "Original catalog name", "Type": "Reel"},
+            metadata={
+                FIELD_TITLE: "Original catalog name",
+                "Type": "Reel",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+            },
             airtable_record_id="recABC",
         )
         publish_at = datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc)
