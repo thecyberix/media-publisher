@@ -14,6 +14,7 @@ from catalog_parser.airtable import (
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TYPE,
+    make_title_identity_key,
 )
 from catalog_parser.workflow.table_cache import TableCache
 
@@ -33,7 +34,10 @@ class TableCacheTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(cache.existing_titles(), {"video a"})
+        self.assertEqual(
+            cache.existing_titles(),
+            {make_title_identity_key("video a", "Video")},
+        )
         cache.update_fields("rec1", {FIELD_EDITOR: "Nina Rueva"})
         self.assertEqual(cache.get("rec1")["fields"][FIELD_EDITOR], "Nina Rueva")
 
@@ -98,7 +102,10 @@ class TableCacheTests(unittest.TestCase):
         assert record is not None
         self.assertEqual(record["fields"][FIELD_TITLE], "New Reel")
         self.assertEqual(record["fields"]["Translator"], "Genka Petrova")
-        self.assertIn("new reel", cache.existing_titles())
+        self.assertIn(
+            make_title_identity_key("new reel", "Reel"),
+            cache.existing_titles(),
+        )
 
     def test_write_backup(self) -> None:
         fetched_at = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
