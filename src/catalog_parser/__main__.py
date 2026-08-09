@@ -14,9 +14,8 @@ from catalog_parser.eligibility import (
     catalog_yt_title_key,
     explain_catalog_eligibility,
     is_catalog_eligible,
+    needs_bulgarian_translation,
     register_title_identity,
-    smartcat_ready_for_ingest,
-    smartcat_translation_completed,
 )
 from catalog_parser.drive_mix import record_has_mixable_media
 from catalog_parser.auth import (
@@ -367,12 +366,6 @@ def build_eligible_catalog_records(
                 )
             if record.get("pkgBgSrtLk"):
                 print("  -> Smartcat editor link resolved")
-            elif smartcat_translation_completed(record):
-                print(
-                    "  -> Smartcat: Bulgarian subtitles already completed "
-                    "(will ingest as Translation done)"
-                )
-                record["_smartcat_completed"] = True
             elif record.get("pkgBgSrtLkSkipReason"):
                 print(f"  -> Smartcat: {record['pkgBgSrtLkSkipReason']}")
             elif record.get("pkgBgSrtLkError"):
@@ -380,7 +373,8 @@ def build_eligible_catalog_records(
             else:
                 print("  -> Smartcat: no editor link")
 
-            if not smartcat_ready_for_ingest(record):
+            # Completed Smartcat translations stay skipped (no open editor link).
+            if not needs_bulgarian_translation(record):
                 _print_skip_reasons(
                     explain_catalog_eligibility(
                         record,

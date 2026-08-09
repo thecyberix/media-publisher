@@ -24,7 +24,6 @@ from catalog_parser.airtable import (  # noqa: E402
     FIELD_TRANSLATOR,
     FIELD_TYPE,
     STATUS_TODO,
-    STATUS_TRANSLATION_DONE,
     normalize_title,
     normalize_type_key,
     title_identity_collides,
@@ -201,17 +200,7 @@ def main() -> int:
             FIELD_TRANSLATOR: args.translator,
             FIELD_STATUS: STATUS_TODO,
         }
-        if record.get("_smartcat_completed"):
-            extras[FIELD_STATUS] = STATUS_TRANSLATION_DONE
-            print(f"  {record.get('ctTitle')}: {STATUS_TRANSLATION_DONE}")
-            if not (
-                isinstance(record.get("pkgBgSrtLk"), str) and record["pkgBgSrtLk"].strip()
-            ):
-                pkg_sm = record.get("pkgSmLk")
-                if isinstance(pkg_sm, str) and pkg_sm.strip():
-                    record["pkgBgSrtLk"] = pkg_sm.strip()
-        else:
-            print(f"  {record.get('ctTitle')}: {STATUS_TODO}")
+        print(f"  {record.get('ctTitle')}: {STATUS_TODO}")
         record["_airtable_fields"] = extras
 
     created_ids = airtable.create_records(eligible)

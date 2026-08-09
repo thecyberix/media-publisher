@@ -13,8 +13,6 @@ from catalog_parser.eligibility import (
     is_not_duplicate_yt_title,
     is_not_in_airtable,
     needs_bulgarian_translation,
-    smartcat_ready_for_ingest,
-    smartcat_translation_completed,
 )
 
 
@@ -234,26 +232,19 @@ class EligibilityTests(unittest.TestCase):
             {
                 "ctTitle": "Sample",
                 "pkgSmLk": "https://ea.smartcat.com/projects/x/files",
-                "pkgBgSrtLkSkipReason": "No Bulgarian target language on document",
+                "pkgBgSrtLkSkipReason": "Bulgarian subtitles already completed in Smartcat",
             },
             set(),
             drive_service=MagicMock(),
             require_mixable_media=False,
         )
-        self.assertIn("Smartcat: No Bulgarian target language on document", reasons)
-
-    def test_smartcat_completed_is_ready_for_ingest(self) -> None:
-        record = {
-            "pkgBgSrtLkSkipReason": "Bulgarian subtitles already completed in Smartcat",
-        }
-        self.assertTrue(smartcat_translation_completed(record))
-        self.assertTrue(smartcat_ready_for_ingest(record))
-        self.assertTrue(
+        self.assertIn("Smartcat: Bulgarian subtitles already completed in Smartcat", reasons)
+        self.assertFalse(
             is_catalog_eligible(
                 {
-                    "ctTitle": "Completed Video",
-                    "ctDuration": 400,
-                    **record,
+                    "ctTitle": "Sample",
+                    "pkgSmLk": "https://ea.smartcat.com/projects/x/files",
+                    "pkgBgSrtLkSkipReason": "Bulgarian subtitles already completed in Smartcat",
                     "pkgLink": "https://drive.google.com/drive/folders/pkg",
                 },
                 set(),

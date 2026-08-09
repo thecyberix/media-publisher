@@ -12,7 +12,6 @@ from catalog_parser.airtable import (
     FIELD_TRANSLATOR,
     STATUS_NOT_ASSIGNED,
     STATUS_TODO,
-    STATUS_TRANSLATION_DONE,
     load_existing_original_video_keys_for_ingest,
     load_existing_original_video_names_for_ingest,
     load_existing_titles_for_ingest,
@@ -255,16 +254,6 @@ def ingest_batch(
         if dry_run:
             emit(f"  would ingest: {title}")
         extras = dict(airtable_fields)
-        if record.get("_smartcat_completed"):
-            extras[FIELD_STATUS] = STATUS_TRANSLATION_DONE
-            emit(f"  -> status override: {STATUS_TRANSLATION_DONE} (Smartcat completed)")
-            # Completed docs have no open editor URL; store the Smartcat project link.
-            if not (
-                isinstance(record.get("pkgBgSrtLk"), str) and record["pkgBgSrtLk"].strip()
-            ):
-                pkg_sm = record.get("pkgSmLk")
-                if isinstance(pkg_sm, str) and pkg_sm.strip():
-                    record["pkgBgSrtLk"] = pkg_sm.strip()
         record["_airtable_fields"] = extras
 
     if dry_run:

@@ -77,9 +77,7 @@ class EligibleCatalogEarlySkipTests(unittest.TestCase):
 
         def enrich_smartcat(record, *, smartcat_language):
             out = dict(record)
-            out["pkgBgSrtLkSkipReason"] = (
-                "Bulgarian subtitles already completed in Smartcat"
-            )
+            out["pkgBgSrtLk"] = "https://ea.smartcat.com/open-editor/1"
             return out
 
         def enrich_yt(records, drive, docs):
@@ -144,7 +142,10 @@ class EligibleCatalogEarlySkipTests(unittest.TestCase):
 
         self.assertEqual(scanned, 1)
         self.assertEqual(len(eligible), 1)
-        self.assertTrue(eligible[0].get("_smartcat_completed"))
+        self.assertEqual(
+            eligible[0].get("pkgBgSrtLk"),
+            "https://ea.smartcat.com/open-editor/1",
+        )
         smartcat_api.assert_called_once()
 
 

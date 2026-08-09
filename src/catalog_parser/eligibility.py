@@ -14,27 +14,9 @@ from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.drive_mix import check_mixable_media, record_has_mixable_media
 from googleapiclient.discovery import Resource
 
-_SMARTCAT_COMPLETED_MARKER = "already completed"
-
-
 def needs_bulgarian_translation(record: dict[str, Any]) -> bool:
     pkg_bg_srt_link = record.get("pkgBgSrtLk")
     return isinstance(pkg_bg_srt_link, str) and bool(pkg_bg_srt_link.strip())
-
-
-def smartcat_translation_completed(record: dict[str, Any]) -> bool:
-    """True when Smartcat has finished BG subs (no open editor link)."""
-    if needs_bulgarian_translation(record):
-        return False
-    skip_reason = record.get("pkgBgSrtLkSkipReason")
-    if not isinstance(skip_reason, str):
-        return False
-    return _SMARTCAT_COMPLETED_MARKER in skip_reason.casefold()
-
-
-def smartcat_ready_for_ingest(record: dict[str, Any]) -> bool:
-    """Open editor (needs translation) or already-completed BG subs."""
-    return needs_bulgarian_translation(record) or smartcat_translation_completed(record)
 
 
 def catalog_video_folder_id(record: dict[str, Any]) -> str | None:
@@ -148,7 +130,7 @@ def is_catalog_eligible(
     require_mixable_media: bool = True,
     video_type: str | None = None,
 ) -> bool:
-    if require_smartcat and not smartcat_ready_for_ingest(record):
+    if require_smartcat and not needs_bulgarian_translation(record):
         return False
     if airtable_identity_collision_reasons(
         record,
@@ -185,7 +167,7 @@ def explain_catalog_eligibility(
 ) -> list[str]:
     reasons: list[str] = []
 
-    if require_smartcat and not smartcat_ready_for_ingest(record):
+    if require_smartcat and not needs_bulgarian_translation(record):
         skip_reason = record.get("pkgBgSrtLkSkipReason")
         error = record.get("pkgBgSrtLkError")
         if isinstance(skip_reason, str) and skip_reason.strip():
