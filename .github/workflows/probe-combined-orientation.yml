@@ -1,0 +1,80 @@
+﻿name: Probe combined media orientation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python-env
+        with:
+          install-ffmpeg: "true"
+      - name: Probe Combined Media orientations
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python - <<'PY'
+          import json, os, tempfile
+          from pathlib import Path
+          from catalog_parser.airtable import (
+              AirtableClient, FIELD_COMBINED_MEDIA_FILE, FIELD_STATUS, FIELD_TITLE,
+              FIELD_TRANSLATION_RESOURCES, FIELD_TYPE,
+          )
+          from catalog_parser.auth import get_drive_service_noninteractive
+          from catalog_parser.drive_combine import download_drive_file
+          from catalog_parser.drive_docs import extract_drive_file_id
+          from catalog_parser.drive_mix import orientation_from_size, required_orientation_for_video_type
+          from catalog_parser.drive_video_size import video_size_from_drive_file
+          from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
+
+          airtable = AirtableClient(
+              token=os.environ["AIRTABLE_TOKEN"],
+              base_id=os.environ["AIRTABLE_BASE_ID"],
+              table_name=os.environ["AIRTABLE_TABLE_NAME"],
+          )
+          formula = (
+              'AND(FIND("Synchronization done", {Status} & ""), '
+              f'OR({{Type}} = "{TYPE_VIDEO}", {{Type}} = "{TYPE_REEL}"), '
+              'OR({Translation resources} = BLANK(), {Translation resources} = ""))'
+          )
+          drive = get_drive_service_noninteractive()
+          records = airtable.list_records(filter_formula=formula)
+          print(f"records={len(records)}")
+          bad = 0
+          for record in records:
+              fields = record.get("fields") or {}
+              title = fields.get(FIELD_TITLE) or record.get("id")
+              vtype = fields.get(FIELD_TYPE) or "Reel"
+              required = required_orientation_for_video_type(str(vtype))
+              combined = fields.get(FIELD_COMBINED_MEDIA_FILE)
+              file_id = extract_drive_file_id(str(combined or ""))
+              if not file_id:
+                  print(f"MISSING\t{title}\trequired={required}")
+                  bad += 1
+                  continue
+              size = video_size_from_drive_file(drive, file_id, file_name=f"{title}.mp4")
+              if size is None:
+                  with tempfile.TemporaryDirectory() as tmp:
+                      dest = Path(tmp) / "probe.mp4"
+                      download_drive_file(drive, file_id, dest)
+                      from media_publisher.video_duration import probe_local_video_size
+                      size = probe_local_video_size(dest)
+              orient = orientation_from_size(*size) if size else None
+              ok = orient == required
+              if not ok:
+                  bad += 1
+              flag = "OK" if ok else "BAD"
+              size_text = f"{size[0]}x{size[1]}" if size else "unknown"
+              print(f"{flag}\t{title}\ttype={vtype}\trequired={required}\tactual={orient}\tsize={size_text}\tid={file_id}")
+          print(f"summary bad={bad} total={len(records)}")
+          raise SystemExit(1 if bad else 0)
+          PY
