@@ -44,11 +44,25 @@ class CaptionTranslateResult:
     errors: list[str] = field(default_factory=list)
 
 
+_MANUAL_CANVA_PLACEHOLDER_MARKERS = (
+    "download this design",
+    "manually from canva",
+)
+
+
 def _text_or_none(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     text = value.strip()
     return text or None
+
+
+def looks_like_manual_canva_placeholder(lines: list[str]) -> bool:
+    """True when vision text is the review-queue Canva placeholder, not a real caption."""
+    joined = " ".join(line.strip() for line in lines if line and line.strip()).casefold()
+    if not joined:
+        return False
+    return all(marker in joined for marker in _MANUAL_CANVA_PLACEHOLDER_MARKERS)
 
 
 def _thumbnail_path_from_record(record: dict[str, Any]) -> Path | None:
@@ -191,6 +205,14 @@ def translate_record_caption_if_needed(
             ok=True,
             skipped=True,
             errors=["no English caption from thumbnail or Drive TN"],
+        )
+
+    if looks_like_manual_canva_placeholder(lines):
+        return CaptionTranslateResult(
+            ok=True,
+            skipped=True,
+            source=source,
+            errors=["manual canva placeholder"],
         )
 
     en_caption = "\n".join(lines)

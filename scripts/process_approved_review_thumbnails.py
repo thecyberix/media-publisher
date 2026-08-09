@@ -34,6 +34,7 @@ def main() -> int:
         review_folder_id=settings.thumbnail_review_drive_folder_id,
         approved_subfolder=settings.thumbnail_review_approved_subfolder,
         apply=True,
+        project_root=PROJECT_ROOT,
     )
 
     print("=== Approved thumbnail check ===")
@@ -42,8 +43,12 @@ def main() -> int:
         return 0
 
     for item in sorted(results, key=lambda row: row.title.casefold()):
+        caption = item.caption_action
+        if item.caption_detail:
+            caption = f"{item.caption_action} ({item.caption_detail})"
         print(f"OK   {item.title} ({item.action})")
         print(f"     drive file: {item.drive_file}")
+        print(f"     caption: {caption}")
 
     print()
     print(f"Processed: {len(results)}")

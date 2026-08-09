@@ -215,16 +215,20 @@ generating the translated thumbnail at publish time.
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json`. |
 | `CANVA_TOKEN_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets: Read and write** on this repo. After CI refreshes the Canva token, the app updates `CANVA_TOKEN_JSON` automatically. |
 
-If Canva secrets are missing, ingest can still fall back to a public share preview when possible; otherwise that record errors.
+If Canva auth is missing or broken when a package has a Canva design link, ingest
+**fails** (do not soft-fallback). If auth works but that design is not accessible
+to the integration (`permission_denied`), ingest stages a review-queue placeholder
+image asking for a **manual Canva download**, then emails the review folder as usual.
 
 ### Approved review thumbnails
 
 When ingest finds **no Canva link**, it does **not** write Original Video Thumbnail
 to Airtable. If the original-platform thumb still matches the catalog video aspect
 ratio, the file is uploaded to the Drive review folder and one review email is
-sent for that ingest run.
+sent for that ingest run. The same review folder is used for **manual Canva**
+placeholders when API export is denied for a specific design.
 
-Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
+Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. When **Video caption translated** is empty, the same run also fills it from the approved image (vision first, Drive TN fallback) using the ingest caption path — gated by `SMARTCAT_AI_PREFILL`, and skipped for manual-Canva placeholders. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
 
 Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. Optional overrides: `THUMBNAIL_REVIEW_DRIVE_FOLDER_ID`, `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`. Review emails need `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, and `NOTIFY_EMAIL` on the orchestrator / ingest job.
 

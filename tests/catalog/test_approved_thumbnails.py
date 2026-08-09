@@ -54,6 +54,8 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
                     title="Sample Video",
                     action="uploaded-approved",
                     drive_file="Sample Video.review.jpg",
+                    caption_action="translated",
+                    caption_detail="source=thumbnail",
                 )
             ]
 
@@ -68,6 +70,7 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
             self.assertEqual(result.processed, 1)
             process_approved.assert_called_once()
             self.assertTrue(process_approved.call_args.kwargs["apply"])
+            self.assertEqual(process_approved.call_args.kwargs["project_root"], root)
 
 
 if __name__ == "__main__":

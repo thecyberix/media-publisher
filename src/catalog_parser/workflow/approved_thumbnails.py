@@ -67,6 +67,7 @@ def process_approved_review_thumbnails_in_workflow(
         review_folder_id=settings.thumbnail_review_drive_folder_id,
         approved_subfolder=settings.thumbnail_review_approved_subfolder,
         apply=not dry_run,
+        project_root=project_root,
     )
 
     if not results:
@@ -76,5 +77,8 @@ def process_approved_review_thumbnails_in_workflow(
     label = "planned" if dry_run else "processed"
     log(f"Approved thumbnails: {label} {len(results)} file(s)")
     for item in sorted(results, key=lambda row: row.title.casefold()):
-        log(f"  - {item.title}: {item.action} ({item.drive_file})")
+        caption = item.caption_action
+        if item.caption_detail:
+            caption = f"{item.caption_action} ({item.caption_detail})"
+        log(f"  - {item.title}: {item.action} ({item.drive_file}); caption={caption}")
     return ApprovedThumbnailRunResult(processed=len(results))

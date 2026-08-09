@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from catalog_parser.translation.caption_prefill import (
+    looks_like_manual_canva_placeholder,
     resolve_english_caption_lines,
     translate_record_caption_if_needed,
 )
@@ -18,6 +19,37 @@ from catalog_parser.translation.rag_translate import ChatConfig
 class CaptionPrefillTests(unittest.TestCase):
     def tearDown(self) -> None:
         clear_metadata_index_cache()
+
+    def test_looks_like_manual_canva_placeholder(self) -> None:
+        self.assertTrue(
+            looks_like_manual_canva_placeholder(
+                ["Download this design", "manually from Canva", "DAGa81rbUOw"]
+            )
+        )
+        self.assertFalse(
+            looks_like_manual_canva_placeholder(["Soak in", "ENLIGHTENMENT"])
+        )
+
+    def test_skips_manual_canva_placeholder_caption(self) -> None:
+        record: dict = {"_originalThumbnailPath": "placeholder.jpg"}
+        with patch(
+            "catalog_parser.translation.caption_prefill.resolve_english_caption_lines",
+            return_value=(
+                ["Download this design", "manually from Canva", "DAGxxx"],
+                "thumbnail",
+            ),
+        ), patch(
+            "catalog_parser.translation.caption_prefill.translate_metadata_field"
+        ) as translate:
+            result = translate_record_caption_if_needed(
+                record,
+                enabled=True,
+                config=ChatConfig(api_key="test", provider="openai"),
+            )
+        self.assertTrue(result.skipped)
+        self.assertTrue(any("placeholder" in err for err in result.errors))
+        self.assertNotIn("bgCaption", record)
+        translate.assert_not_called()
 
     def test_skips_when_disabled(self) -> None:
         record = {"_originalThumbnailPath": "missing.jpg"}

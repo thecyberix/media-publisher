@@ -14,6 +14,8 @@ from PIL import Image
 
 from media_publisher.sources.airtable import (
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
+    FIELD_VIDEO_CAPTION_TRANSLATED,
+    FIELD_VIDEO_FOLDER,
     AirtableClient,
     catalog_title,
 )
@@ -43,11 +45,129 @@ class ApprovedUploadResult:
     record_id: str
     drive_file: str
     action: str
+    caption_action: str = "skipped"
+    caption_detail: str | None = None
+
+
+def _field_text(fields: dict[str, Any], key: str) -> str | None:
+    value = fields.get(key)
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _translate_caption_for_approved_thumbnail(
+    airtable: AirtableClient,
+    record: Any,
+    local_path: Path,
+    *,
+    project_root: Path | None,
+    drive_service: Any | None,
+) -> tuple[str, str | None]:
+    """Fill empty Video caption translated from the approved image (ingest parity).
+
+    Returns ``(caption_action, detail)`` where action is translated / skipped / failed.
+    """
+    fields = record.fields if hasattr(record, "fields") else {}
+    if not isinstance(fields, dict):
+        fields = {}
+
+    existing = _field_text(fields, FIELD_VIDEO_CAPTION_TRANSLATED)
+    if existing:
+        return "skipped", "caption already set"
+
+    from catalog_parser.translation.caption_prefill import (
+        translate_record_caption_if_needed,
+    )
+
+    catalog_record: dict[str, Any] = {
+        "_originalThumbnailPath": str(local_path),
+        "pkgLink": _field_text(fields, FIELD_VIDEO_FOLDER),
+        "bgCaption": None,
+    }
+    try:
+        result = translate_record_caption_if_needed(
+            catalog_record,
+            project_root=project_root,
+            drive_service=drive_service,
+        )
+    except Exception as exc:  # noqa: BLE001 — approve must continue
+        return "failed", str(exc)
+
+    if result.caption_translated:
+        bg = catalog_record.get("bgCaption")
+        if not isinstance(bg, str) or not bg.strip():
+            return "failed", "empty translation"
+        try:
+            airtable.update_record(
+                record.id,
+                {FIELD_VIDEO_CAPTION_TRANSLATED: bg.strip()},
+            )
+        except Exception as exc:  # noqa: BLE001 — approve must continue
+            return "failed", f"airtable update: {exc}"
+        source = result.source or "unknown"
+        return "translated", f"source={source}"
+
+    detail_parts = [error for error in result.errors if error]
+    if result.skipped:
+        return "skipped", "; ".join(detail_parts) if detail_parts else "skipped"
+    return "failed", "; ".join(detail_parts) if detail_parts else "translate failed"
 
 
 def sanitize_review_stem(title: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*]+', "_", title).strip(" .")
     return cleaned or "thumbnail"
+
+
+def write_manual_canva_review_placeholder(
+    destination: Path,
+    *,
+    canva_url: str,
+    size: tuple[int, int] | None = None,
+) -> Path:
+    """Write a review-queue JPG instructing manual Canva download."""
+    from media_publisher.sources.canva import CanvaError, parse_design_id
+
+    width, height = size if size and size[0] > 0 and size[1] > 0 else (1280, 720)
+    width = max(640, min(int(width), 1920))
+    height = max(360, min(int(height), 1920))
+
+    try:
+        design_id = parse_design_id(canva_url)
+    except CanvaError:
+        design_id = "unknown"
+    lines = [
+        "Download this design",
+        "manually from Canva",
+        "",
+        design_id,
+    ]
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (width, height), color=(32, 32, 36))
+    from PIL import ImageDraw, ImageFont
+
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.truetype("arial.ttf", size=max(28, width // 28))
+        small = ImageFont.truetype("arial.ttf", size=max(18, width // 40))
+    except OSError:
+        font = ImageFont.load_default()
+        small = font
+
+    y = height // 3
+    for index, line in enumerate(lines):
+        use_font = small if index >= 2 else font
+        bbox = draw.textbbox((0, 0), line, font=use_font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        x = max(0, (width - text_w) // 2)
+        draw.text((x, y), line, fill=(240, 240, 240), font=use_font)
+        y += text_h + (18 if index < 2 else 10)
+
+    image.save(destination, format="JPEG", quality=90)
+    return destination
 
 
 def review_drive_filename(title: str) -> str:
@@ -158,6 +278,8 @@ def process_approved_review_thumbnails(
     review_folder_id: str,
     approved_subfolder: str = DEFAULT_APPROVED_SUBFOLDER,
     apply: bool,
+    project_root: Path | None = None,
+    translate_captions: bool = True,
 ) -> list[ApprovedUploadResult]:
     approved_folder = drive.find_child_folder(review_folder_id, approved_subfolder)
     if approved_folder is None:
@@ -168,6 +290,7 @@ def process_approved_review_thumbnails(
         for record in records
     }
     results: list[ApprovedUploadResult] = []
+    drive_service = getattr(drive, "drive_service", None)
 
     with tempfile.TemporaryDirectory(prefix="tn-approved-") as tmp:
         tmp_path = Path(tmp)
@@ -183,6 +306,8 @@ def process_approved_review_thumbnails(
 
             title = catalog_title(record.fields)
             action = "planned-approved"
+            caption_action = "skipped"
+            caption_detail: str | None = "dry-run" if not apply else None
             if apply:
                 local_path = tmp_path / item.name
                 drive.download_file(item.id, local_path)
@@ -191,6 +316,18 @@ def process_approved_review_thumbnails(
                     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
                     local_path,
                 )
+                if translate_captions:
+                    caption_action, caption_detail = (
+                        _translate_caption_for_approved_thumbnail(
+                            airtable,
+                            record,
+                            local_path,
+                            project_root=project_root,
+                            drive_service=drive_service,
+                        )
+                    )
+                else:
+                    caption_action, caption_detail = "skipped", "disabled"
                 drive.remove_file(item.id)
                 action = "uploaded-approved"
 
@@ -200,6 +337,8 @@ def process_approved_review_thumbnails(
                     record_id=record.id,
                     drive_file=item.name,
                     action=action,
+                    caption_action=caption_action,
+                    caption_detail=caption_detail,
                 )
             )
     return results
