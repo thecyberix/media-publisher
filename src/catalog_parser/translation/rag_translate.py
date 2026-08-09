@@ -203,15 +203,115 @@ def chat_config_from_env() -> ChatConfig:
     )
 
 
+# Re-split translation lines to match English length ratios only when the
+# current break is clearly off (line-count mismatch or char-ratio L1 above this).
+_LINE_RATIO_L1_GATE = 0.10
+
+
+def _caption_nonempty_lines(text: str) -> list[str]:
+    return [
+        line.strip()
+        for line in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if line.strip()
+    ]
+
+
+def _line_char_ratios(lines: list[str]) -> list[float]:
+    lengths = [max(1, len(line)) for line in lines]
+    total = sum(lengths)
+    return [length / total for length in lengths]
+
+
+def _line_word_ratios(lines: list[str]) -> list[float]:
+    lengths = [max(1, len(line.split())) for line in lines]
+    total = sum(lengths)
+    return [length / total for length in lengths]
+
+
+def _ratio_l1(left: list[float], right: list[float]) -> float:
+    size = max(len(left), len(right))
+    if size == 0:
+        return 0.0
+    padded_left = left + [0.0] * (size - len(left))
+    padded_right = right + [0.0] * (size - len(right))
+    return sum(abs(a - b) for a, b in zip(padded_left, padded_right, strict=True)) / 2
+
+
+def _split_words_by_ratios(words: list[str], ratios: list[float]) -> list[str]:
+    """Partition words into len(ratios) lines by cumulative word-share weights."""
+    if not words:
+        return []
+    if not ratios:
+        return [" ".join(words)]
+    # Never invent more lines than there are words (avoids empty/orphan rows).
+    target_n = min(len(ratios), len(words))
+    if target_n == 1:
+        return [" ".join(words)]
+    if target_n < len(ratios):
+        # Collapse trailing ratio mass so weights still sum to ~1.
+        head = list(ratios[: target_n - 1])
+        tail = sum(ratios[target_n - 1 :])
+        ratios = head + [tail if tail > 0 else ratios[-1]]
+    cuts: list[int] = []
+    cursor = 0
+    for index, ratio in enumerate(ratios[:-1]):
+        share = max(1, round(len(words) * ratio))
+        max_take = len(words) - cursor - (target_n - index - 1)
+        take = min(max(1, share), max_take)
+        cursor += take
+        cuts.append(cursor)
+    out: list[str] = []
+    start = 0
+    for cut in cuts + [len(words)]:
+        out.append(" ".join(words[start:cut]))
+        start = cut
+    return out
+
+
+def _has_orphan_function_line(lines: list[str]) -> bool:
+    """True when a break left a line that is only a short preposition/particle."""
+    for line in lines:
+        tokens = [tok for tok in line.split() if _alpha_fold(tok)]
+        if len(tokens) == 1 and _alpha_fold(tokens[0]) in _TITLE_CASE_SMALL_WORDS:
+            return True
+    return False
+
+
 def match_source_newlines(source: str, translation: str) -> str:
-    """Keep translation line breaks aligned with the English source."""
+    """Keep translation line breaks aligned with the English source.
+
+    For multi-line captions, optionally re-split the translation so line-length
+    ratios track the English word shares — but only when line counts disagree or
+    char-ratio distance is large, so already-good breaks are left alone.
+    """
     src = (source or "").replace("\r\n", "\n").replace("\r", "\n")
     tr = (translation or "").replace("\r\n", "\n").replace("\r", "\n")
     if "\n" not in src.strip():
         return " ".join(tr.split())
-    # Drop blank lines the model invents between subtitle rows.
-    lines = [line.strip() for line in tr.split("\n")]
-    return "\n".join(line for line in lines if line)
+    src_lines = _caption_nonempty_lines(src)
+    tr_lines = _caption_nonempty_lines(tr)
+    if not tr_lines:
+        return ""
+    if len(src_lines) <= 1:
+        return " ".join(tr_lines)
+
+    words = " ".join(tr_lines).split()
+    # Too few words to fill the English layout — keep model breaks (no orphans).
+    if len(words) < len(src_lines):
+        return "\n".join(tr_lines)
+
+    need_resplit = len(tr_lines) != len(src_lines) or (
+        _ratio_l1(_line_char_ratios(tr_lines), _line_char_ratios(src_lines))
+        > _LINE_RATIO_L1_GATE
+    )
+    if not need_resplit:
+        return "\n".join(tr_lines)
+
+    resplit = _split_words_by_ratios(words, _line_word_ratios(src_lines))
+    # Reject layouts that park a lone "на"/"of"/"with" on its own line.
+    if _has_orphan_function_line(resplit):
+        return "\n".join(tr_lines)
+    return "\n".join(resplit)
 
 
 def _line_is_all_caps(line: str) -> bool:
@@ -219,38 +319,134 @@ def _line_is_all_caps(line: str) -> bool:
     return bool(letters) and all(ch.isupper() for ch in letters)
 
 
+# Short function words kept lowercase in mid-line title-style captions
+# (e.g. English "Life on the Edge" → Bulgarian "Живот на Ръба").
+_TITLE_CASE_SMALL_WORDS = frozenset(
+    {
+        # English
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "of",
+        "on",
+        "in",
+        "to",
+        "for",
+        "at",
+        "by",
+        "from",
+        "with",
+        "as",
+        "into",
+        "over",
+        "vs",
+        # Bulgarian
+        "на",
+        "от",
+        "в",
+        "във",
+        "с",
+        "със",
+        "и",
+        "или",
+        "а",
+        "но",
+        "за",
+        "до",
+        "по",
+        "към",
+        "при",
+        "без",
+        "през",
+        "като",
+        "че",
+        "ли",
+        "да",
+        "не",
+    }
+)
+
+
 def _line_is_title_case(line: str) -> bool:
     words = [word for word in re.split(r"\s+", line.strip()) if word]
     if len(words) < 2:
         return False
     titled = 0
-    for word in words:
+    mid_small = 0
+    for index, word in enumerate(words):
         letters = [ch for ch in word if ch.isalpha()]
         if not letters:
             continue
+        fold = "".join(letters).casefold()
         if letters[0].isupper() and all(ch.islower() for ch in letters[1:]):
             titled += 1
+        elif (
+            0 < index < len(words) - 1
+            and fold in _TITLE_CASE_SMALL_WORDS
+            and all(ch.islower() for ch in letters)
+        ):
+            mid_small += 1
+    # Classic headline style: "Life on the Edge" / "Sadhguru in 2024"
+    if mid_small and titled >= 1:
+        return True
     return titled >= max(2, (len(words) + 1) // 2)
 
 
+def _alpha_fold(word: str) -> str:
+    return "".join(ch for ch in word if ch.isalpha()).casefold()
+
+
+def _title_case_token(word: str) -> str:
+    letters = [ch for ch in word if ch.isalpha()]
+    if not letters:
+        return word
+    chars = list(word)
+    seen_letter = False
+    for index, ch in enumerate(chars):
+        if ch.isalpha():
+            chars[index] = ch.upper() if not seen_letter else ch.lower()
+            seen_letter = True
+    return "".join(chars)
+
+
+def _lower_alpha_token(word: str) -> str:
+    return "".join(ch.lower() if ch.isalpha() else ch for ch in word)
+
+
 def _to_title_case_words(line: str) -> str:
+    """Title-case words; keep short mid-line prepositions/articles lowercase."""
+    raw_parts = re.split(r"(\s+)", line)
+    token_indexes = [
+        index
+        for index, part in enumerate(raw_parts)
+        if part and not part.isspace()
+    ]
+    first_token = token_indexes[0] if token_indexes else None
+    last_token = token_indexes[-1] if token_indexes else None
+
     parts: list[str] = []
-    for word in re.split(r"(\s+)", line):
+    for index, word in enumerate(raw_parts):
         if not word or word.isspace():
             parts.append(word)
             continue
-        letters = [ch for ch in word if ch.isalpha()]
-        if not letters:
+        if not _alpha_fold(word):
             parts.append(word)
             continue
-        # Title-case alphabetic runs inside the token.
-        chars = list(word)
-        seen_letter = False
-        for index, ch in enumerate(chars):
-            if ch.isalpha():
-                chars[index] = ch.upper() if not seen_letter else ch.lower()
-                seen_letter = True
-        parts.append("".join(chars))
+        titled = _title_case_token(word)
+        fold = _alpha_fold(titled)
+        # Lowercase short function words except first/last tokens
+        # (so "in 2024" / "на Ръба" stay lowercase mid-line).
+        if (
+            fold in _TITLE_CASE_SMALL_WORDS
+            and index != first_token
+            and index != last_token
+        ):
+            parts.append(_lower_alpha_token(titled))
+        else:
+            parts.append(titled)
     return "".join(parts)
 
 
@@ -263,15 +459,13 @@ def match_source_line_casing(source: str, translation: str) -> str:
     if not src_lines or not tr_lines:
         return tr.strip()
 
-    # Align counts: pad/truncate translation lines to source line count.
-    if len(tr_lines) < len(src_lines):
-        joined = " ".join(tr_lines)
-        tr_lines = [joined] + [""] * (len(src_lines) - 1)
-        tr_lines = tr_lines[: len(src_lines)]
-    elif len(tr_lines) > len(src_lines):
-        head = tr_lines[: len(src_lines) - 1]
-        tail = " ".join(tr_lines[len(src_lines) - 1 :])
-        tr_lines = head + [tail]
+    # Align counts to the English layout (word-share split when needed).
+    if len(tr_lines) != len(src_lines):
+        words = " ".join(tr_lines).split()
+        if words:
+            tr_lines = _split_words_by_ratios(words, _line_word_ratios(src_lines))
+        else:
+            tr_lines = []
 
     out: list[str] = []
     for src_line, tr_line in zip(src_lines, tr_lines, strict=True):

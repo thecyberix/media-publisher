@@ -242,6 +242,30 @@ class RagTranslateTests(unittest.TestCase):
             match_source_newlines("LINE ONE\nLINE TWO", "РЕД ЕДИН\n\nРЕД ДВА"),
             "РЕД ЕДИН\nРЕД ДВА",
         )
+        # Already-close ratios: leave the model breaks alone.
+        self.assertEqual(
+            match_source_newlines(
+                "HOW TO LIVE\nA JOYFUL LIFE",
+                "КАК ДА ЖИВЕЕМ\nРадостен Живот",
+            ),
+            "КАК ДА ЖИВЕЕМ\nРадостен Живот",
+        )
+        # Line-count mismatch: re-split by English word shares.
+        self.assertEqual(
+            match_source_newlines(
+                "Hello\nNamaskar\nWhat do you choose?",
+                "Здравей Намаскар Какво избирате?",
+            ),
+            "Здравей\nНамаскар\nКакво избирате?",
+        )
+        # Too few BG words for the English line count: do not invent orphans.
+        self.assertEqual(
+            match_source_newlines(
+                "Soak in\nEcstasy of\nENLIGHTENMENT\nwith Sadhguru",
+                "Потопете се в\nекстаза на\nПРОСВЕТЛЕНИЕТО",
+            ),
+            "Потопете се в\nекстаза на\nПРОСВЕТЛЕНИЕТО",
+        )
 
         from catalog_parser.translation.rag_translate import (
             match_source_line_casing,
@@ -261,6 +285,20 @@ class RagTranslateTests(unittest.TestCase):
                 "бъдете радостни винаги",
             ),
             "Бъдете Радостни Винаги",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "Life on the Edge",
+                "Живот На Ръба",
+            ),
+            "Живот на Ръба",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "Sadhguru in 2024\nLife on the Edge",
+                "Садгуру През 2024\nЖивот На Ръба",
+            ),
+            "Садгуру през 2024\nЖивот на Ръба",
         )
         self.assertEqual(
             parse_caption_lines_json('["Line one", "Line two"]'),
