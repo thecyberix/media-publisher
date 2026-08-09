@@ -554,6 +554,47 @@ def mix_folder_media_to_drive(
     )
 
 
+def _pick_publishable_package_video(
+    drive_service: Resource,
+    pkg_folder_id: str,
+    *,
+    video_type: str | None = None,
+) -> DriveMediaFile:
+    """Pick a package video for Combined Media when stem audio is unavailable."""
+    required_orientation = (
+        required_orientation_for_video_type(video_type) if video_type else None
+    )
+    videos = _list_videos_in_folder_tree(drive_service, pkg_folder_id)
+    if not videos:
+        raise DriveCombineError(
+            f"No video files found under package folder {pkg_folder_id!r}"
+        )
+    try:
+        return _pick_merge_video(
+            videos,
+            drive_service=drive_service,
+            required_orientation=required_orientation,
+        )
+    except DriveCombineError:
+        pass
+
+    # Finished single-file packages often keep only an OCD/export name.
+    non_ref = [video for video in videos if not _is_ref_video_name(video.name)]
+    pool = non_ref or list(videos)
+    if required_orientation is not None:
+        oriented = _filter_videos_by_orientation(
+            drive_service,
+            pool,
+            required_orientation,
+        )
+        if oriented:
+            pool = oriented
+    return _pick_preferred_video(
+        pool,
+        prefer_reel_name=required_orientation != "horizontal",
+    )
+
+
 def upload_package_video_to_drive(
     drive_service: Resource,
     *,
@@ -568,14 +609,10 @@ def upload_package_video_to_drive(
 
     Used for packages that already ship a finished video and have no stem audio.
     """
-    required_orientation = (
-        required_orientation_for_video_type(video_type) if video_type else None
-    )
-    videos = _list_videos_in_folder_tree(drive_service, pkg_folder_id)
-    video = _pick_merge_video(
-        videos,
-        drive_service=drive_service,
-        required_orientation=required_orientation,
+    video = _pick_publishable_package_video(
+        drive_service,
+        pkg_folder_id,
+        video_type=video_type,
     )
     if dry_run:
         return DriveMediaFile(

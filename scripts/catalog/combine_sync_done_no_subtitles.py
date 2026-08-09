@@ -188,7 +188,10 @@ def main() -> int:
                     video_type=video_type,
                 )
                 source_label = "video-only"
-                print("  No stem audio — uploading selected package video", flush=True)
+                print(
+                    f"  No stem audio — uploading package video {created.name!r}",
+                    flush=True,
+                )
             else:
                 print("  FAIL: not mixable")
                 failures += 1
