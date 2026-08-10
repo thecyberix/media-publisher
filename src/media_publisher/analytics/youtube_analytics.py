@@ -14,6 +14,14 @@ from media_publisher.publishers.youtube import YouTubePublishError
 YOUTUBE_ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
 YOUTUBE_ANALYTICS_BASE = "https://youtubeanalytics.googleapis.com/v2/reports"
 
+# Analytics may return camelCase (shorts, videoOnDemand) or SCREAMING_SNAKE.
+_CONTENT_TYPE_CANONICAL = {
+    "shorts": "SHORTS",
+    "videoondemand": "VIDEO_ON_DEMAND",
+    "livestream": "LIVE_STREAM",
+    "posts": "POSTS",
+}
+
 
 @dataclass(frozen=True)
 class MonthlyViews:
@@ -82,29 +90,31 @@ def fetch_youtube_monthly_metrics(
     merged: dict[str, dict[str, float]] = {}
     for key, values in channel_metrics.items():
         total_views = values.get("views", 0.0)
-        content_types = content_type_metrics.get(key)
+        content_types = _normalize_content_types(content_type_metrics.get(key) or {})
         merged[key] = dict(values)
+        # Channel VIDEO/Total Views stay as channel totals — never VOD-only.
         merged[key]["total_views"] = total_views
+        merged[key]["video_views"] = total_views
         merged[key]["watch_time_hours"] = values.get("estimatedMinutesWatched", 0.0) / 60.0
 
-        if not content_types:
-            # Channel totals only — do not invent a LAU/Shorts split (avoids Shorts=0).
-            merged[key]["video_views"] = total_views
-            continue
-
-        shorts_views = float(content_types.get("SHORTS", 0.0))
-        video_views = float(content_types.get("VIDEO_ON_DEMAND", 0.0))
-        if video_views <= 0.0 and shorts_views > 0.0:
-            video_views = max(total_views - shorts_views, 0.0)
-        if shorts_views <= 0.0 and video_views > 0.0 and "SHORTS" not in content_types:
-            # VOD row present but Shorts key absent → derive Shorts from residual.
-            shorts_views = max(total_views - video_views, 0.0)
-        if video_views <= 0.0 and shorts_views <= 0.0:
-            video_views = total_views
-        merged[key]["video_views"] = video_views
-        merged[key]["shorts_views"] = shorts_views
-        merged[key]["lau_views"] = video_views
+        # Only write LAU/Shorts when Analytics returned both content types.
+        # Missing either key → leave undetermined (sheet writes "-").
+        if "SHORTS" in content_types and "VIDEO_ON_DEMAND" in content_types:
+            merged[key]["shorts_views"] = float(content_types["SHORTS"])
+            merged[key]["lau_views"] = float(content_types["VIDEO_ON_DEMAND"])
     return merged
+
+
+def _normalize_content_types(raw: dict[str, float]) -> dict[str, float]:
+    """Map Analytics creatorContentType labels to canonical SHORTS / VIDEO_ON_DEMAND keys."""
+    normalized: dict[str, float] = {}
+    for raw_key, value in raw.items():
+        token = str(raw_key).replace("_", "").replace("-", "").lower()
+        canonical = _CONTENT_TYPE_CANONICAL.get(token)
+        if canonical is None:
+            continue
+        normalized[canonical] = float(value)
+    return normalized
 
 
 def _fetch_youtube_monthly_content_type_views(

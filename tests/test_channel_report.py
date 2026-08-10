@@ -23,7 +23,11 @@ from media_publisher.analytics.channel_report import (
     update_channel_report,
 )
 from media_publisher.analytics.meta_analytics import _sum_insight_values
-from media_publisher.analytics.youtube_analytics import _parse_month_value
+from media_publisher.analytics.youtube_analytics import (
+    _normalize_content_types,
+    _parse_month_value,
+    fetch_youtube_monthly_metrics,
+)
 from media_publisher.sources.google_sheets import a1_cell, column_index_to_a1
 
 
@@ -141,6 +145,70 @@ class YouTubeAnalyticsParsingTests(unittest.TestCase):
     def test_parse_month_value(self) -> None:
         self.assertEqual(_parse_month_value("2024-05"), (2024, 5))
         self.assertIsNone(_parse_month_value("2024/05"))
+
+    def test_normalize_content_types_camel_case(self) -> None:
+        normalized = _normalize_content_types(
+            {"shorts": 100.0, "videoOnDemand": 40.0, "posts": 5.0, "liveStream": 1.0}
+        )
+        self.assertEqual(normalized["SHORTS"], 100.0)
+        self.assertEqual(normalized["VIDEO_ON_DEMAND"], 40.0)
+        self.assertEqual(normalized["POSTS"], 5.0)
+        self.assertEqual(normalized["LIVE_STREAM"], 1.0)
+
+    def test_monthly_metrics_sets_lau_shorts_from_camel_case(self) -> None:
+        from unittest.mock import patch
+
+        with (
+            patch(
+                "media_publisher.analytics.youtube_analytics._fetch_youtube_monthly_metric_rows",
+                return_value={"2026-07": {"views": 228252.0, "estimatedMinutesWatched": 100.0}},
+            ),
+            patch(
+                "media_publisher.analytics.youtube_analytics._fetch_youtube_monthly_content_type_views",
+                return_value={
+                    "2026-07": {
+                        "shorts": 195229.0,
+                        "videoOnDemand": 11582.0,
+                        "posts": 21360.0,
+                    }
+                },
+            ),
+        ):
+            metrics = fetch_youtube_monthly_metrics(
+                access_token="token",
+                channel_id="UC123",
+                start_month=date(2026, 7, 1),
+                end_month=date(2026, 7, 1),
+            )
+        july = metrics["2026-07"]
+        self.assertEqual(july["video_views"], 228252.0)
+        self.assertEqual(july["total_views"], 228252.0)
+        self.assertEqual(july["shorts_views"], 195229.0)
+        self.assertEqual(july["lau_views"], 11582.0)
+
+    def test_monthly_metrics_omits_split_when_content_types_missing(self) -> None:
+        from unittest.mock import patch
+
+        with (
+            patch(
+                "media_publisher.analytics.youtube_analytics._fetch_youtube_monthly_metric_rows",
+                return_value={"2026-07": {"views": 1000.0, "estimatedMinutesWatched": 60.0}},
+            ),
+            patch(
+                "media_publisher.analytics.youtube_analytics._fetch_youtube_monthly_content_type_views",
+                return_value={},
+            ),
+        ):
+            metrics = fetch_youtube_monthly_metrics(
+                access_token="token",
+                channel_id="UC123",
+                start_month=date(2026, 7, 1),
+                end_month=date(2026, 7, 1),
+            )
+        july = metrics["2026-07"]
+        self.assertEqual(july["video_views"], 1000.0)
+        self.assertNotIn("lau_views", july)
+        self.assertNotIn("shorts_views", july)
 
 
 class MetaAnalyticsParsingTests(unittest.TestCase):

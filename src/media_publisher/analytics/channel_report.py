@@ -136,6 +136,9 @@ STRUCTURALLY_UNDETERMINED: frozenset[tuple[str, str]] = frozenset(
         ("youtube", "new_viewer_pct"),
         ("youtube", "non_follower_views_pct"),
         ("youtube", "inorganic_views_pct"),
+        # Written as "-" when Analytics does not return both Shorts + VOD rows.
+        ("youtube", "lau_views"),
+        ("youtube", "shorts_views"),
         ("facebook", "lau_views"),
         ("facebook", "shorts_views"),
         ("facebook", "watch_time_hours"),
