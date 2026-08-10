@@ -7,6 +7,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
+from media_publisher.analytics.airtable_actuals import (
+    fetch_airtable_monthly_actual_counts,
+    merge_actual_counts,
+)
 from media_publisher.analytics.channel_report_snapshots import (
     SnapshotStore,
     apply_snapshots_to_monthly_metrics,
@@ -20,6 +24,10 @@ from media_publisher.analytics.meta_analytics import (
     last_complete_month,
     month_key,
 )
+from media_publisher.analytics.publish_cadence import (
+    apply_planned_counts,
+    apply_zero_plan_cascade,
+)
 from media_publisher.analytics.youtube_analytics import (
     YouTubeAnalyticsError,
     fetch_youtube_monthly_metrics_for_client,
@@ -27,6 +35,7 @@ from media_publisher.analytics.youtube_analytics import (
 )
 from media_publisher.publishers.meta import MetaClient
 from media_publisher.publishers.youtube import YouTubeClient
+from media_publisher.sources.airtable import AirtableClient, AirtableError
 from media_publisher.sources.google_sheets import (
     GoogleSheetsClient,
     GoogleSheetsError,
@@ -96,28 +105,51 @@ METRIC_LABEL_KEYS = {
     "% of new viewers": "new_viewer_pct",
     "% of non followers views": "non_follower_views_pct",
     "% of inorganic views": "inorganic_views_pct",
+    "lau planned": "lau_planned",
+    "lau actual": "lau_actual",
     "lau views": "lau_views",
+    "shorts planned": "shorts_planned",
+    "shorts actual": "shorts_actual",
     "shorts views": "shorts_views",
+    "carousels planned": "carousels_planned",
+    "carousels planned (ig/fb)": "carousels_planned",
+    "carousels actual": "carousels_actual",
+    "carousels actual (ig/fb)": "carousels_actual",
+    "carousels views": "carousels_views",
+    "carousels views (ig)": "carousels_views",
 }
 
 METRIC_FALLBACKS: dict[tuple[str, str], tuple[str, ...]] = {
-    ("youtube", "video_views"): ("total_views", "lau_views"),
-    ("youtube", "lau_views"): ("video_views", "total_views"),
+    ("youtube", "video_views"): ("total_views",),
     ("youtube", "total_views"): ("video_views",),
     ("facebook", "video_views"): ("total_views",),
-    ("facebook", "lau_views"): ("video_views", "total_views"),
-    ("facebook", "shorts_views"): ("video_views",),
     ("instagram", "video_views"): ("total_views",),
-    ("instagram", "lau_views"): ("video_views", "total_views"),
-    ("instagram", "shorts_views"): ("video_views",),
+    ("instagram", "shorts_views"): ("video_views", "total_views"),
 }
 
-SKIP_METRIC_LABELS = {
-    "lau planned",
-    "lau actual",
-    "shorts planned",
-    "shorts actual",
-}
+UNDETERMINED_VALUE = "-"
+
+# Metrics we cannot obtain with current APIs (not temporary outages).
+STRUCTURALLY_UNDETERMINED: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("youtube", "reach"),
+        ("youtube", "new_viewer_pct"),
+        ("youtube", "non_follower_views_pct"),
+        ("youtube", "inorganic_views_pct"),
+        ("facebook", "lau_views"),
+        ("facebook", "shorts_views"),
+        ("facebook", "watch_time_hours"),
+        ("facebook", "new_viewer_pct"),
+        ("facebook", "non_follower_views_pct"),
+        ("facebook", "inorganic_views_pct"),
+        ("instagram", "watch_time_hours"),
+        ("instagram", "new_viewer_pct"),
+        ("instagram", "non_follower_views_pct"),
+        ("instagram", "inorganic_views_pct"),
+    }
+)
+
+SKIP_METRIC_LABELS: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -249,7 +281,7 @@ class ReportRow:
 class ChannelReportUpdate:
     row_number: int
     platform: PlatformName
-    views: int
+    views: int | str
     cell: str
     year: int
     month: int
@@ -316,6 +348,7 @@ def update_channel_report(
     meta_client: MetaClient | None,
     meta_page_id: str | None,
     meta_instagram_account_id: str | None,
+    airtable_client: AirtableClient | None = None,
     dry_run: bool = False,
     target_month: date | None = None,
     all_months: bool = False,
@@ -332,6 +365,7 @@ def update_channel_report(
             meta_client=meta_client,
             meta_page_id=meta_page_id,
             meta_instagram_account_id=meta_instagram_account_id,
+            airtable_client=airtable_client,
             dry_run=dry_run,
             target_month=target_month,
             all_months=all_months,
@@ -362,6 +396,7 @@ def _update_kpi_dashboard_report(
     meta_client: MetaClient | None,
     meta_page_id: str | None,
     meta_instagram_account_id: str | None,
+    airtable_client: AirtableClient | None,
     dry_run: bool,
     target_month: date | None,
     all_months: bool,
@@ -421,6 +456,7 @@ def _update_kpi_dashboard_report(
         meta_client=meta_client,
         meta_page_id=meta_page_id,
         meta_instagram_account_id=meta_instagram_account_id,
+        airtable_client=airtable_client,
         snapshot_store=snapshot_store,
     )
 
@@ -443,8 +479,12 @@ def _update_kpi_dashboard_report(
                     metric_row.metric_key,
                 )
                 if raw_value is None:
-                    continue
-                value = _format_report_value(metric_row.metric_key, raw_value)
+                    if (platform, metric_row.metric_key) not in STRUCTURALLY_UNDETERMINED:
+                        # Temporary gap (e.g. YouTube auth down) — keep existing sheet value.
+                        continue
+                    value: int | str = UNDETERMINED_VALUE
+                else:
+                    value = _format_report_value(metric_row.metric_key, raw_value)
                 cell = a1_cell(sheet_title, metric_row.row_number, month_column.column_index)
                 updates.append(
                     ChannelReportUpdate(
@@ -833,6 +873,7 @@ def _fetch_monthly_metrics(
     meta_client: MetaClient | None,
     meta_page_id: str | None,
     meta_instagram_account_id: str | None,
+    airtable_client: AirtableClient | None = None,
     snapshot_store: SnapshotStore | None = None,
 ) -> dict[str, dict[str, dict[str, float]]]:
     result: dict[str, dict[str, dict[str, float]]] = {
@@ -893,6 +934,34 @@ def _fetch_monthly_metrics(
         start_month=start_month,
         end_month=end_month,
     )
+
+    platforms = tuple(
+        platform
+        for platform in ("youtube", "facebook", "instagram")
+        if platform in enabled_platforms
+    )
+    apply_planned_counts(
+        result,
+        start_month_year=start_month.year,
+        start_month=start_month.month,
+        end_month_year=end_month.year,
+        end_month=end_month.month,
+        platforms=platforms,  # type: ignore[arg-type]
+    )
+
+    if airtable_client is not None and platforms:
+        try:
+            actuals = fetch_airtable_monthly_actual_counts(
+                airtable_client,
+                start_month=start_month,
+                end_month=end_month,
+                timezone=mapping.timezone,
+            )
+        except AirtableError as exc:
+            raise ChannelReportError(str(exc)) from exc
+        merge_actual_counts(result, actuals)
+
+    apply_zero_plan_cascade(result)
     return result
 
 
@@ -1071,12 +1140,11 @@ def _merge_youtube_views_fallback(
             continue
         key = month_key(row.year, row.month)
         entry = metrics.setdefault(key, {})
-        if not entry.get("video_views"):
+        if "video_views" not in entry:
             entry["video_views"] = views
-        if not entry.get("total_views"):
+        if "total_views" not in entry:
             entry["total_views"] = views
-        if not entry.get("lau_views"):
-            entry["lau_views"] = views
+        # Do not invent lau_views from channel totals — requires content-type split.
 
 
 def _parse_report_rows(

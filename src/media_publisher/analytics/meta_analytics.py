@@ -124,6 +124,23 @@ def _try_fetch_monthly_metric(
         return None
 
 
+def _try_fetch_monthly_metric_any(
+    *,
+    year: int,
+    month: int,
+    fetch_windows: list[Any],
+) -> float | None:
+    for fetch_window in fetch_windows:
+        value = _try_fetch_monthly_metric(
+            year=year,
+            month=month,
+            fetch_window=fetch_window,
+        )
+        if value is not None:
+            return value
+    return None
+
+
 def _try_fetch_month_end_snapshot(
     *,
     year: int,
@@ -207,31 +224,49 @@ def fetch_facebook_monthly_metrics(
         _set_metric(
             values,
             "reach",
-            _try_fetch_monthly_metric(
+            _try_fetch_monthly_metric_any(
                 year=year,
                 month=month,
-                fetch_window=lambda since, until: client.get_page_insights(
-                    page_id,
-                    metric="page_impressions_unique",
-                    since=since,
-                    until=until,
-                    period="day",
-                ),
+                fetch_windows=[
+                    lambda since, until: client.get_page_insights(
+                        page_id,
+                        metric="page_total_media_view_unique",
+                        since=since,
+                        until=until,
+                        period="day",
+                    ),
+                    lambda since, until: client.get_page_insights(
+                        page_id,
+                        metric="page_impressions_unique",
+                        since=since,
+                        until=until,
+                        period="day",
+                    ),
+                ],
             ),
         )
         _set_metric(
             values,
             "total_views",
-            _try_fetch_monthly_metric(
+            _try_fetch_monthly_metric_any(
                 year=year,
                 month=month,
-                fetch_window=lambda since, until: client.get_page_insights(
-                    page_id,
-                    metric="page_impressions",
-                    since=since,
-                    until=until,
-                    period="day",
-                ),
+                fetch_windows=[
+                    lambda since, until: client.get_page_insights(
+                        page_id,
+                        metric="page_media_view",
+                        since=since,
+                        until=until,
+                        period="day",
+                    ),
+                    lambda since, until: client.get_page_insights(
+                        page_id,
+                        metric="page_impressions",
+                        since=since,
+                        until=until,
+                        period="day",
+                    ),
+                ],
             ),
         )
         _set_metric(
@@ -249,9 +284,6 @@ def fetch_facebook_monthly_metrics(
                 ),
             ),
         )
-        if "video_views" in values:
-            values.setdefault("shorts_views", values["video_views"])
-            values.setdefault("lau_views", values["video_views"])
         monthly[key] = values
     return monthly
 
@@ -354,9 +386,9 @@ def fetch_instagram_monthly_metrics(
                 ),
             ),
         )
+        # IG publish cadence is Shorts/Reels — use account views as Shorts Views.
         if "video_views" in values:
             values.setdefault("shorts_views", values["video_views"])
-            values.setdefault("lau_views", values["video_views"])
         monthly[key] = values
     return monthly
 

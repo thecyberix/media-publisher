@@ -1005,6 +1005,9 @@ def run_update_channel_report(
         if settings.meta_access_token:
             page_id, instagram_account_id, _ = resolve_meta_targets(settings)
             meta_client = meta_client_from_settings(settings)
+        airtable_client = None
+        if settings.airtable_token and settings.airtable_base_id and settings.airtable_table_name:
+            airtable_client = airtable_client_from_settings(settings)
         result = update_channel_report(
             mapping=mapping,
             sheets_client=sheets,
@@ -1013,6 +1016,7 @@ def run_update_channel_report(
             meta_client=meta_client,
             meta_page_id=page_id or None,
             meta_instagram_account_id=instagram_account_id or None,
+            airtable_client=airtable_client,
             dry_run=dry_run,
             target_month=target_month,
             all_months=all_months,
@@ -1025,6 +1029,7 @@ def run_update_channel_report(
         GoogleSheetsError,
         YouTubePublishError,
         MetaError,
+        AirtableError,
     ) as exc:
         print(f"Channel report update failed: {exc}")
         return 1

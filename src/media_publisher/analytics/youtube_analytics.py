@@ -82,19 +82,26 @@ def fetch_youtube_monthly_metrics(
     merged: dict[str, dict[str, float]] = {}
     for key, values in channel_metrics.items():
         total_views = values.get("views", 0.0)
-        content_types = content_type_metrics.get(key, {})
-        shorts_views = content_types.get("SHORTS", 0.0)
-        video_views = content_types.get("VIDEO_ON_DEMAND", 0.0)
+        content_types = content_type_metrics.get(key)
+        merged[key] = dict(values)
+        merged[key]["total_views"] = total_views
+        merged[key]["watch_time_hours"] = values.get("estimatedMinutesWatched", 0.0) / 60.0
+
+        if not content_types:
+            # Channel totals only — do not invent a LAU/Shorts split (avoids Shorts=0).
+            merged[key]["video_views"] = total_views
+            continue
+
+        shorts_views = float(content_types.get("SHORTS", 0.0))
+        video_views = float(content_types.get("VIDEO_ON_DEMAND", 0.0))
         if video_views <= 0.0 and shorts_views > 0.0:
             video_views = max(total_views - shorts_views, 0.0)
-        if shorts_views <= 0.0 and video_views > 0.0:
+        if shorts_views <= 0.0 and video_views > 0.0 and "SHORTS" not in content_types:
+            # VOD row present but Shorts key absent → derive Shorts from residual.
             shorts_views = max(total_views - video_views, 0.0)
         if video_views <= 0.0 and shorts_views <= 0.0:
             video_views = total_views
-        merged[key] = dict(values)
         merged[key]["video_views"] = video_views
-        merged[key]["total_views"] = total_views
-        merged[key]["watch_time_hours"] = values.get("estimatedMinutesWatched", 0.0) / 60.0
         merged[key]["shorts_views"] = shorts_views
         merged[key]["lau_views"] = video_views
     return merged
@@ -123,10 +130,15 @@ def _fetch_youtube_monthly_content_type_views(
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError:
-        return {}
-    except urllib.error.URLError:
-        return {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        raise YouTubeAnalyticsError(
+            f"YouTube Analytics content-type report failed with HTTP {exc.code}: {detail}"
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise YouTubeAnalyticsError(
+            f"YouTube Analytics content-type report failed: {exc.reason}"
+        ) from exc
 
     if not isinstance(payload, dict):
         return {}

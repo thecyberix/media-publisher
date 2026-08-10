@@ -69,7 +69,7 @@ class ChannelReportMappingTests(unittest.TestCase):
     def test_metric_key_for_label(self) -> None:
         self.assertEqual(metric_key_for_label("▶️ VIDEO Views"), "video_views")
         self.assertEqual(metric_key_for_label("⌛ Watchtime"), "watch_time_hours")
-        self.assertIsNone(metric_key_for_label("LAU Planned"))
+        self.assertEqual(metric_key_for_label("LAU Planned"), "lau_planned")
         self.assertIsNone(metric_key_for_label(""))
 
     def test_resolve_metric_value_uses_fallback(self) -> None:

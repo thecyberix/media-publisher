@@ -30,6 +30,9 @@ env:
   META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
   META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
   META_INSTAGRAM_ACCOUNT_ID: ${{ secrets.META_INSTAGRAM_ACCOUNT_ID }}
+  AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+  AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+  AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
 
 jobs:
   update-report:
