@@ -64,6 +64,7 @@ class EventTemplateTests(unittest.TestCase):
         )
         self.assertIn("Суря крия", rendered.title)
         self.assertIn("София", rendered.title)
+        self.assertIn("\nв София, България", rendered.title)
         self.assertIn("15 септември 2026 г., 18:00", rendered.full_text)
         self.assertIn("https://example.com/register", rendered.full_text)
         self.assertIn(SURYA_KRIYA_LEARN_MORE_URL, rendered.full_text)
@@ -74,6 +75,11 @@ class EventTemplateTests(unittest.TestCase):
             "👉 Регистрация тук: https://example.com/register",
         )
         self.assertIn("Регистрация", rendered.html_body)
+        self.assertIn("<br>в София, България</h2>", rendered.html_body)
+        self.assertIn(
+            f'Вижте какво казва Садгуру:<br><a href="{SURYA_KRIYA_LEARN_MORE_URL}">',
+            rendered.html_body,
+        )
 
     def test_unsupported_event_type(self) -> None:
         with self.assertRaises(ValueError):
@@ -111,6 +117,11 @@ class EventPageTests(unittest.TestCase):
             html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("Пловдив", html)
             self.assertIn("Facebook пост", html)
+            self.assertIn("Събития", html)
+            self.assertIn("assets/sadhguru.png", html)
+            self.assertNotIn("Обявени програми", html)
+            self.assertNotIn("Доброволци от Иша · Садгуру България", html)
+            self.assertIn("grid-template-columns: repeat(3", html)
 
             second, created_again = append_event(root, rendered)
             self.assertFalse(created_again)

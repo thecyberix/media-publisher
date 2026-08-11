@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Събития — Садгуру България</title>
+  <title>Събития</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -45,36 +45,51 @@
       color: var(--ink);
     }
     header {
-      padding: 3rem 1.25rem 1.25rem;
-      max-width: 28rem;
+      padding: 2.5rem 1.25rem 1.5rem;
+      max-width: 72rem;
       margin: 0 auto;
     }
+    header .profile {
+      display: block;
+      width: 7.5rem;
+      height: 7.5rem;
+      margin: 0 auto 1.25rem;
+      border-radius: 50%;
+      object-fit: cover;
+    }
     header h1 {
-      margin: 0 0 0.5rem;
-      font-size: clamp(1.6rem, 4vw, 2rem);
+      margin: 0;
+      font-size: clamp(1.75rem, 4vw, 2.25rem);
       font-weight: 700;
       line-height: 1.25;
     }
-    header p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 1.05rem;
-    }
     main {
-      max-width: 28rem;
+      max-width: 72rem;
       margin: 0 auto;
       padding: 0 1.25rem 3rem;
       display: grid;
-      gap: 2rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 2rem 1.5rem;
       text-align: left;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      main {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 640px) {
+      main {
+        grid-template-columns: 1fr;
+      }
     }
     .event {
-      padding: 1.5rem 0 0;
+      padding: 1.25rem 1rem 0;
       border-top: 1px solid var(--rule);
     }
     .event h2 {
       margin: 0 0 0.75rem;
-      font-size: 1.2rem;
+      font-size: 1.15rem;
       line-height: 1.35;
       text-align: center;
     }
@@ -93,7 +108,6 @@
     .cta a {
       display: inline-block;
       width: 100%;
-      max-width: 22rem;
       padding: 0.75rem 1rem;
       background: var(--accent);
       color: var(--button-fg);
@@ -114,24 +128,17 @@
       font-size: 0.95rem;
       text-align: center;
     }
-    footer {
-      max-width: 28rem;
-      margin: 0 auto;
-      padding: 0 1.25rem 3rem;
-      color: var(--muted);
-      font-size: 0.95rem;
-    }
   </style>
 </head>
 <body>
   <header>
-    <h1>Събития — Садгуру България</h1>
-    <p>Обявени програми на Иша в България.</p>
+    <img class="profile" src="assets/sadhguru.png" alt="Садгуру" width="160" height="160">
+    <h1>Събития</h1>
   </header>
   <main>
-<article class="event" id="event-d1d0b696ecc1cd73">
-<h2>☀️ Програма &quot;Суря крия&quot; в София, България ☀️</h2>
-<p class="when">🗓 11 август 2026 г., 11:41</p>
+<article class="event" id="event-73af45810e13fa35">
+<h2>☀️ Програма &quot;Суря крия&quot; ☀️<br>в Варна, България</h2>
+<p class="when">🗓 25 септември 2026 г., 10:00</p>
 <p class="quote">„Суря крия е мощен процес за активиране на слънчевата сила във вас.“ – Садгуру</p>
 <p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
 <p><strong>Ползи:</strong></p>
@@ -142,13 +149,44 @@
 <li>Повишена енергия и жизненост</li>
 <li>Балансирани хормонални нива</li>
 </ul>
-<p>Вижте какво казва Садгуру: <a href="https://youtu.be/Lh0ZucHjp14">Суря крия - Запалете Слънцето във вас! | Садгуру</a></p>
-<p class="cta"><a href="https://forms.gle/8DHoL41hwk5N84cJ7">Регистрация</a></p>
+<p>Вижте какво казва Садгуру:<br><a href="https://youtu.be/Lh0ZucHjp14">Суря крия - Запалете Слънцето във вас! | Садгуру</a></p>
+<p class="cta"><a href="https://example.com/varna">Регистрация</a></p>
+<p>💫 С любов, светлина и смях,<br>Доброволци от Иша</p>
+</article>
+<article class="event" id="event-012fd9baa15b0171">
+<h2>☀️ Програма &quot;Суря крия&quot; ☀️<br>в Пловдив, България</h2>
+<p class="when">🗓 20 септември 2026 г., 14:30</p>
+<p class="quote">„Суря крия е мощен процес за активиране на слънчевата сила във вас.“ – Садгуру</p>
+<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<p><strong>Ползи:</strong></p>
+<ul>
+<li>Умствена яснота и фокус</li>
+<li>Подобрено физическо здраве</li>
+<li>Укрепване на отслабения организъм</li>
+<li>Повишена енергия и жизненост</li>
+<li>Балансирани хормонални нива</li>
+</ul>
+<p>Вижте какво казва Садгуру:<br><a href="https://youtu.be/Lh0ZucHjp14">Суря крия - Запалете Слънцето във вас! | Садгуру</a></p>
+<p class="cta"><a href="https://example.com/plovdiv">Регистрация</a></p>
+<p>💫 С любов, светлина и смях,<br>Доброволци от Иша</p>
+</article>
+<article class="event" id="event-a816d257fb37c13e">
+<h2>☀️ Програма &quot;Суря крия&quot; ☀️<br>в София, България</h2>
+<p class="when">🗓 15 септември 2026 г., 18:00</p>
+<p class="quote">„Суря крия е мощен процес за активиране на слънчевата сила във вас.“ – Садгуру</p>
+<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<p><strong>Ползи:</strong></p>
+<ul>
+<li>Умствена яснота и фокус</li>
+<li>Подобрено физическо здраве</li>
+<li>Укрепване на отслабения организъм</li>
+<li>Повишена енергия и жизненост</li>
+<li>Балансирани хормонални нива</li>
+</ul>
+<p>Вижте какво казва Садгуру:<br><a href="https://youtu.be/Lh0ZucHjp14">Суря крия - Запалете Слънцето във вас! | Садгуру</a></p>
+<p class="cta"><a href="https://example.com/sofia">Регистрация</a></p>
 <p>💫 С любов, светлина и смях,<br>Доброволци от Иша</p>
 </article>
   </main>
-  <footer>
-    Доброволци от Иша · Садгуру България
-  </footer>
 </body>
 </html>

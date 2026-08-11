@@ -66,10 +66,13 @@ def render_event(
 
     datetime_display = format_bulgarian_datetime(event_date, event_time)
     datetime_iso = format_iso_local(event_date, event_time)
-    title = f'☀️ Програма "Суря крия" в {city_text}, {country_text} ☀️'
+    title_line1 = '☀️ Програма "Суря крия" ☀️'
+    title_line2 = f"в {city_text}, {country_text}"
+    title = f"{title_line1}\n{title_line2}"
 
     body_lines = [
-        title,
+        title_line1,
+        title_line2,
         "",
         f"🗓: {datetime_display}",
         "",
@@ -98,7 +101,8 @@ def render_event(
     full_text = "\n".join(body_lines)
 
     facebook_post_lines = [
-        title,
+        title_line1,
+        title_line2,
         "",
         f"🗓: {datetime_display}",
         "",
@@ -127,7 +131,8 @@ def render_event(
     facebook_comment_text = f"👉 Регистрация тук: {link}"
 
     html_body = _html_section(
-        title=title,
+        title_line1=title_line1,
+        title_line2=title_line2,
         datetime_display=datetime_display,
         quote=SURYA_KRIYA_QUOTE,
         learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
@@ -164,7 +169,8 @@ def _html_escape(value: str) -> str:
 
 def _html_section(
     *,
-    title: str,
+    title_line1: str,
+    title_line2: str,
     datetime_display: str,
     quote: str,
     learn_more_url: str,
@@ -173,7 +179,7 @@ def _html_section(
 ) -> str:
     return "\n".join(
         [
-            f"<h2>{_html_escape(title)}</h2>",
+            f"<h2>{_html_escape(title_line1)}<br>{_html_escape(title_line2)}</h2>",
             f'<p class="when">🗓 {_html_escape(datetime_display)}</p>',
             f'<p class="quote">{_html_escape(quote)}</p>',
             "<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
@@ -187,7 +193,7 @@ def _html_section(
             "<li>Повишена енергия и жизненост</li>",
             "<li>Балансирани хормонални нива</li>",
             "</ul>",
-            "<p>Вижте какво казва Садгуру: "
+            "<p>Вижте какво казва Садгуру:<br>"
             f'<a href="{_html_escape(learn_more_url)}">{_html_escape(learn_more_label)}</a></p>',
             '<p class="cta">'
             f'<a href="{_html_escape(registration_link)}">Регистрация</a></p>',

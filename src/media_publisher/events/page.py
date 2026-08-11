@@ -21,6 +21,7 @@ SMARTLINK_MUTED = "#6B4A4A"
 SMARTLINK_ACCENT = "#5E583A"  # "Събития" button
 SMARTLINK_LINK = "#4F6F8B"  # "Водени Медитации" button tone
 EMPTY_STATE_TEXT = "Очаквайте скоро!"
+PROFILE_IMAGE_SRC = "assets/sadhguru.png"
 
 
 @dataclass(frozen=True)
@@ -229,7 +230,10 @@ def rebuild_index(events_root: Path, events: list[dict[str, Any]] | None = None)
     if sections:
         body_class = ""
         main_html = "\n".join(sections)
-        chrome = _LIST_CHROME.format(events=main_html)
+        chrome = _LIST_CHROME.format(
+            events=main_html,
+            profile_src=_html_escape(PROFILE_IMAGE_SRC),
+        )
     else:
         body_class = ' class="is-empty"'
         chrome = (
@@ -271,15 +275,12 @@ def _html_escape(value: str) -> str:
 
 _LIST_CHROME = """\
   <header>
-    <h1>Събития — Садгуру България</h1>
-    <p>Обявени програми на Иша в България.</p>
+    <img class="profile" src="{profile_src}" alt="Садгуру" width="160" height="160">
+    <h1>Събития</h1>
   </header>
   <main>
 {events}
-  </main>
-  <footer>
-    Доброволци от Иша · Садгуру България
-  </footer>"""
+  </main>"""
 
 
 _INDEX_TEMPLATE = """\
@@ -288,7 +289,7 @@ _INDEX_TEMPLATE = """\
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Събития — Садгуру България</title>
+  <title>Събития</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -330,36 +331,51 @@ _INDEX_TEMPLATE = """\
       color: var(--ink);
     }}
     header {{
-      padding: 3rem 1.25rem 1.25rem;
-      max-width: 28rem;
+      padding: 2.5rem 1.25rem 1.5rem;
+      max-width: 72rem;
       margin: 0 auto;
     }}
+    header .profile {{
+      display: block;
+      width: 7.5rem;
+      height: 7.5rem;
+      margin: 0 auto 1.25rem;
+      border-radius: 50%;
+      object-fit: cover;
+    }}
     header h1 {{
-      margin: 0 0 0.5rem;
-      font-size: clamp(1.6rem, 4vw, 2rem);
+      margin: 0;
+      font-size: clamp(1.75rem, 4vw, 2.25rem);
       font-weight: 700;
       line-height: 1.25;
     }}
-    header p {{
-      margin: 0;
-      color: var(--muted);
-      font-size: 1.05rem;
-    }}
     main {{
-      max-width: 28rem;
+      max-width: 72rem;
       margin: 0 auto;
       padding: 0 1.25rem 3rem;
       display: grid;
-      gap: 2rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 2rem 1.5rem;
       text-align: left;
+      align-items: start;
+    }}
+    @media (max-width: 960px) {{
+      main {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+    }}
+    @media (max-width: 640px) {{
+      main {{
+        grid-template-columns: 1fr;
+      }}
     }}
     .event {{
-      padding: 1.5rem 0 0;
+      padding: 1.25rem 1rem 0;
       border-top: 1px solid var(--rule);
     }}
     .event h2 {{
       margin: 0 0 0.75rem;
-      font-size: 1.2rem;
+      font-size: 1.15rem;
       line-height: 1.35;
       text-align: center;
     }}
@@ -378,7 +394,6 @@ _INDEX_TEMPLATE = """\
     .cta a {{
       display: inline-block;
       width: 100%;
-      max-width: 22rem;
       padding: 0.75rem 1rem;
       background: var(--accent);
       color: var(--button-fg);
@@ -398,13 +413,6 @@ _INDEX_TEMPLATE = """\
     .fb {{
       font-size: 0.95rem;
       text-align: center;
-    }}
-    footer {{
-      max-width: 28rem;
-      margin: 0 auto;
-      padding: 0 1.25rem 3rem;
-      color: var(--muted);
-      font-size: 0.95rem;
     }}
   </style>
 </head>
