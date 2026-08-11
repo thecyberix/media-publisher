@@ -7,11 +7,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from googleapiclient.errors import HttpError
-
 from catalog_parser.airtable import (
     AirtableClient,
-    FIELD_COMBINED_MEDIA_FILE,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_STATUS,
     FIELD_TITLE,
@@ -19,7 +16,6 @@ from catalog_parser.airtable import (
     FIELD_VIDEO_NAME_TRANSLATED,
     STATUS_SYNC_DONE,
 )
-from catalog_parser.drive_docs import extract_drive_file_id
 from catalog_parser.parser import TYPE_REEL, TYPE_SHORT, TYPE_VIDEO
 
 DEFAULT_PUBLISH_TIMEZONE = "Europe/Sofia"
@@ -458,89 +454,6 @@ def _build_schedule_fields(fields: dict[str, Any], target_date: date) -> dict[st
     return update_fields
 
 
-def _file_capabilities(drive_service: Any, file_id: str) -> dict[str, bool]:
-    try:
-        metadata = (
-            drive_service.files()
-            .get(
-                fileId=file_id,
-                fields="capabilities(canDelete,canTrash)",
-                supportsAllDrives=True,
-            )
-            .execute()
-        )
-    except HttpError:
-        return {}
-    capabilities = metadata.get("capabilities")
-    if not isinstance(capabilities, dict):
-        return {}
-    return {
-        "canDelete": bool(capabilities.get("canDelete")),
-        "canTrash": bool(capabilities.get("canTrash")),
-    }
-
-
-def _remove_drive_file(drive_service: Any, file_id: str) -> str:
-    capabilities = _file_capabilities(drive_service, file_id)
-    if capabilities.get("canDelete"):
-        drive_service.files().delete(
-            fileId=file_id,
-            supportsAllDrives=True,
-        ).execute()
-        return "deleted"
-    if capabilities.get("canTrash"):
-        drive_service.files().update(
-            fileId=file_id,
-            body={"trashed": True},
-            supportsAllDrives=True,
-        ).execute()
-        return "trashed"
-    raise RuntimeError(
-        f"Drive file {file_id} cannot be deleted or trashed with current permissions"
-    )
-
-
-def _clear_combined_media_file(
-    *,
-    drive_service: Any,
-    airtable: AirtableClient,
-    record_id: str,
-    fields: dict[str, Any],
-    dry_run: bool,
-    log: Callable[[str], None],
-) -> bool:
-    combined = fields.get(FIELD_COMBINED_MEDIA_FILE)
-    if combined is None:
-        return True
-    if not isinstance(combined, str):
-        combined = str(combined)
-    if not combined.strip():
-        return True
-
-    file_id = extract_drive_file_id(combined)
-    if not file_id:
-        log(f"  combined media: could not parse Drive id from {combined!r}")
-        return False
-
-    if dry_run:
-        log(
-            f"  combined media: would remove Drive file {file_id} "
-            f"and clear {FIELD_COMBINED_MEDIA_FILE!r}"
-        )
-        return True
-
-    try:
-        action = _remove_drive_file(drive_service, file_id)
-        log(f"  combined media: {action} Drive file {file_id}")
-    except Exception as exc:
-        log(f"  combined media: failed to remove Drive file {file_id}: {exc}")
-        return False
-
-    airtable.update_record_fields(record_id, {FIELD_COMBINED_MEDIA_FILE: ""})
-    log(f"  combined media: cleared {FIELD_COMBINED_MEDIA_FILE!r} on {record_id}")
-    return True
-
-
 def schedule_tomorrow_publish(
     *,
     airtable: AirtableClient,
@@ -607,14 +520,6 @@ def schedule_tomorrow_publish(
         )
         for label, value in update_fields.items():
             emit(f"  {label}: {value}")
-        _clear_combined_media_file(
-            drive_service=drive_service,
-            airtable=airtable,
-            record_id=record_id,
-            fields=fields,
-            dry_run=True,
-            log=emit,
-        )
         _notify_if_missing_prepared_thumbnail(
             fields=fields,
             drive_service=drive_service,
@@ -640,14 +545,8 @@ def schedule_tomorrow_publish(
     for label, value in update_fields.items():
         emit(f"  {label}: {value}")
 
-    combined_ok = _clear_combined_media_file(
-        drive_service=drive_service,
-        airtable=airtable,
-        record_id=record_id,
-        fields=fields,
-        dry_run=False,
-        log=emit,
-    )
+    # Keep Combined Media File until after successful publish; clearing it here
+    # broke no-subtitle publishes that still need the file.
     notified = _notify_if_missing_prepared_thumbnail(
         fields=fields,
         drive_service=drive_service,
@@ -657,18 +556,6 @@ def schedule_tomorrow_publish(
         project_root=project_root,
         docs_service=docs_service,
     )
-    if not combined_ok:
-        return ScheduleTomorrowResult(
-            success=False,
-            message=(
-                f"Scheduled {record_id} for {target_date.isoformat()}, "
-                "but combined media cleanup failed."
-            ),
-            record_id=record_id,
-            target_date=target_date,
-            applied=True,
-            missing_prepared_thumbnail_notified=notified,
-        )
 
     return ScheduleTomorrowResult(
         success=True,

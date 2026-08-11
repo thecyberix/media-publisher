@@ -133,12 +133,9 @@ class PublishScheduleTests(unittest.TestCase):
         self.assertIsNone(result.record_id)
         airtable.update_record_fields.assert_not_called()
 
-    def test_schedule_tomorrow_clears_combined_media_file(self) -> None:
+    def test_schedule_tomorrow_keeps_combined_media_file(self) -> None:
         airtable = MagicMock()
         drive_service = MagicMock()
-        drive_service.files().get().execute.return_value = {
-            "capabilities": {"canDelete": True, "canTrash": True},
-        }
         records = [
             {
                 "id": "rec-combined",
@@ -156,26 +153,22 @@ class PublishScheduleTests(unittest.TestCase):
         ]
 
         with patch(
-            "catalog_parser.workflow.publish_schedule._remove_drive_file",
-            return_value="deleted",
-        ) as remove_mock:
-            with patch(
-                "catalog_parser.workflow.publish_schedule._notify_if_missing_prepared_thumbnail",
-                return_value=False,
-            ):
-                result = schedule_tomorrow_publish(
-                    airtable=airtable,
-                    records=records,
-                    drive_service=drive_service,
-                    target_date=date(2026, 7, 6),
-                )
+            "catalog_parser.workflow.publish_schedule._notify_if_missing_prepared_thumbnail",
+            return_value=False,
+        ):
+            result = schedule_tomorrow_publish(
+                airtable=airtable,
+                records=records,
+                drive_service=drive_service,
+                target_date=date(2026, 7, 6),
+            )
 
         self.assertTrue(result.success)
-        remove_mock.assert_called_once_with(drive_service, "combined123")
-        self.assertEqual(airtable.update_record_fields.call_count, 2)
-        clear_call = airtable.update_record_fields.call_args_list[1]
-        self.assertEqual(clear_call.args[0], "rec-combined")
-        self.assertEqual(clear_call.args[1], {FIELD_COMBINED_MEDIA_FILE: ""})
+        self.assertEqual(result.record_id, "rec-combined")
+        airtable.update_record_fields.assert_called_once()
+        update_fields = airtable.update_record_fields.call_args.args[1]
+        self.assertNotIn(FIELD_COMBINED_MEDIA_FILE, update_fields)
+        drive_service.files.assert_not_called()
 
     def test_instagram_schedule_excluded(self) -> None:
         self.assertTrue(instagram_schedule_excluded({FIELD_TYPE: TYPE_VIDEO}))
