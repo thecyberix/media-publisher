@@ -22,6 +22,7 @@ from catalog_parser.drive_mix import (
     check_mixable_media,
     format_mix_media_check,
     mix_folder_media_to_drive,
+    upload_package_video_to_drive,
 )
 from catalog_parser.__main__ import load_env_file
 
@@ -144,36 +145,51 @@ def main() -> int:
     video_type = record_type if isinstance(record_type, str) and record_type.strip() else None
     check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)
     print(format_mix_media_check(check))
-    if not check.ok:
+    if check.ok:
+        created = mix_folder_media_to_drive(
+            drive,
+            pkg_folder_id=pkg_folder_id,
+            output_parent_id=output_parent_id,
+            output_name=output_name,
+            work_dir=args.work_dir,
+            ffmpeg_path=args.ffmpeg,
+            dry_run=args.dry_run,
+            video_type=video_type,
+        )
+        source_label = "mixed"
+    elif check.error and "No audio files found" in check.error:
+        print("No stem audio — uploading package video as Combined Media File")
+        created = upload_package_video_to_drive(
+            drive,
+            pkg_folder_id=pkg_folder_id,
+            output_parent_id=output_parent_id,
+            output_name=output_name,
+            work_dir=args.work_dir,
+            dry_run=args.dry_run,
+            video_type=video_type,
+        )
+        source_label = "video-only"
+    else:
         raise RuntimeError(check.error or "Folder is not mixable")
-
-    created = mix_folder_media_to_drive(
-        drive,
-        pkg_folder_id=pkg_folder_id,
-        output_parent_id=output_parent_id,
-        output_name=output_name,
-        work_dir=args.work_dir,
-        ffmpeg_path=args.ffmpeg,
-        dry_run=args.dry_run,
-        video_type=video_type,
-    )
     local_path = (args.work_dir / output_name).resolve()
     if args.dry_run:
-        print(f"Dry run: would upload {output_name!r} to folder {output_parent_id!r}")
+        print(
+            f"Dry run: would upload {output_name!r} to folder {output_parent_id!r} "
+            f"({source_label})"
+        )
         print(f"Local output path would be: {local_path}")
         return 0
 
     print(f"Local file: {local_path}")
     drive_url = f"https://drive.google.com/file/d/{created.id}/view"
-    print(f"Uploaded: {created.name} (id={created.id})")
+    print(f"Uploaded ({source_label}): {created.name} (id={created.id})")
     print(f"URL: {drive_url}")
 
-    if not args.dry_run:
-        airtable.update_record_fields(
-            record_id,
-            {FIELD_COMBINED_MEDIA_FILE: drive_url},
-        )
-        print(f"Airtable: updated {FIELD_COMBINED_MEDIA_FILE!r}")
+    airtable.update_record_fields(
+        record_id,
+        {FIELD_COMBINED_MEDIA_FILE: drive_url},
+    )
+    print(f"Airtable: updated {FIELD_COMBINED_MEDIA_FILE!r}")
     return 0
 
 
