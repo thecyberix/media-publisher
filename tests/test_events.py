@@ -31,6 +31,7 @@ from media_publisher.events.publish import (
 from media_publisher.events.templates import (
     EVENT_TYPE_SURYA_KRIYA,
     SURYA_KRIYA_LEARN_MORE_URL,
+    city_preposition,
     render_event,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
@@ -81,6 +82,21 @@ class EventTemplateTests(unittest.TestCase):
             rendered.html_body,
         )
 
+    def test_city_preposition_vv_before_v(self) -> None:
+        self.assertEqual(city_preposition("София"), "в")
+        self.assertEqual(city_preposition("Варна"), "във")
+        self.assertEqual(city_preposition("варна"), "във")
+        rendered = render_event(
+            event_type=EVENT_TYPE_SURYA_KRIYA,
+            city="Варна",
+            country="България",
+            event_date=date(2026, 9, 25),
+            event_time=time(10, 0),
+            registration_link="https://example.com/varna",
+        )
+        self.assertIn("\nвъв Варна, България", rendered.title)
+        self.assertIn("<br>във Варна, България</h2>", rendered.html_body)
+
     def test_unsupported_event_type(self) -> None:
         with self.assertRaises(ValueError):
             render_event(
@@ -121,7 +137,8 @@ class EventPageTests(unittest.TestCase):
             self.assertIn("assets/sadhguru.png", html)
             self.assertNotIn("Обявени програми", html)
             self.assertNotIn("Доброволци от Иша · Садгуру България", html)
-            self.assertIn("grid-template-columns: repeat(3", html)
+            self.assertIn("justify-content: center", html)
+            self.assertIn("border-radius: 16px", html)
 
             second, created_again = append_event(root, rendered)
             self.assertFalse(created_again)

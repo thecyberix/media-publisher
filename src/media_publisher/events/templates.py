@@ -38,6 +38,14 @@ def supported_event_types() -> tuple[str, ...]:
     return (EVENT_TYPE_SURYA_KRIYA,)
 
 
+def city_preposition(city: str) -> str:
+    """Bulgarian 'в' becomes 'във' before cities that start with В/в."""
+    first = (city or "").strip()[:1]
+    if first.casefold() == "в":
+        return "във"
+    return "в"
+
+
 def render_event(
     *,
     event_type: str,
@@ -67,7 +75,7 @@ def render_event(
     datetime_display = format_bulgarian_datetime(event_date, event_time)
     datetime_iso = format_iso_local(event_date, event_time)
     title_line1 = '☀️ Програма "Суря крия" ☀️'
-    title_line2 = f"в {city_text}, {country_text}"
+    title_line2 = f"{city_preposition(city_text)} {city_text}, {country_text}"
     title = f"{title_line1}\n{title_line2}"
 
     body_lines = [

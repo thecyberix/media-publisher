@@ -275,7 +275,7 @@ def _html_escape(value: str) -> str:
 
 _LIST_CHROME = """\
   <header>
-    <img class="profile" src="{profile_src}" alt="Садгуру" width="160" height="160">
+    <img class="profile" src="{profile_src}" alt="Садгуру" width="128" height="128">
     <h1>Събития</h1>
   </header>
   <main>
@@ -337,10 +337,10 @@ _INDEX_TEMPLATE = """\
     }}
     header .profile {{
       display: block;
-      width: 7.5rem;
-      height: 7.5rem;
+      width: 8rem;
+      height: 8rem;
       margin: 0 auto 1.25rem;
-      border-radius: 50%;
+      border-radius: 16px;
       object-fit: cover;
     }}
     header h1 {{
@@ -353,23 +353,16 @@ _INDEX_TEMPLATE = """\
       max-width: 72rem;
       margin: 0 auto;
       padding: 0 1.25rem 3rem;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: flex-start;
       gap: 2rem 1.5rem;
       text-align: left;
-      align-items: start;
-    }}
-    @media (max-width: 960px) {{
-      main {{
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }}
-    }}
-    @media (max-width: 640px) {{
-      main {{
-        grid-template-columns: 1fr;
-      }}
     }}
     .event {{
+      flex: 0 1 22rem;
+      width: min(100%, 22rem);
       padding: 1.25rem 1rem 0;
       border-top: 1px solid var(--rule);
     }}
