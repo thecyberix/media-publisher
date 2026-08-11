@@ -380,6 +380,33 @@ _INDEX_TEMPLATE = """\
     .quote {{
       font-style: italic;
     }}
+    .learn-more {{
+      margin: 1rem 0;
+    }}
+    .yt-link {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      max-width: 100%;
+      color: var(--link);
+      text-decoration: none;
+      vertical-align: middle;
+    }}
+    .yt-link:hover .yt-title {{
+      text-decoration: underline;
+    }}
+    .yt-icon {{
+      flex: 0 0 auto;
+      width: 1.15rem;
+      height: 1.15rem;
+      display: block;
+    }}
+    .yt-title {{
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
     .cta {{
       text-align: center;
       margin: 1.25rem 0;

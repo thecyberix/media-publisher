@@ -30,6 +30,7 @@ from media_publisher.events.publish import (
 )
 from media_publisher.events.templates import (
     EVENT_TYPE_SURYA_KRIYA,
+    SURYA_KRIYA_LEARN_MORE_LABEL,
     SURYA_KRIYA_LEARN_MORE_URL,
     city_preposition,
     render_event,
@@ -77,8 +78,11 @@ class EventTemplateTests(unittest.TestCase):
         )
         self.assertIn("Регистрация", rendered.html_body)
         self.assertIn("<br>в София, България</h2>", rendered.html_body)
+        self.assertIn('class="yt-link"', rendered.html_body)
+        self.assertIn('class="yt-title"', rendered.html_body)
+        self.assertIn(SURYA_KRIYA_LEARN_MORE_LABEL, rendered.html_body)
         self.assertIn(
-            f'Вижте какво казва Садгуру:<br><a href="{SURYA_KRIYA_LEARN_MORE_URL}">',
+            f'href="{SURYA_KRIYA_LEARN_MORE_URL}"',
             rendered.html_body,
         )
 
@@ -139,6 +143,8 @@ class EventPageTests(unittest.TestCase):
             self.assertNotIn("Доброволци от Иша · Садгуру България", html)
             self.assertIn("justify-content: center", html)
             self.assertIn("border-radius: 16px", html)
+            self.assertIn("text-overflow: ellipsis", html)
+            self.assertIn("yt-link", html)
 
             second, created_again = append_event(root, rendered)
             self.assertFalse(created_again)

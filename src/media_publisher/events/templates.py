@@ -201,8 +201,15 @@ def _html_section(
             "<li>Повишена енергия и жизненост</li>",
             "<li>Балансирани хормонални нива</li>",
             "</ul>",
-            "<p>Вижте какво казва Садгуру:<br>"
-            f'<a href="{_html_escape(learn_more_url)}">{_html_escape(learn_more_label)}</a></p>',
+            "<p class=\"learn-more\">Вижте какво казва Садгуру:<br>"
+            f'<a class="yt-link" href="{_html_escape(learn_more_url)}" '
+            'target="_blank" rel="noopener noreferrer">'
+            '<svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+            '<path fill="#FF0000" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"/>'
+            '<path fill="#fff" d="M9.75 15.5v-7L16 12z"/>'
+            "</svg>"
+            f'<span class="yt-title">{_html_escape(learn_more_label)}</span>'
+            "</a></p>",
             '<p class="cta">'
             f'<a href="{_html_escape(registration_link)}">Регистрация</a></p>',
             "<p>💫 С любов, светлина и смях,<br>Доброволци от Иша</p>",
