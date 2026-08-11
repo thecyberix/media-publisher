@@ -59,24 +59,6 @@
         "dry_run": "false"
       }
     },
-    "catalog-ingest-unassigned": {
-      "description": "Ingest catalog videos without assigning a translator",
-      "workflow": "catalog-ingest-unassigned.yml",
-      "inputs": {
-        "video_type": "Reel",
-        "count": "4",
-        "dry_run": "false"
-      }
-    },
-    "catalog-ingest-unassigned-dry-run": {
-      "description": "Preview unassigned ingest without writing to Airtable",
-      "workflow": "catalog-ingest-unassigned.yml",
-      "inputs": {
-        "video_type": "Reel",
-        "count": "4",
-        "dry_run": "true"
-      }
-    },
     "catalog-weekly-report": {
       "description": "Weekly participants work report",
       "workflow": "catalog-weekly-work-report.yml",
