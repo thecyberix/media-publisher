@@ -43,13 +43,6 @@ python -m media_publisher --publish-event \
   --dry-run
 ```
 
-## Facebook
+## Cleanup
 
-The workflow posts the announcement to the configured Facebook Page, then comments with the registration link.
-
-Required token scopes:
-
-- `pages_manage_posts`
-- `pages_manage_engagement`
-
-Check with `--check-event-meta` before the first live run.
+Past events (start time ≤ now, Europe/Sofia) are removed by the **Prune past events** workflow daily (~midnight Sofia) and also whenever a new event is published.

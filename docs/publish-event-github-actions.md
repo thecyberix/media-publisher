@@ -45,12 +45,13 @@ If `pages_manage_engagement` is missing, re-authorize a Page token for a user wi
 
 ## Past events
 
-Events are removed automatically when their start datetime (Europe/Sofia) is in the past:
+Events are removed when their start datetime (Europe/Sofia) is in the past:
 
-- on every `--publish-event` run
-- via `python -m media_publisher --prune-past-events`
+- **Daily** via [`prune-past-events.yml`](../.github/workflows/prune-past-events.yml) (21:00 UTC ≈ midnight Sofia in summer)
+- on every `--publish-event` / **Publish event** run
+- manually: `python -m media_publisher --prune-past-events`
 
-When no upcoming events remain, the page shows a centered **Очаквайте скоро!** on the Smartlink black background.
+When no upcoming events remain, the page shows a centered **Очаквайте скоро!** on the Smartlink cream background.
 
 ## Local dry run
 

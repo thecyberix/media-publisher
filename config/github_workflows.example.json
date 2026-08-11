@@ -75,6 +75,13 @@
         "registration_link": "https://example.com/register",
         "dry_run": "true"
       }
+    },
+    "prune-past-events": {
+      "description": "Remove past events from the public page and redeploy GitHub Pages",
+      "workflow": "prune-past-events.yml",
+      "inputs": {
+        "dry_run": "false"
+      }
     }
   },
   "cron_jobs": {
@@ -83,6 +90,12 @@
       "schedule": "0 0 * * *",
       "timezone": "Europe/Sofia",
       "preset": "catalog-daily-production"
+    },
+    "prune-past-events-midnight-sofia": {
+      "description": "GitHub schedule — prune past events near midnight Europe/Sofia (21:00 UTC)",
+      "schedule": "0 21 * * *",
+      "timezone": "UTC",
+      "preset": "prune-past-events"
     },
     "publish-videos-18h-sofia": {
       "description": "cron-job.org mirror — catalog videos at 18:00 Europe/Sofia",
