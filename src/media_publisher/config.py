@@ -51,6 +51,9 @@ class Settings:
     youtube_short_cover_intro_seconds: float = 5.0
     youtube_playlist_title: str = "Съзнателна Планета"
     youtube_playlist_id: str | None = None
+    youtube_daily_playlist_title: str = "Днес"
+    youtube_daily_playlist_id: str | None = None
+    youtube_daily_playlist_slots: str = "data/youtube_daily_playlist_slots.json"
     channel_report_mapping: str = "config/channel_report_bulgarian.json"
     channel_report_snapshots: str = "data/channel_report_snapshots.json"
     google_sheets_service_account: str = "credentials/google-sheets-service-account.json"
@@ -217,6 +220,16 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "Съзнателна Планета",
         youtube_playlist_id=optional("YOUTUBE_PLAYLIST_ID"),
+        youtube_daily_playlist_title=os.getenv(
+            "YOUTUBE_DAILY_PLAYLIST_TITLE", "Днес"
+        ).strip()
+        or "Днес",
+        youtube_daily_playlist_id=optional("YOUTUBE_DAILY_PLAYLIST_ID"),
+        youtube_daily_playlist_slots=os.getenv(
+            "YOUTUBE_DAILY_PLAYLIST_SLOTS",
+            "data/youtube_daily_playlist_slots.json",
+        ).strip()
+        or "data/youtube_daily_playlist_slots.json",
         channel_report_mapping=os.getenv(
             "CHANNEL_REPORT_MAPPING", "config/channel_report_bulgarian.json"
         ).strip()

@@ -79,6 +79,9 @@ def publish_local_quote_to_youtube(
     template_urls: dict[str, str] | None = None,
     playlist_id: str | None = None,
     playlist_title: str | None = None,
+    daily_playlist_id: str | None = None,
+    daily_playlist_title: str | None = None,
+    daily_playlist_slots_path: Path | None = None,
     private: bool = False,
 ) -> str:
     try:
@@ -112,6 +115,9 @@ def publish_local_quote_to_youtube(
         ffmpeg_path=ffmpeg_path,
         playlist_id=playlist_id,
         playlist_title=playlist_title or DEFAULT_YOUTUBE_PLAYLIST_TITLE,
+        daily_playlist_id=daily_playlist_id,
+        daily_playlist_title=daily_playlist_title,
+        daily_playlist_slots_path=daily_playlist_slots_path,
         **(template_urls or {}),
     )
     return youtube_video_url(video_id)
@@ -134,6 +140,9 @@ def publish_local_quote(
     youtube_work_dir: Path | None = None,
     youtube_playlist_id: str | None = None,
     youtube_playlist_title: str | None = None,
+    youtube_daily_playlist_id: str | None = None,
+    youtube_daily_playlist_title: str | None = None,
+    youtube_daily_playlist_slots_path: Path | None = None,
     ffmpeg_path: str | None = None,
     template_urls: dict[str, str] | None = None,
     private: bool = False,
@@ -154,6 +163,9 @@ def publish_local_quote(
             template_urls=template_urls,
             playlist_id=youtube_playlist_id,
             playlist_title=youtube_playlist_title,
+            daily_playlist_id=youtube_daily_playlist_id,
+            daily_playlist_title=youtube_daily_playlist_title,
+            daily_playlist_slots_path=youtube_daily_playlist_slots_path,
             private=private,
         )
 

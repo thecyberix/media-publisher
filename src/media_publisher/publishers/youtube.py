@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import secrets
 import shutil
@@ -13,7 +14,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from media_publisher.models import PublishJob
 from media_publisher.sources.image_video import (
@@ -34,6 +35,10 @@ DEFAULT_SCOPES = (
 )
 DEFAULT_CHANNEL_HANDLE = "SadhguruBulgarian"
 DEFAULT_YOUTUBE_PLAYLIST_TITLE = "Съзнателна Планета"
+DEFAULT_YOUTUBE_DAILY_PLAYLIST_TITLE = "Днес"
+DEFAULT_DAILY_PLAYLIST_SLOTS_PATH = "data/youtube_daily_playlist_slots.json"
+DAILY_PLAYLIST_SLOTS = ("quote", "reel", "lau")
+DailyPlaylistSlot = Literal["quote", "reel", "lau"]
 CHANNEL_HANDLE_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?youtube\.com/@([A-Za-z0-9._-]+)",
     re.IGNORECASE,
@@ -820,6 +825,92 @@ class YouTubeClient:
                 f"YouTube playlist insert failed with HTTP {status}: {detail}"
             )
 
+    def list_playlist_items(self, playlist_id: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        page_token: str | None = None
+        while True:
+            query_items = {
+                "part": "snippet,contentDetails",
+                "playlistId": playlist_id,
+                "maxResults": "50",
+            }
+            if page_token:
+                query_items["pageToken"] = page_token
+            query = urllib.parse.urlencode(query_items)
+            url = f"{API_BASE}/playlistItems?{query}"
+            status, _, payload = self._request("GET", url)
+            if status != 200:
+                detail = payload.decode("utf-8", errors="replace").strip()
+                raise YouTubePublishError(
+                    f"YouTube playlist items lookup failed with HTTP {status}: {detail}"
+                )
+            items.extend(self._parse_playlist_items(payload))
+            data = json.loads(payload.decode("utf-8"))
+            next_token = data.get("nextPageToken") if isinstance(data, dict) else None
+            if not isinstance(next_token, str) or not next_token.strip():
+                break
+            page_token = next_token.strip()
+        return items
+
+    def remove_playlist_item(self, playlist_item_id: str) -> None:
+        query = urllib.parse.urlencode({"id": playlist_item_id})
+        url = f"{API_BASE}/playlistItems?{query}"
+        status, _, payload = self._request("DELETE", url)
+        if status in {200, 204, 404}:
+            return
+        detail = payload.decode("utf-8", errors="replace").strip()
+        raise YouTubePublishError(
+            f"YouTube playlist item delete failed with HTTP {status}: {detail}"
+        )
+
+    def clear_playlist(self, playlist_id: str) -> int:
+        """Remove every item from a playlist. Returns how many items were deleted."""
+        removed = 0
+        for item in self.list_playlist_items(playlist_id):
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                continue
+            self.remove_playlist_item(item_id)
+            removed += 1
+        return removed
+
+    def sync_daily_playlist_slot(
+        self,
+        playlist_id: str,
+        video_id: str,
+        *,
+        slot: str,
+        state_path: Path,
+    ) -> dict[str, str]:
+        """Keep one video each for quote / reel / lau slots in the daily playlist.
+
+        Updates ``slot`` to ``video_id``, removes playlist items that are not in the
+        current three-slot set, and ensures ``video_id`` is present. Persists slots
+        to ``state_path``.
+        """
+        if slot not in DAILY_PLAYLIST_SLOTS:
+            raise YouTubePublishError(
+                f"Unsupported daily playlist slot {slot!r}; expected one of {DAILY_PLAYLIST_SLOTS}"
+            )
+        slots = load_daily_playlist_slots(state_path)
+        slots[slot] = video_id.strip()
+        desired = {value for value in slots.values() if value}
+        already_present = False
+        for item in self.list_playlist_items(playlist_id):
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                continue
+            item_video_id = _playlist_item_video_id(item)
+            if item_video_id is None or item_video_id not in desired:
+                self.remove_playlist_item(item_id)
+                continue
+            if item_video_id == video_id:
+                already_present = True
+        if not already_present:
+            self.add_video_to_playlist(video_id, playlist_id)
+        save_daily_playlist_slots(state_path, slots)
+        return slots
+
     def update_video_snippet(
         self,
         video_id: str,
@@ -1025,6 +1116,61 @@ def youtube_video_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def daily_playlist_slot_for_job(job: PublishJob) -> DailyPlaylistSlot:
+    if job.content_kind == "image":
+        return "quote"
+    if job.video_format == "short_form":
+        return "reel"
+    return "lau"
+
+
+def load_daily_playlist_slots(path: Path) -> dict[str, str]:
+    slots: dict[str, str] = {}
+    env_payload = os.getenv("YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON", "").strip()
+    if env_payload:
+        try:
+            parsed = json.loads(env_payload)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            for key in DAILY_PLAYLIST_SLOTS:
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    slots[key] = value.strip()
+    if path.is_file():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = None
+        if isinstance(payload, dict):
+            for key in DAILY_PLAYLIST_SLOTS:
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    slots[key] = value.strip()
+    return slots
+
+
+def save_daily_playlist_slots(path: Path, slots: dict[str, str]) -> None:
+    cleaned = {
+        key: slots[key].strip()
+        for key in DAILY_PLAYLIST_SLOTS
+        if isinstance(slots.get(key), str) and slots[key].strip()
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _playlist_item_video_id(item: dict[str, Any]) -> str | None:
+    snippet = item.get("snippet")
+    if not isinstance(snippet, dict):
+        return None
+    resource = snippet.get("resourceId")
+    if not isinstance(resource, dict):
+        return None
+    video_id = resource.get("videoId")
+    return video_id.strip() if isinstance(video_id, str) and video_id.strip() else None
+
+
 def publish_to_youtube(
     job: PublishJob,
     *,
@@ -1039,6 +1185,9 @@ def publish_to_youtube(
     cover_intro_seconds: float | None = None,
     playlist_id: str | None = None,
     playlist_title: str | None = DEFAULT_YOUTUBE_PLAYLIST_TITLE,
+    daily_playlist_id: str | None = None,
+    daily_playlist_title: str | None = None,
+    daily_playlist_slots_path: Path | None = None,
 ) -> str:
     """Upload a video to YouTube and return the published video ID."""
     from media_publisher.post_templates import (
@@ -1126,5 +1275,18 @@ def publish_to_youtube(
             playlist_id=playlist_id,
         )
         client.add_video_to_playlist(video_id, resolved_playlist_id)
+
+    if daily_playlist_id or daily_playlist_title:
+        resolved_daily_id = client.resolve_playlist_id(
+            daily_playlist_title or DEFAULT_YOUTUBE_DAILY_PLAYLIST_TITLE,
+            playlist_id=daily_playlist_id,
+        )
+        slots_path = daily_playlist_slots_path or Path(DEFAULT_DAILY_PLAYLIST_SLOTS_PATH)
+        client.sync_daily_playlist_slot(
+            resolved_daily_id,
+            video_id,
+            slot=daily_playlist_slot_for_job(job),
+            state_path=slots_path,
+        )
 
     return video_id

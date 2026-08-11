@@ -104,6 +104,9 @@ class PublishPipelineSettings:
     use_web_export: bool = False
     happyscribe_published_folder_id: str | None = None
     youtube_short_cover_intro_seconds: float = 5.0
+    youtube_daily_playlist_title: str = "Днес"
+    youtube_daily_playlist_id: str | None = None
+    youtube_daily_playlist_slots_path: Path | None = None
     skip_thumbnails: bool = False
     publish_override_drive_folder_id: str = ""
     publish_override_thumbnails_subfolder: str = "Thumbnails"
@@ -150,6 +153,9 @@ def publish_platform_task(
             cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
             playlist_id=settings.youtube_playlist_id,
             playlist_title=settings.youtube_playlist_title,
+            daily_playlist_id=settings.youtube_daily_playlist_id,
+            daily_playlist_title=settings.youtube_daily_playlist_title,
+            daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
             **settings.template_urls,
         )
         return youtube_video_url(video_id)

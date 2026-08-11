@@ -64,6 +64,9 @@ class QuotesPipelineSettings:
     private_test: bool = False
     reference_date: date | None = None
     platforms: tuple[PlatformName, ...] | None = None
+    youtube_daily_playlist_title: str = "Днес"
+    youtube_daily_playlist_id: str | None = None
+    youtube_daily_playlist_slots_path: Path | None = None
 
 
 def filter_quotes_for_local_date(
@@ -341,6 +344,9 @@ def run_quotes_pipeline(
                     youtube_work_dir=quote_video_dir,
                     youtube_playlist_id=settings.youtube_playlist_id,
                     youtube_playlist_title=settings.youtube_playlist_title,
+                    youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
+                    youtube_daily_playlist_title=settings.youtube_daily_playlist_title,
+                    youtube_daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
                     ffmpeg_path=settings.ffmpeg_path,
                     template_urls=settings.template_urls,
                 )

@@ -8,7 +8,11 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from media_publisher.config import load_settings, update_env_values
-from media_publisher.runtime_env import maybe_persist_canva_token, maybe_persist_youtube_token
+from media_publisher.runtime_env import (
+    maybe_persist_canva_token,
+    maybe_persist_daily_playlist_slots,
+    maybe_persist_youtube_token,
+)
 from media_publisher.models import PlatformName
 from media_publisher.scheduling import (
     instagram_is_due,
@@ -1124,6 +1128,9 @@ def build_quotes_pipeline_settings(
         youtube_channel_handle=settings.youtube_channel_handle,
         youtube_playlist_title=settings.youtube_playlist_title,
         youtube_playlist_id=settings.youtube_playlist_id,
+        youtube_daily_playlist_title=settings.youtube_daily_playlist_title,
+        youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
+        youtube_daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
         ffmpeg_path=settings.happyscribe_ffmpeg,
         publish_mode=publish_mode,
         private_test=private_test,
@@ -1354,6 +1361,9 @@ def build_publish_pipeline_settings(
         youtube_channel_handle=settings.youtube_channel_handle,
         youtube_playlist_title=settings.youtube_playlist_title,
         youtube_playlist_id=settings.youtube_playlist_id,
+        youtube_daily_playlist_title=settings.youtube_daily_playlist_title,
+        youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
+        youtube_daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
         template_urls=template_urls_from_settings(settings),
         meta_page_id=meta_page_id,
         meta_instagram_account_id=meta_instagram_account_id,
@@ -2095,6 +2105,9 @@ def main() -> int:
                 cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
                 playlist_id=settings.youtube_playlist_id,
                 playlist_title=settings.youtube_playlist_title,
+                daily_playlist_id=settings.youtube_daily_playlist_id,
+                daily_playlist_title=settings.youtube_daily_playlist_title,
+                daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
                 **template_urls_from_settings(settings),
             )
             permalink = youtube_video_url(video_id)
@@ -2289,6 +2302,9 @@ if __name__ == "__main__":
         yt_message = maybe_persist_youtube_token(PROJECT_ROOT)
         if yt_message:
             print_console(yt_message)
+        slots_message = maybe_persist_daily_playlist_slots(PROJECT_ROOT)
+        if slots_message:
+            print_console(slots_message)
     except RuntimeError as exc:
         print_console(f"Warning: {exc}")
     sys.exit(exit_code)

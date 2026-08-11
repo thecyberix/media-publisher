@@ -23,6 +23,8 @@ CREDENTIAL_ENV_FILES: dict[str, str] = {
 
 CANVA_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["CANVA_TOKEN_JSON"]
 YOUTUBE_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["YOUTUBE_TOKEN_JSON"]
+DAILY_PLAYLIST_SLOTS_RELATIVE_PATH = "data/youtube_daily_playlist_slots.json"
+DAILY_PLAYLIST_SLOTS_VARIABLE = "YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON"
 DEFAULT_GITHUB_REPOSITORY = "thecyberix/media-publisher"
 GITHUB_API_VERSION = "2022-11-28"
 INITIAL_CREDENTIAL_JSON: dict[str, str] = {}
@@ -96,7 +98,22 @@ def materialize_credentials(project_root: Path) -> list[Path]:
         global CANVA_TOKEN_BASELINE
         CANVA_TOKEN_BASELINE = stale_canva_secret
         INITIAL_CREDENTIAL_JSON[CANVA_TOKEN_RELATIVE_PATH] = stale_canva_secret
+    _materialize_daily_playlist_slots(project_root)
     return written
+
+
+def _materialize_daily_playlist_slots(project_root: Path) -> None:
+    payload = os.getenv("YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON", "").strip()
+    if not payload:
+        return
+    destination = project_root / DAILY_PLAYLIST_SLOTS_RELATIVE_PATH
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        parsed = json.loads(payload)
+        text = json.dumps(parsed, indent=2, ensure_ascii=False) + "\n"
+    except json.JSONDecodeError:
+        text = payload if payload.endswith("\n") else payload + "\n"
+    destination.write_text(text, encoding="utf-8")
 
 
 def note_canva_token_baseline(project_root: Path) -> None:
@@ -353,3 +370,84 @@ def maybe_persist_youtube_token(
     INITIAL_CREDENTIAL_JSON[YOUTUBE_TOKEN_RELATIVE_PATH] = current
 
     return "Updated YOUTUBE_TOKEN_JSON GitHub secret after YouTube token refresh."
+
+
+def maybe_persist_daily_playlist_slots(project_root: Path) -> str | None:
+    """Write daily playlist slot IDs back to a GitHub Actions variable."""
+    sync_pat = os.getenv("CANVA_TOKEN_SYNC_PAT", "").strip()
+    if not sync_pat:
+        return None
+    repository = _github_repository()
+    if not repository:
+        return None
+    slots_path = project_root / DAILY_PLAYLIST_SLOTS_RELATIVE_PATH
+    if not slots_path.is_file():
+        return None
+    current = slots_path.read_text(encoding="utf-8").strip()
+    if not current:
+        return None
+    baseline = os.getenv("YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON", "").strip()
+    if baseline and _normalize_json_text(baseline) == _normalize_json_text(current):
+        return None
+    _set_github_actions_variable(
+        repository,
+        DAILY_PLAYLIST_SLOTS_VARIABLE,
+        current,
+        token=sync_pat,
+    )
+    return f"Updated {DAILY_PLAYLIST_SLOTS_VARIABLE} GitHub variable after daily playlist sync."
+
+
+def _normalize_json_text(payload: str) -> str:
+    try:
+        return json.dumps(json.loads(payload), sort_keys=True, separators=(",", ":"))
+    except json.JSONDecodeError:
+        return payload.strip()
+
+
+def _set_github_actions_variable(
+    repository: str,
+    name: str,
+    value: str,
+    *,
+    token: str,
+) -> None:
+    gh_path = shutil.which("gh")
+    if gh_path is not None:
+        result = subprocess.run(
+            [
+                gh_path,
+                "variable",
+                "set",
+                name,
+                "--repo",
+                repository,
+                "--body",
+                value,
+            ],
+            env={**os.environ, "GH_TOKEN": token},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode == 0:
+            return
+    # Create or update via API.
+    url = f"https://api.github.com/repos/{repository}/actions/variables/{name}"
+    try:
+        _github_api_request(
+            "PATCH",
+            url,
+            token=token,
+            body={"name": name, "value": value},
+        )
+    except RuntimeError as exc:
+        if "404" not in str(exc):
+            raise
+        _github_api_request(
+            "POST",
+            f"https://api.github.com/repos/{repository}/actions/variables",
+            token=token,
+            body={"name": name, "value": value},
+        )

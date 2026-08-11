@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from media_publisher.models import PublishJob
 from media_publisher.publishers.youtube import (
@@ -16,8 +16,10 @@ from media_publisher.publishers.youtube import (
     _video_is_ready_for_thumbnail,
     build_video_body,
     build_video_status,
+    daily_playlist_slot_for_job,
     format_publish_at,
     load_client_secrets,
+    load_daily_playlist_slots,
     parse_channel_handle,
     prepare_youtube_thumbnail,
     publish_to_youtube,
@@ -480,6 +482,140 @@ class YouTubeClientTests(unittest.TestCase):
             "vid123",
             "PLtest123",
         )
+
+    def test_publish_to_youtube_syncs_daily_playlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            slots_path = root / "slots.json"
+            video_path = root / "clip.mp4"
+            video_path.write_bytes(b"video")
+            job = PublishJob(
+                title="Clip",
+                video_path=str(video_path),
+                video_format="post",
+                publish_at=datetime(2026, 8, 11, 15, 0, tzinfo=timezone.utc),
+            )
+            with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                client_cls.return_value.upload_video.return_value = "vid123"
+                client_cls.return_value.resolve_playlist_id.side_effect = [
+                    "PLarchive",
+                    "PLdaily",
+                ]
+                video_id = publish_to_youtube(
+                    job,
+                    client_secrets_path=secrets_path,
+                    token_path=token_path,
+                    playlist_id="PLarchive",
+                    daily_playlist_id="PLdaily",
+                    daily_playlist_slots_path=slots_path,
+                )
+
+        self.assertEqual(video_id, "vid123")
+        client_cls.return_value.sync_daily_playlist_slot.assert_called_once_with(
+            "PLdaily",
+            "vid123",
+            slot="lau",
+            state_path=slots_path,
+        )
+
+    def test_daily_playlist_slot_for_job(self) -> None:
+        self.assertEqual(
+            daily_playlist_slot_for_job(
+                PublishJob(title="q", content_kind="image", video_format="short_form")
+            ),
+            "quote",
+        )
+        self.assertEqual(
+            daily_playlist_slot_for_job(
+                PublishJob(title="r", content_kind="video", video_format="short_form")
+            ),
+            "reel",
+        )
+        self.assertEqual(
+            daily_playlist_slot_for_job(
+                PublishJob(title="v", content_kind="video", video_format="post")
+            ),
+            "lau",
+        )
+
+    def test_sync_daily_playlist_keeps_other_slots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text(
+                '{"quote":"quote1","reel":"reel1","lau":"lau1"}\n',
+                encoding="utf-8",
+            )
+            client = YouTubeClient.__new__(YouTubeClient)
+            client.list_playlist_items = MagicMock(
+                return_value=[
+                    {"id": "item-quote", "snippet": {"resourceId": {"videoId": "quote1"}}},
+                    {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                    {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                ]
+            )
+            client.remove_playlist_item = MagicMock()
+            client.add_video_to_playlist = MagicMock()
+
+            updated = client.sync_daily_playlist_slot(
+                "PLdaily",
+                "quote2",
+                slot="quote",
+                state_path=slots_path,
+            )
+
+            client.remove_playlist_item.assert_called_once_with("item-quote")
+            client.add_video_to_playlist.assert_called_once_with("quote2", "PLdaily")
+            self.assertEqual(
+                updated,
+                {"quote": "quote2", "reel": "reel1", "lau": "lau1"},
+            )
+            self.assertEqual(
+                load_daily_playlist_slots(slots_path),
+                {"quote": "quote2", "reel": "reel1", "lau": "lau1"},
+            )
+
+    def test_sync_daily_playlist_skips_add_when_already_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text('{"lau":"video"}\n', encoding="utf-8")
+            client = YouTubeClient.__new__(YouTubeClient)
+            client.list_playlist_items = MagicMock(
+                return_value=[
+                    {
+                        "id": "item-video",
+                        "snippet": {"resourceId": {"videoId": "video"}},
+                    },
+                ]
+            )
+            client.remove_playlist_item = MagicMock()
+            client.add_video_to_playlist = MagicMock()
+
+            client.sync_daily_playlist_slot(
+                "PLdaily",
+                "video",
+                slot="lau",
+                state_path=slots_path,
+            )
+
+            client.remove_playlist_item.assert_not_called()
+            client.add_video_to_playlist.assert_not_called()
+
+    def test_clear_playlist_removes_all_items(self) -> None:
+        client = YouTubeClient.__new__(YouTubeClient)
+        client.list_playlist_items = MagicMock(
+            return_value=[
+                {"id": "a"},
+                {"id": "b"},
+                {"id": ""},
+            ]
+        )
+        client.remove_playlist_item = MagicMock()
+        removed = client.clear_playlist("PLdaily")
+        self.assertEqual(removed, 2)
+        client.remove_playlist_item.assert_any_call("a")
+        client.remove_playlist_item.assert_any_call("b")
 
     def test_publish_to_youtube_requires_video_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
