@@ -1528,6 +1528,52 @@ class MetaClient:
             raise MetaError("Meta Facebook photo upload response is missing photo id")
         return photo_id
 
+    def create_facebook_feed_post(
+        self,
+        *,
+        page_id: str,
+        message: str,
+    ) -> str:
+        """Publish an immediate text-only Facebook Page feed post."""
+        text = message.strip()
+        if not text:
+            raise MetaError("Facebook feed post message is required")
+        response = self._request(
+            "POST",
+            f"{page_id}/feed",
+            body={
+                "message": text,
+                "published": "true",
+            },
+        )
+        post_id = response.get("id")
+        if not isinstance(post_id, str) or not post_id:
+            raise MetaError("Meta Facebook feed post response is missing post id")
+        return post_id
+
+    def create_facebook_comment(
+        self,
+        *,
+        object_id: str,
+        message: str,
+    ) -> str:
+        """Comment on a Page post (requires pages_manage_engagement)."""
+        text = message.strip()
+        if not text:
+            raise MetaError("Facebook comment message is required")
+        target = object_id.strip()
+        if not target:
+            raise MetaError("Facebook comment object_id is required")
+        response = self._request(
+            "POST",
+            f"{target}/comments",
+            body={"message": text},
+        )
+        comment_id = response.get("id")
+        if not isinstance(comment_id, str) or not comment_id:
+            raise MetaError("Meta Facebook comment response is missing comment id")
+        return comment_id
+
     def create_facebook_draft_feed_post_with_photo(
         self,
         *,

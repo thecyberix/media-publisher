@@ -269,6 +269,69 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify Meta credentials for the configured Sadhguru Bulgarian accounts.",
     )
     parser.add_argument(
+        "--check-event-meta",
+        action="store_true",
+        help=(
+            "Inspect META_ACCESS_TOKEN scopes needed for event posts "
+            "(pages_manage_posts, pages_manage_engagement)."
+        ),
+    )
+    parser.add_argument(
+        "--publish-event",
+        action="store_true",
+        help="Publish a public Hatha event (GitHub Pages section + Facebook post/comment).",
+    )
+    parser.add_argument(
+        "--event-type",
+        default="surya_kriya",
+        help="Event type for --publish-event (default: surya_kriya).",
+    )
+    parser.add_argument(
+        "--city",
+        default="",
+        help="City for --publish-event (fills [град]).",
+    )
+    parser.add_argument(
+        "--country",
+        default="България",
+        help="Country for --publish-event (default: България).",
+    )
+    parser.add_argument(
+        "--date",
+        default="",
+        help="Event date for --publish-event (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--time",
+        default="",
+        help="Event time for --publish-event (HH:MM, Europe/Sofia display).",
+    )
+    parser.add_argument(
+        "--registration-link",
+        default="",
+        help="Registration URL for --publish-event.",
+    )
+    parser.add_argument(
+        "--events-root",
+        default="",
+        help="Optional path to the events/ site root (default: <repo>/events).",
+    )
+    parser.add_argument(
+        "--skip-facebook",
+        action="store_true",
+        help="With --publish-event, update the public page only (no Facebook post).",
+    )
+    parser.add_argument(
+        "--prune-past-events",
+        action="store_true",
+        help="Remove past events from events/ and rebuild the public page.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview actions without writing the page or posting to Facebook.",
+    )
+    parser.add_argument(
         "--resolve-meta",
         action="store_true",
         help="Resolve Facebook Page and Instagram account IDs from configured usernames.",
@@ -557,6 +620,180 @@ def meta_client_from_settings(settings) -> MetaClient:
         api_version=settings.meta_api_version,
         app_id=settings.meta_app_id,
     )
+
+
+def resolve_facebook_page_id(settings) -> tuple[str, MetaPageInfo]:
+    """Resolve the Facebook Page without requiring a linked Instagram account."""
+    client = meta_client_from_settings(settings)
+    page_info = client.resolve_page_by_username(settings.meta_page_username)
+    if settings.meta_page_id and settings.meta_page_id != page_info.page_id:
+        raise MetaError(
+            f"META_PAGE_ID {settings.meta_page_id!r} does not match "
+            f"Facebook page {settings.meta_page_username!r}"
+        )
+    return settings.meta_page_id or page_info.page_id, page_info
+
+
+def run_check_event_meta(settings) -> int:
+    from media_publisher.events import REQUIRED_EVENT_META_SCOPES, check_event_meta_scopes
+
+    missing = []
+    if not settings.meta_access_token:
+        missing.append("META_ACCESS_TOKEN")
+    if not settings.meta_app_id:
+        missing.append("META_APP_ID")
+    if not settings.meta_app_secret:
+        missing.append("META_APP_SECRET")
+    if missing:
+        print("Missing required settings:", ", ".join(missing))
+        return 1
+
+    try:
+        info, missing_scopes = check_event_meta_scopes(
+            access_token=settings.meta_access_token or "",
+            app_id=settings.meta_app_id or "",
+            app_secret=settings.meta_app_secret or "",
+            api_version=settings.meta_api_version,
+        )
+    except MetaError as exc:
+        print(f"Meta token inspection failed: {exc}")
+        return 1
+
+    print(f"Token type: {info.token_type}")
+    print(f"Valid: {info.is_valid}")
+    if info.expires_at is not None:
+        print(f"Expires at: {info.expires_at.isoformat()}")
+    else:
+        print("Expires at: never / unknown")
+    print(f"Scopes: {', '.join(info.scopes) if info.scopes else '(none)'}")
+    print(f"Required for events: {', '.join(REQUIRED_EVENT_META_SCOPES)}")
+    if missing_scopes:
+        print("MISSING scopes:", ", ".join(missing_scopes))
+        print(
+            "Re-authorize a Page token that includes pages_manage_posts and "
+            "pages_manage_engagement (Page MODERATE task), then update META_ACCESS_TOKEN."
+        )
+        return 1
+    print("Event Meta scopes OK.")
+    return 0
+
+
+def run_prune_past_events(args) -> int:
+    from media_publisher.events import prune_events_site
+    from media_publisher.events.page import default_events_root
+
+    events_root = (
+        Path(args.events_root).expanduser()
+        if args.events_root.strip()
+        else default_events_root(PROJECT_ROOT)
+    )
+    if not events_root.is_absolute():
+        events_root = PROJECT_ROOT / events_root
+
+    if args.dry_run:
+        from media_publisher.events.page import prune_past_events
+
+        _kept, removed = prune_past_events(events_root, write=False)
+        print(f"Dry run: would remove {len(removed)} past event(s) from {events_root}")
+        for item in removed:
+            print(f"  - {item.get('title')} ({item.get('datetime_iso')})")
+        return 0
+
+    _kept, removed = prune_events_site(events_root)
+    print(f"Removed {len(removed)} past event(s) from {events_root}")
+    for item in removed:
+        print(f"  - {item.get('title')} ({item.get('datetime_iso')})")
+    print(f"Rebuilt {events_root / 'index.html'}")
+    return 0
+
+
+def run_publish_event(settings, args) -> int:
+    from media_publisher.events import EventPublishError, publish_event
+    from media_publisher.events.page import default_events_root
+
+    if not args.city.strip():
+        print("--city is required with --publish-event")
+        return 1
+    if not args.date.strip():
+        print("--date is required with --publish-event (YYYY-MM-DD)")
+        return 1
+    if not args.time.strip():
+        print("--time is required with --publish-event (HH:MM)")
+        return 1
+    if not args.registration_link.strip():
+        print("--registration-link is required with --publish-event")
+        return 1
+
+    events_root = (
+        Path(args.events_root).expanduser()
+        if args.events_root.strip()
+        else default_events_root(PROJECT_ROOT)
+    )
+    if not events_root.is_absolute():
+        events_root = PROJECT_ROOT / events_root
+
+    meta_client = None
+    page_id = None
+    if not args.dry_run and not args.skip_facebook:
+        if not settings.meta_access_token:
+            print("Missing required settings: META_ACCESS_TOKEN")
+            return 1
+        try:
+            page_id, page_info = resolve_facebook_page_id(settings)
+            meta_client = meta_client_from_settings(settings)
+        except MetaError as exc:
+            print(f"Meta resolve failed: {exc}")
+            return 1
+        print(f"Facebook page: {page_info.name} ({page_id})")
+
+    try:
+        result = publish_event(
+            event_type=args.event_type,
+            city=args.city,
+            country=args.country,
+            date_text=args.date,
+            time_text=args.time,
+            registration_link=args.registration_link,
+            project_root=PROJECT_ROOT,
+            events_root=events_root,
+            dry_run=bool(args.dry_run),
+            skip_facebook=bool(args.skip_facebook),
+            meta_client=meta_client,
+            page_id=page_id,
+        )
+    except EventPublishError as exc:
+        print(f"Publish event failed: {exc}")
+        return 1
+
+    print_console("--- Event text ---")
+    print_console(result.rendered.full_text)
+    print_console("--- Facebook post ---")
+    print_console(result.rendered.facebook_post_text)
+    print_console("--- Facebook comment ---")
+    print_console(result.rendered.facebook_comment_text)
+
+    if result.dry_run:
+        print("Dry run: page and Facebook were not updated.")
+        return 0
+
+    if result.skipped_duplicate:
+        print(f"Event already on page (id={result.stored.id if result.stored else '?'}).")
+    else:
+        print(f"Added event to {events_root / 'data' / 'events.json'}")
+        print(f"Rebuilt {events_root / 'index.html'}")
+
+    if result.pruned_count:
+        print(f"Pruned {result.pruned_count} past event(s).")
+
+    if result.facebook_post_id:
+        print(f"Facebook post id: {result.facebook_post_id}")
+    if result.facebook_comment_id:
+        print(f"Facebook comment id: {result.facebook_comment_id}")
+    if result.facebook_permalink:
+        print(f"Facebook permalink: {result.facebook_permalink}")
+    elif args.skip_facebook:
+        print("Skipped Facebook publish (--skip-facebook).")
+    return 0
 
 
 def meta_settings_missing(settings) -> list[str]:
@@ -852,6 +1089,9 @@ def cli_requested_action(args) -> bool:
             args.youtube_auth_code is not None,
             args.test_youtube,
             args.test_meta,
+            args.check_event_meta,
+            args.publish_event,
+            args.prune_past_events,
             args.resolve_meta,
             args.meta_setup_token is not None,
             args.list_pending,
@@ -1949,6 +2189,15 @@ def main() -> int:
         print(f"Instagram account ID: {instagram_account_id}")
         return 0
 
+    if args.check_event_meta:
+        return run_check_event_meta(settings)
+
+    if args.prune_past_events:
+        return run_prune_past_events(args)
+
+    if args.publish_event:
+        return run_publish_event(settings, args)
+
     if args.resolve_meta:
         missing = meta_settings_missing(settings)
         if missing:
@@ -2286,7 +2535,9 @@ def main() -> int:
         "--test-happyscribe, --list-happyscribe-library, --download-happyscribe-library, "
         "--happyscribe-save-session, --happyscribe-import-session, --export-happyscribe-web, --burn-happyscribe-video, "
         "--canva-auth, --canva-download, --canva-resolve, --test-canva, --youtube-auth, --test-youtube, "
-        "--test-meta, --resolve-meta, --meta-setup-token, --schedule-youtube, "
+        "--test-meta, --check-event-meta, --publish-event, --prune-past-events, "
+        "--resolve-meta, "
+        "--meta-setup-token, --schedule-youtube, "
         "--schedule-facebook, --schedule-instagram, --quotes, --schedule, --watch, "
         "--inspect-channel-report, or --update-channel-report"
     )

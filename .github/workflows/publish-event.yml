@@ -1,0 +1,128 @@
+name: Publish event
+
+# Manually announce a Bulgarian Hatha programme (v1: Surya Kriya).
+# Updates events/ for GitHub Pages and posts to the Facebook Page
+# (registration link as a comment).
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: City (град)
+        type: string
+        required: true
+      country:
+        description: Country (държава)
+        type: string
+        required: true
+        default: България
+      date:
+        description: Event date (YYYY-MM-DD)
+        type: string
+        required: true
+      time:
+        description: Event time (HH:MM)
+        type: string
+        required: true
+      registration_link:
+        description: Registration URL
+        type: string
+        required: true
+      dry_run:
+        description: Preview only (no page commit, no Facebook post)
+        type: boolean
+        default: false
+      skip_facebook:
+        description: Update the public page only (no Facebook post)
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish-event
+  cancel-in-progress: false
+
+env:
+  META_APP_ID: ${{ secrets.META_APP_ID }}
+  META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+  META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+  META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-python-env
+
+      - name: Check Meta event scopes
+        if: ${{ inputs.dry_run == false && inputs.skip_facebook == false }}
+        run: python -m media_publisher --check-event-meta
+
+      - name: Publish event
+        env:
+          EVENT_CITY: ${{ inputs.city }}
+          EVENT_COUNTRY: ${{ inputs.country }}
+          EVENT_DATE: ${{ inputs.date }}
+          EVENT_TIME: ${{ inputs.time }}
+          EVENT_REGISTRATION_LINK: ${{ inputs.registration_link }}
+          EVENT_DRY_RUN: ${{ inputs.dry_run }}
+          EVENT_SKIP_FACEBOOK: ${{ inputs.skip_facebook }}
+        run: |
+          set -euo pipefail
+          args=(
+            --publish-event
+            --event-type surya_kriya
+            --city "$EVENT_CITY"
+            --country "$EVENT_COUNTRY"
+            --date "$EVENT_DATE"
+            --time "$EVENT_TIME"
+            --registration-link "$EVENT_REGISTRATION_LINK"
+          )
+          if [ "$EVENT_DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ "$EVENT_SKIP_FACEBOOK" = "true" ]; then
+            args+=(--skip-facebook)
+          fi
+          python -m media_publisher "${args[@]}"
+
+      - name: Commit events site
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add events/data/events.json events/index.html
+          if git diff --cached --quiet; then
+            echo "No events site changes to commit."
+          else
+            git commit -m "Add Surya Kriya event for ${{ inputs.city }} on ${{ inputs.date }}"
+            git push
+          fi
+
+      - name: Upload Pages artifact
+        if: ${{ inputs.dry_run == false }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: events
+
+  deploy:
+    needs: publish
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

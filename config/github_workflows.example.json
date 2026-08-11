@@ -81,6 +81,18 @@
       "description": "Weekly participants work report",
       "workflow": "catalog-weekly-work-report.yml",
       "inputs": {}
+    },
+    "publish-event-surya-kriya-dry-run": {
+      "description": "Preview a Bulgarian Surya Kriya event announcement (no page/FB writes)",
+      "workflow": "publish-event.yml",
+      "inputs": {
+        "city": "София",
+        "country": "България",
+        "date": "2026-09-15",
+        "time": "18:00",
+        "registration_link": "https://example.com/register",
+        "dry_run": "true"
+      }
     }
   },
   "cron_jobs": {

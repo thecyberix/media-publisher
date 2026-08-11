@@ -1,0 +1,196 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, time
+
+from media_publisher.events.format import format_bulgarian_datetime, format_iso_local
+
+EVENT_TYPE_SURYA_KRIYA = "surya_kriya"
+
+SURYA_KRIYA_LEARN_MORE_URL = "https://youtu.be/Lh0ZucHjp14"
+SURYA_KRIYA_LEARN_MORE_LABEL = "Суря крия - Запалете Слънцето във вас! | Садгуру"
+
+# Bulgarian rendering of the English template quote.
+SURYA_KRIYA_QUOTE = (
+    "„Суря крия е мощен процес за активиране на слънчевата сила във вас.“ – Садгуру"
+)
+
+
+@dataclass(frozen=True)
+class RenderedEvent:
+    event_type: str
+    title: str
+    city: str
+    country: str
+    event_date: date
+    event_time: time
+    datetime_display: str
+    datetime_iso: str
+    registration_link: str
+    learn_more_url: str
+    full_text: str
+    facebook_post_text: str
+    facebook_comment_text: str
+    html_body: str
+
+
+def supported_event_types() -> tuple[str, ...]:
+    return (EVENT_TYPE_SURYA_KRIYA,)
+
+
+def render_event(
+    *,
+    event_type: str,
+    city: str,
+    country: str,
+    event_date: date,
+    event_time: time,
+    registration_link: str,
+) -> RenderedEvent:
+    normalized_type = event_type.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized_type != EVENT_TYPE_SURYA_KRIYA:
+        raise ValueError(
+            f"Unsupported event type {event_type!r}. "
+            f"Supported: {', '.join(supported_event_types())}"
+        )
+
+    city_text = city.strip()
+    country_text = country.strip()
+    link = registration_link.strip()
+    if not city_text:
+        raise ValueError("city is required")
+    if not country_text:
+        raise ValueError("country is required")
+    if not link:
+        raise ValueError("registration_link is required")
+
+    datetime_display = format_bulgarian_datetime(event_date, event_time)
+    datetime_iso = format_iso_local(event_date, event_time)
+    title = f'☀️ Програма "Суря крия" в {city_text}, {country_text} ☀️'
+
+    body_lines = [
+        title,
+        "",
+        f"🗓: {datetime_display}",
+        "",
+        SURYA_KRIYA_QUOTE,
+        "",
+        "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
+        "Суря крия активира слънчевия сплит, което води до повишаване на "
+        "„самат прана“, или слънчевата топлина, в системата.",
+        "",
+        "Ползи:",
+        "",
+        "✅ Умствена яснота и фокус",
+        "✅ Подобрено физическо здраве",
+        "✅ Укрепване на отслабения организъм",
+        "✅ Повишена енергия и жизненост",
+        "✅ Балансирани хормонални нива",
+        "",
+        f"Вижте какво казва Садгуру: {SURYA_KRIYA_LEARN_MORE_LABEL}",
+        SURYA_KRIYA_LEARN_MORE_URL,
+        "",
+        f"👉 Регистрация тук: {link}",
+        "",
+        "💫 С любов, светлина и смях,",
+        "Доброволци от Иша",
+    ]
+    full_text = "\n".join(body_lines)
+
+    facebook_post_lines = [
+        title,
+        "",
+        f"🗓: {datetime_display}",
+        "",
+        SURYA_KRIYA_QUOTE,
+        "",
+        "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
+        "Суря крия активира слънчевия сплит, което води до повишаване на "
+        "„самат прана“, или слънчевата топлина, в системата.",
+        "",
+        "Ползи:",
+        "",
+        "✅ Умствена яснота и фокус",
+        "✅ Подобрено физическо здраве",
+        "✅ Укрепване на отслабения организъм",
+        "✅ Повишена енергия и жизненост",
+        "✅ Балансирани хормонални нива",
+        "",
+        f"Вижте какво казва Садгуру: {SURYA_KRIYA_LEARN_MORE_URL}",
+        "",
+        "👉 Регистрацията е в коментара.",
+        "",
+        "💫 С любов, светлина и смях,",
+        "Доброволци от Иша",
+    ]
+    facebook_post_text = "\n".join(facebook_post_lines)
+    facebook_comment_text = f"👉 Регистрация тук: {link}"
+
+    html_body = _html_section(
+        title=title,
+        datetime_display=datetime_display,
+        quote=SURYA_KRIYA_QUOTE,
+        learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
+        learn_more_label=SURYA_KRIYA_LEARN_MORE_LABEL,
+        registration_link=link,
+    )
+
+    return RenderedEvent(
+        event_type=EVENT_TYPE_SURYA_KRIYA,
+        title=title,
+        city=city_text,
+        country=country_text,
+        event_date=event_date,
+        event_time=event_time,
+        datetime_display=datetime_display,
+        datetime_iso=datetime_iso,
+        registration_link=link,
+        learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
+        full_text=full_text,
+        facebook_post_text=facebook_post_text,
+        facebook_comment_text=facebook_comment_text,
+        html_body=html_body,
+    )
+
+
+def _html_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _html_section(
+    *,
+    title: str,
+    datetime_display: str,
+    quote: str,
+    learn_more_url: str,
+    learn_more_label: str,
+    registration_link: str,
+) -> str:
+    return "\n".join(
+        [
+            f"<h2>{_html_escape(title)}</h2>",
+            f'<p class="when">🗓 {_html_escape(datetime_display)}</p>',
+            f'<p class="quote">{_html_escape(quote)}</p>',
+            "<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
+            "Суря крия активира слънчевия сплит, което води до повишаване на "
+            "„самат прана“, или слънчевата топлина, в системата.</p>",
+            "<p><strong>Ползи:</strong></p>",
+            "<ul>",
+            "<li>Умствена яснота и фокус</li>",
+            "<li>Подобрено физическо здраве</li>",
+            "<li>Укрепване на отслабения организъм</li>",
+            "<li>Повишена енергия и жизненост</li>",
+            "<li>Балансирани хормонални нива</li>",
+            "</ul>",
+            "<p>Вижте какво казва Садгуру: "
+            f'<a href="{_html_escape(learn_more_url)}">{_html_escape(learn_more_label)}</a></p>',
+            '<p class="cta">'
+            f'<a href="{_html_escape(registration_link)}">Регистрация</a></p>',
+            "<p>💫 С любов, светлина и смях,<br>Доброволци от Иша</p>",
+        ]
+    )
