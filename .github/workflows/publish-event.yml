@@ -1,11 +1,18 @@
 name: Publish event
 
-# Manually announce a Bulgarian Hatha programme (v1: Surya Kriya).
-# Updates events/ for GitHub Pages and posts to the Facebook Page
-# (registration link as a comment).
+# Manually announce a Bulgarian Hatha programme (Surya Kriya or Bhuta Shuddhi).
+# Updates events/ for GitHub Pages and posts a photo + caption to the Facebook Page.
 on:
   workflow_dispatch:
     inputs:
+      event_type:
+        description: Programme type
+        type: choice
+        required: true
+        default: surya_kriya
+        options:
+          - surya_kriya
+          - bhuta_shuddhi
       city:
         description: City (град)
         type: string
@@ -65,6 +72,7 @@ jobs:
 
       - name: Publish event
         env:
+          EVENT_TYPE: ${{ inputs.event_type }}
           EVENT_CITY: ${{ inputs.city }}
           EVENT_COUNTRY: ${{ inputs.country }}
           EVENT_DATE: ${{ inputs.date }}
@@ -76,7 +84,7 @@ jobs:
           set -euo pipefail
           args=(
             --publish-event
-            --event-type surya_kriya
+            --event-type "$EVENT_TYPE"
             --city "$EVENT_CITY"
             --country "$EVENT_COUNTRY"
             --date "$EVENT_DATE"
@@ -101,7 +109,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No events site changes to commit."
           else
-            git commit -m "Add Surya Kriya event for ${{ inputs.city }} on ${{ inputs.date }}"
+            git commit -m "Add ${{ inputs.event_type }} event for ${{ inputs.city }} on ${{ inputs.date }}"
             git push
           fi
 

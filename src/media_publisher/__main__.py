@@ -279,12 +279,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--publish-event",
         action="store_true",
-        help="Publish a public Hatha event (GitHub Pages section + Facebook post/comment).",
+        help="Publish a public Hatha event (GitHub Pages section + Facebook photo post).",
     )
     parser.add_argument(
         "--event-type",
         default="surya_kriya",
-        help="Event type for --publish-event (default: surya_kriya).",
+        help=(
+            "Event type for --publish-event "
+            "(surya_kriya or bhuta_shuddhi; default: surya_kriya)."
+        ),
     )
     parser.add_argument(
         "--city",

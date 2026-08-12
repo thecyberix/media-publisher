@@ -2,18 +2,94 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, time
+from pathlib import Path
 
 from media_publisher.events.format import format_bulgarian_datetime, format_iso_local
 
 EVENT_TYPE_SURYA_KRIYA = "surya_kriya"
+EVENT_TYPE_BHUTA_SHUDDHI = "bhuta_shuddhi"
 
 SURYA_KRIYA_LEARN_MORE_URL = "https://youtu.be/Lh0ZucHjp14"
 SURYA_KRIYA_LEARN_MORE_LABEL = "Суря крия - Запалете Слънцето във вас! | Садгуру"
-
-# Bulgarian rendering of the English template quote.
 SURYA_KRIYA_QUOTE = (
     "„Суря крия е мощен процес за активиране на слънчевата сила във вас.“ – Садгуру"
 )
+SURYA_KRIYA_BODY = (
+    "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
+    "Суря крия активира слънчевия сплит, което води до повишаване на "
+    "„самат прана“, или слънчевата топлина, в системата."
+)
+SURYA_KRIYA_BENEFITS = (
+    "Умствена яснота и фокус",
+    "Подобрено физическо здраве",
+    "Укрепване на отслабения организъм",
+    "Повишена енергия и жизненост",
+    "Балансирани хормонални нива",
+)
+
+BHUTA_SHUDDHI_LEARN_MORE_URL = "https://youtu.be/jzSX_uBstSA"
+BHUTA_SHUDDHI_LEARN_MORE_LABEL = (
+    "Бута Шудди - Основното Пречистване | Садгуру на Български"
+)
+# Bulgarian Doc leaves "~ Цитат от Садгуру ~"; use the English template quote in BG.
+BHUTA_SHUDDHI_QUOTE = (
+    "„Бута Шудди е за премахването на всичко, което сте натрупали, "
+    "за да може творението на Твореца да се издигне и да засияе във вас.“ – Садгуру"
+)
+BHUTA_SHUDDHI_BODY = (
+    "Бута Шудди е йога система, фокусирана върху пречистването на петте елемента "
+    "(бути), които съставляват нашето тяло: земя, вода, въздух, огън и пространство."
+)
+BHUTA_SHUDDHI_BENEFITS = (
+    "Хармония и баланс между тялото и ума",
+    "Увеличен капацитет на цялата ви система",
+    "Пречистване на петте елемента във вас",
+)
+
+
+@dataclass(frozen=True)
+class ProgramTemplate:
+    event_type: str
+    program_name: str
+    title_emoji: str
+    quote: str
+    body: str
+    benefits: tuple[str, ...]
+    benefit_bullet: str
+    learn_more_intro: str
+    learn_more_url: str
+    learn_more_label: str
+    facebook_image: Path
+
+
+PROGRAMS: dict[str, ProgramTemplate] = {
+    EVENT_TYPE_SURYA_KRIYA: ProgramTemplate(
+        event_type=EVENT_TYPE_SURYA_KRIYA,
+        program_name="Суря крия",
+        title_emoji="☀️",
+        quote=SURYA_KRIYA_QUOTE,
+        body=SURYA_KRIYA_BODY,
+        benefits=SURYA_KRIYA_BENEFITS,
+        benefit_bullet="✅",
+        learn_more_intro="Вижте какво казва Садгуру:",
+        learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
+        learn_more_label=SURYA_KRIYA_LEARN_MORE_LABEL,
+        facebook_image=Path("events") / "assets" / "surya-kriya-fb.jpg",
+    ),
+    EVENT_TYPE_BHUTA_SHUDDHI: ProgramTemplate(
+        event_type=EVENT_TYPE_BHUTA_SHUDDHI,
+        program_name="Бута Шудди",
+        title_emoji="💫",
+        quote=BHUTA_SHUDDHI_QUOTE,
+        body=BHUTA_SHUDDHI_BODY,
+        benefits=BHUTA_SHUDDHI_BENEFITS,
+        benefit_bullet="🎯",
+        learn_more_intro="Вижте видеото:",
+        learn_more_url=BHUTA_SHUDDHI_LEARN_MORE_URL,
+        learn_more_label=BHUTA_SHUDDHI_LEARN_MORE_LABEL,
+        facebook_image=Path("events") / "assets" / "bhuta-shuddhi-fb.jpg",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -31,10 +107,26 @@ class RenderedEvent:
     full_text: str
     facebook_post_text: str
     html_body: str
+    facebook_image: Path
 
 
 def supported_event_types() -> tuple[str, ...]:
-    return (EVENT_TYPE_SURYA_KRIYA,)
+    return tuple(PROGRAMS.keys())
+
+
+def normalize_event_type(event_type: str) -> str:
+    return event_type.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def get_program(event_type: str) -> ProgramTemplate:
+    normalized = normalize_event_type(event_type)
+    program = PROGRAMS.get(normalized)
+    if program is None:
+        raise ValueError(
+            f"Unsupported event type {event_type!r}. "
+            f"Supported: {', '.join(supported_event_types())}"
+        )
+    return program
 
 
 def city_preposition(city: str) -> str:
@@ -54,12 +146,7 @@ def render_event(
     event_time: time,
     registration_link: str,
 ) -> RenderedEvent:
-    normalized_type = event_type.strip().lower().replace("-", "_").replace(" ", "_")
-    if normalized_type != EVENT_TYPE_SURYA_KRIYA:
-        raise ValueError(
-            f"Unsupported event type {event_type!r}. "
-            f"Supported: {', '.join(supported_event_types())}"
-        )
+    program = get_program(event_type)
 
     city_text = city.strip()
     country_text = country.strip()
@@ -73,12 +160,18 @@ def render_event(
 
     datetime_display = format_bulgarian_datetime(event_date, event_time)
     datetime_iso = format_iso_local(event_date, event_time)
-    title_line1 = '☀️ Програма "Суря крия" ☀️'
-    title_line2 = f"{city_preposition(city_text)} {city_text}, {country_text}"
+    prep = city_preposition(city_text)
+    emoji = program.title_emoji
+    title_line1 = f'{emoji} Програма "{program.program_name}" {emoji}'
+    title_line2 = f"{prep} {city_text}, {country_text}"
     title = f"{title_line1}\n{title_line2}"
     title_one_line = (
-        f'☀️ Програма "Суря крия" {city_preposition(city_text)} '
-        f"{city_text}, {country_text} ☀️"
+        f'{emoji} Програма "{program.program_name}" {prep} '
+        f"{city_text}, {country_text} {emoji}"
+    )
+
+    benefit_lines = tuple(
+        f"{program.benefit_bullet} {benefit}" for benefit in program.benefits
     )
 
     body_lines = [
@@ -87,22 +180,16 @@ def render_event(
         "",
         f"🗓: {datetime_display}",
         "",
-        SURYA_KRIYA_QUOTE,
+        program.quote,
         "",
-        "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
-        "Суря крия активира слънчевия сплит, което води до повишаване на "
-        "„самат прана“, или слънчевата топлина, в системата.",
+        program.body,
         "",
         "Ползи:",
         "",
-        "✅ Умствена яснота и фокус",
-        "✅ Подобрено физическо здраве",
-        "✅ Укрепване на отслабения организъм",
-        "✅ Повишена енергия и жизненост",
-        "✅ Балансирани хормонални нива",
+        *benefit_lines,
         "",
-        f"Вижте какво казва Садгуру: {SURYA_KRIYA_LEARN_MORE_LABEL}",
-        SURYA_KRIYA_LEARN_MORE_URL,
+        f"{program.learn_more_intro} {program.learn_more_label}",
+        program.learn_more_url,
         "",
         f"👉 Регистрация тук: {link}",
         "",
@@ -111,29 +198,21 @@ def render_event(
     ]
     full_text = "\n".join(body_lines)
 
-    # Facebook caption matches the page/template, but:
-    # - title is one line (as in the shared Doc template)
-    # - YouTube line is URL-only (no video title) so Facebook can linkify it
+    # Facebook caption: one-line title; learn-more line is URL-only.
     facebook_post_lines = [
         title_one_line,
         "",
         f"🗓: {datetime_display}",
         "",
-        SURYA_KRIYA_QUOTE,
+        program.quote,
         "",
-        "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
-        "Суря крия активира слънчевия сплит, което води до повишаване на "
-        "„самат прана“, или слънчевата топлина, в системата.",
+        program.body,
         "",
         "Ползи:",
         "",
-        "✅ Умствена яснота и фокус",
-        "✅ Подобрено физическо здраве",
-        "✅ Укрепване на отслабения организъм",
-        "✅ Повишена енергия и жизненост",
-        "✅ Балансирани хормонални нива",
+        *benefit_lines,
         "",
-        f"Вижте какво казва Садгуру: {SURYA_KRIYA_LEARN_MORE_URL}",
+        f"{program.learn_more_intro} {program.learn_more_url}",
         "",
         f"👉 Регистрация тук: {link}",
         "",
@@ -146,14 +225,17 @@ def render_event(
         title_line1=title_line1,
         title_line2=title_line2,
         datetime_display=datetime_display,
-        quote=SURYA_KRIYA_QUOTE,
-        learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
-        learn_more_label=SURYA_KRIYA_LEARN_MORE_LABEL,
+        quote=program.quote,
+        body=program.body,
+        benefits=program.benefits,
+        learn_more_intro=program.learn_more_intro,
+        learn_more_url=program.learn_more_url,
+        learn_more_label=program.learn_more_label,
         registration_link=link,
     )
 
     return RenderedEvent(
-        event_type=EVENT_TYPE_SURYA_KRIYA,
+        event_type=program.event_type,
         title=title,
         city=city_text,
         country=country_text,
@@ -162,10 +244,11 @@ def render_event(
         datetime_display=datetime_display,
         datetime_iso=datetime_iso,
         registration_link=link,
-        learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
+        learn_more_url=program.learn_more_url,
         full_text=full_text,
         facebook_post_text=facebook_post_text,
         html_body=html_body,
+        facebook_image=program.facebook_image,
     )
 
 
@@ -184,27 +267,27 @@ def _html_section(
     title_line2: str,
     datetime_display: str,
     quote: str,
+    body: str,
+    benefits: tuple[str, ...],
+    learn_more_intro: str,
     learn_more_url: str,
     learn_more_label: str,
     registration_link: str,
 ) -> str:
+    benefit_items = "\n".join(
+        f"<li>{_html_escape(benefit)}</li>" for benefit in benefits
+    )
     return "\n".join(
         [
             f"<h2>{_html_escape(title_line1)}<br>{_html_escape(title_line2)}</h2>",
             f'<p class="when">🗓 {_html_escape(datetime_display)}</p>',
             f'<p class="quote">{_html_escape(quote)}</p>',
-            "<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
-            "Суря крия активира слънчевия сплит, което води до повишаване на "
-            "„самат прана“, или слънчевата топлина, в системата.</p>",
+            f"<p>{_html_escape(body)}</p>",
             "<p><strong>Ползи:</strong></p>",
             "<ul>",
-            "<li>Умствена яснота и фокус</li>",
-            "<li>Подобрено физическо здраве</li>",
-            "<li>Укрепване на отслабения организъм</li>",
-            "<li>Повишена енергия и жизненост</li>",
-            "<li>Балансирани хормонални нива</li>",
+            benefit_items,
             "</ul>",
-            "<p class=\"learn-more\">Вижте какво казва Садгуру:<br>"
+            f'<p class="learn-more">{_html_escape(learn_more_intro)}<br>'
             f'<a class="yt-link" href="{_html_escape(learn_more_url)}" '
             'target="_blank" rel="noopener noreferrer">'
             '<svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'

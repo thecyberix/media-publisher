@@ -29,6 +29,8 @@ from media_publisher.events.publish import (
     publish_event,
 )
 from media_publisher.events.templates import (
+    BHUTA_SHUDDHI_LEARN_MORE_URL,
+    EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
     SURYA_KRIYA_LEARN_MORE_LABEL,
     SURYA_KRIYA_LEARN_MORE_URL,
@@ -95,6 +97,35 @@ class EventTemplateTests(unittest.TestCase):
         self.assertIn(
             f'href="{SURYA_KRIYA_LEARN_MORE_URL}"',
             rendered.html_body,
+        )
+
+    def test_render_bhuta_shuddhi_bulgarian(self) -> None:
+        rendered = render_event(
+            event_type=EVENT_TYPE_BHUTA_SHUDDHI,
+            city="Пловдив",
+            country="България",
+            event_date=date(2026, 10, 5),
+            event_time=time(11, 0),
+            registration_link="https://example.com/bhuta",
+        )
+        self.assertEqual(rendered.event_type, EVENT_TYPE_BHUTA_SHUDDHI)
+        self.assertIn("Бута Шудди", rendered.title)
+        self.assertIn("\nв Пловдив, България", rendered.title)
+        self.assertIn("петте елемента", rendered.full_text)
+        self.assertIn(BHUTA_SHUDDHI_LEARN_MORE_URL, rendered.full_text)
+        self.assertIn(
+            f"Вижте видеото: {BHUTA_SHUDDHI_LEARN_MORE_URL}",
+            rendered.facebook_post_text,
+        )
+        self.assertIn(
+            '💫 Програма "Бута Шудди" в Пловдив, България 💫',
+            rendered.facebook_post_text,
+        )
+        self.assertIn("Регистрация", rendered.html_body)
+        self.assertTrue(
+            str(rendered.facebook_image).replace("\\", "/").endswith(
+                "events/assets/bhuta-shuddhi-fb.jpg"
+            )
         )
 
     def test_city_preposition_vv_before_v(self) -> None:

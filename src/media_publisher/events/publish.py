@@ -19,6 +19,7 @@ from media_publisher.events.page import (
     stored_event_from_dict,
 )
 from media_publisher.events.templates import (
+    EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
     RenderedEvent,
     render_event,
@@ -136,7 +137,10 @@ def publish_event(
             raise EventPublishError(
                 "Meta client and page_id are required unless dry_run or skip_facebook is set"
             )
-        image_path = default_facebook_image_path(project_root)
+        image_path = default_facebook_image_path(
+            project_root,
+            event_type=rendered.event_type,
+        )
         try:
             facebook_post_id, facebook_permalink = publish_event_to_facebook(
                 meta_client,
@@ -166,6 +170,7 @@ def publish_event(
 
 
 __all__ = [
+    "EVENT_TYPE_BHUTA_SHUDDHI",
     "EVENT_TYPE_SURYA_KRIYA",
     "EventPublishError",
     "EventPublishResult",

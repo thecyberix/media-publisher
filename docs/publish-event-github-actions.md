@@ -1,16 +1,17 @@
 # Publish event (GitHub Actions)
 
-Manual workflow that announces a Bulgarian **Surya Kriya** programme:
+Manual workflow that announces a Bulgarian **Surya Kriya** or **Bhuta Shuddhi** programme:
 
-1. Renders the Bulgarian template
+1. Renders the Bulgarian template for the selected programme
 2. Appends the event to [`events/data/events.json`](../events/data/events.json) and rebuilds [`events/index.html`](../events/index.html)
-3. Posts a photo + caption to the Facebook Page (same text as the events page, including registration link)
+3. Posts a photo + caption to the Facebook Page (template text, including registration link)
 4. Commits the site files and deploys GitHub Pages
 
 ## Dispatch inputs
 
 | Input | Required | Notes |
 |-------|----------|--------|
+| `event_type` | yes | `surya_kriya` or `bhuta_shuddhi` |
 | `city` | yes | Fills `[град]` |
 | `country` | yes | Default `България` |
 | `date` | yes | `YYYY-MM-DD` |

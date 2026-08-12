@@ -2,15 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from media_publisher.events.templates import RenderedEvent
+from media_publisher.events.templates import (
+    EVENT_TYPE_SURYA_KRIYA,
+    RenderedEvent,
+    get_program,
+)
 from media_publisher.publishers.meta import MetaClient, MetaError
 
-# Default image for Surya Kriya Facebook photo posts (16:9, cropped from left).
-DEFAULT_EVENT_FACEBOOK_IMAGE = Path("events") / "assets" / "surya-kriya-fb.jpg"
 
-
-def default_facebook_image_path(project_root: Path) -> Path:
-    return (project_root / DEFAULT_EVENT_FACEBOOK_IMAGE).resolve()
+def default_facebook_image_path(
+    project_root: Path,
+    *,
+    event_type: str = EVENT_TYPE_SURYA_KRIYA,
+) -> Path:
+    program = get_program(event_type)
+    return (project_root / program.facebook_image).resolve()
 
 
 def publish_event_to_facebook(
@@ -20,19 +26,20 @@ def publish_event_to_facebook(
     rendered: RenderedEvent,
     image_path: Path | None = None,
 ) -> tuple[str, str]:
-    """Post the event photo with the same caption text as the public page.
+    """Post the event photo with the program caption text.
 
     Returns ``(post_id, permalink)``.
     """
-    if image_path is None:
-        raise MetaError("Facebook event image_path is required")
-    if not image_path.is_file():
-        raise MetaError(f"Facebook event image not found: {image_path}")
+    resolved = image_path
+    if resolved is None:
+        resolved = (Path.cwd() / rendered.facebook_image).resolve()
+    if not resolved.is_file():
+        raise MetaError(f"Facebook event image not found: {resolved}")
 
     post_id = client.create_facebook_photo_post(
         page_id=page_id,
         message=rendered.facebook_post_text,
-        image_path=image_path,
+        image_path=resolved,
     )
     permalink = client.get_facebook_post_permalink(post_id)
     return post_id, permalink
