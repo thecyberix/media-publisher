@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from media_publisher.events.facebook_event import (
-    default_facebook_image_path,
+    EventImageError,
     publish_event_to_facebook,
+    resolve_facebook_image_from_drive,
 )
 from media_publisher.events.format import parse_event_date, parse_event_time
 from media_publisher.events.page import (
@@ -26,6 +27,7 @@ from media_publisher.events.templates import (
     supported_event_types,
 )
 from media_publisher.publishers.meta import MetaAccessTokenInfo, MetaClient, MetaError, inspect_access_token
+from media_publisher.sources.google_drive import GoogleDriveClient
 
 REQUIRED_EVENT_META_SCOPES = (
     "pages_manage_posts",
@@ -84,6 +86,7 @@ def publish_event(
     skip_facebook: bool = False,
     meta_client: MetaClient | None = None,
     page_id: str | None = None,
+    drive_client: GoogleDriveClient | None = None,
 ) -> EventPublishResult:
     try:
         event_date = parse_event_date(date_text)
@@ -137,18 +140,23 @@ def publish_event(
             raise EventPublishError(
                 "Meta client and page_id are required unless dry_run or skip_facebook is set"
             )
-        image_path = default_facebook_image_path(
-            project_root,
-            event_type=rendered.event_type,
-        )
+        if drive_client is None:
+            raise EventPublishError(
+                "Google Drive client is required to download the Facebook event image"
+            )
         try:
+            image_path = resolve_facebook_image_from_drive(
+                project_root=project_root,
+                event_type=rendered.event_type,
+                drive_client=drive_client,
+            )
             facebook_post_id, facebook_permalink = publish_event_to_facebook(
                 meta_client,
                 page_id=page_id,
                 rendered=rendered,
                 image_path=image_path,
             )
-        except MetaError as exc:
+        except (MetaError, EventImageError) as exc:
             raise EventPublishError(str(exc)) from exc
 
     stored, created = append_event(

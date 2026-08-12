@@ -737,15 +737,24 @@ def run_publish_event(settings, args) -> int:
 
     meta_client = None
     page_id = None
+    drive_client = None
     if not args.dry_run and not args.skip_facebook:
         if not settings.meta_access_token:
             print("Missing required settings: META_ACCESS_TOKEN")
             return 1
+        service_account = PROJECT_ROOT / settings.google_sheets_service_account
+        if not service_account.is_file():
+            print(
+                "Missing Google service account credentials "
+                f"({service_account}). Needed to download event images from Drive."
+            )
+            return 1
         try:
             page_id, page_info = resolve_facebook_page_id(settings)
             meta_client = meta_client_from_settings(settings)
-        except MetaError as exc:
-            print(f"Meta resolve failed: {exc}")
+            drive_client = GoogleDriveClient.from_service_account(service_account)
+        except (MetaError, GoogleDriveError) as exc:
+            print(f"Event publish setup failed: {exc}")
             return 1
         print(f"Facebook page: {page_info.name} ({page_id})")
 
@@ -763,6 +772,7 @@ def run_publish_event(settings, args) -> int:
             skip_facebook=bool(args.skip_facebook),
             meta_client=meta_client,
             page_id=page_id,
+            drive_client=drive_client,
         )
     except EventPublishError as exc:
         print(f"Publish event failed: {exc}")

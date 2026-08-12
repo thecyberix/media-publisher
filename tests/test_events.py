@@ -23,6 +23,7 @@ from media_publisher.events.page import (
     prune_past_events,
     rebuild_index,
 )
+from media_publisher.events.facebook_event import resolve_facebook_image_from_drive
 from media_publisher.events.publish import (
     REQUIRED_EVENT_META_SCOPES,
     check_event_meta_scopes,
@@ -38,6 +39,8 @@ from media_publisher.events.templates import (
     render_event,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
+from media_publisher.sources.google_drive import DriveFile
+from media_publisher.sources.google_drive import DriveFile
 
 
 class EventFormatTests(unittest.TestCase):
@@ -122,11 +125,7 @@ class EventTemplateTests(unittest.TestCase):
             rendered.facebook_post_text,
         )
         self.assertIn("Регистрация", rendered.html_body)
-        self.assertTrue(
-            str(rendered.facebook_image).replace("\\", "/").endswith(
-                "events/assets/bhuta-shuddhi-fb.jpg"
-            )
-        )
+        self.assertEqual(rendered.facebook_image_name, "bhuta-shuddhi-fb.jpg")
 
     def test_city_preposition_vv_before_v(self) -> None:
         self.assertEqual(city_preposition("София"), "в")
@@ -317,6 +316,34 @@ class EventPublishTests(unittest.TestCase):
         self.assertIs(info, fake_info)
         self.assertEqual(missing, [])
         self.assertIn("pages_manage_posts", REQUIRED_EVENT_META_SCOPES)
+
+
+class EventFacebookImageTests(unittest.TestCase):
+    def test_resolve_facebook_image_from_drive(self) -> None:
+        drive = MagicMock()
+        drive.find_child_by_name.return_value = DriveFile(
+            id="file123",
+            name="surya-kriya-fb.jpg",
+            mime_type="image/jpeg",
+        )
+
+        def _download(_file_id: str, destination: Path) -> Path:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"fake-image")
+            return destination
+
+        drive.download_file.side_effect = _download
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = resolve_facebook_image_from_drive(
+                project_root=root,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                drive_client=drive,
+            )
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.name, "surya-kriya-fb.jpg")
+            drive.find_child_by_name.assert_called_once()
+            drive.download_file.assert_called_once()
 
 
 class MetaFeedAndCommentTests(unittest.TestCase):

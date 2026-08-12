@@ -28,6 +28,9 @@ Same Meta secrets as the publish pipeline:
 - `META_APP_ID`
 - `META_APP_SECRET`
 - `META_PAGE_ID` (optional if username resolution works)
+- `GOOGLE_SERVICE_ACCOUNT_JSON` — downloads Facebook event images from the shared Drive folder
+
+Facebook images are loaded from [this Drive folder](https://drive.google.com/drive/folders/1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6) (`surya-kriya-fb.jpg`, `bhuta-shuddhi-fb.jpg`).
 
 ## Permissions check
 

@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, time
-from pathlib import Path
 
 from media_publisher.events.format import format_bulgarian_datetime, format_iso_local
 
 EVENT_TYPE_SURYA_KRIYA = "surya_kriya"
 EVENT_TYPE_BHUTA_SHUDDHI = "bhuta_shuddhi"
+
+# Google Drive folder with Facebook event images (one file per programme).
+EVENT_IMAGES_DRIVE_FOLDER_ID = "1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6"
+EVENT_IMAGES_DRIVE_FOLDER_URL = (
+    f"https://drive.google.com/drive/folders/{EVENT_IMAGES_DRIVE_FOLDER_ID}"
+)
 
 SURYA_KRIYA_LEARN_MORE_URL = "https://youtu.be/Lh0ZucHjp14"
 SURYA_KRIYA_LEARN_MORE_LABEL = "Суря крия - Запалете Слънцето във вас! | Садгуру"
@@ -59,7 +64,7 @@ class ProgramTemplate:
     learn_more_intro: str
     learn_more_url: str
     learn_more_label: str
-    facebook_image: Path
+    facebook_image_name: str
 
 
 PROGRAMS: dict[str, ProgramTemplate] = {
@@ -74,7 +79,7 @@ PROGRAMS: dict[str, ProgramTemplate] = {
         learn_more_intro="Вижте какво казва Садгуру:",
         learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
         learn_more_label=SURYA_KRIYA_LEARN_MORE_LABEL,
-        facebook_image=Path("events") / "assets" / "surya-kriya-fb.jpg",
+        facebook_image_name="surya-kriya-fb.jpg",
     ),
     EVENT_TYPE_BHUTA_SHUDDHI: ProgramTemplate(
         event_type=EVENT_TYPE_BHUTA_SHUDDHI,
@@ -87,7 +92,7 @@ PROGRAMS: dict[str, ProgramTemplate] = {
         learn_more_intro="Вижте видеото:",
         learn_more_url=BHUTA_SHUDDHI_LEARN_MORE_URL,
         learn_more_label=BHUTA_SHUDDHI_LEARN_MORE_LABEL,
-        facebook_image=Path("events") / "assets" / "bhuta-shuddhi-fb.jpg",
+        facebook_image_name="bhuta-shuddhi-fb.jpg",
     ),
 }
 
@@ -107,7 +112,7 @@ class RenderedEvent:
     full_text: str
     facebook_post_text: str
     html_body: str
-    facebook_image: Path
+    facebook_image_name: str
 
 
 def supported_event_types() -> tuple[str, ...]:
@@ -248,7 +253,7 @@ def render_event(
         full_text=full_text,
         facebook_post_text=facebook_post_text,
         html_body=html_body,
-        facebook_image=program.facebook_image,
+        facebook_image_name=program.facebook_image_name,
     )
 
 
