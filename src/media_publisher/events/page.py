@@ -220,11 +220,6 @@ def rebuild_index(events_root: Path, events: list[dict[str, Any]] | None = None)
             continue
         sections.append(f'<article class="event" id="event-{_html_escape(str(item.get("id") or ""))}">')
         sections.append(body)
-        permalink = item.get("facebook_permalink")
-        if isinstance(permalink, str) and permalink.strip():
-            sections.append(
-                f'<p class="fb"><a href="{_html_escape(permalink.strip())}">Facebook пост</a></p>'
-            )
         sections.append("</article>")
 
     if sections:
@@ -429,10 +424,6 @@ _INDEX_TEMPLATE = """\
     ul {{
       padding-left: 1.2rem;
       text-align: left;
-    }}
-    .fb {{
-      font-size: 0.95rem;
-      text-align: center;
     }}
   </style>
 </head>

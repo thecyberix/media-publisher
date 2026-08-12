@@ -70,11 +70,22 @@ class EventTemplateTests(unittest.TestCase):
         self.assertIn("15 септември 2026 г., 18:00", rendered.full_text)
         self.assertIn("https://example.com/register", rendered.full_text)
         self.assertIn(SURYA_KRIYA_LEARN_MORE_URL, rendered.full_text)
-        self.assertNotIn("https://example.com/register", rendered.facebook_post_text)
-        self.assertIn("коментара", rendered.facebook_post_text)
-        self.assertEqual(
-            rendered.facebook_comment_text,
-            "👉 Регистрация тук: https://example.com/register",
+        self.assertIn("https://example.com/register", rendered.facebook_post_text)
+        self.assertIn(SURYA_KRIYA_LEARN_MORE_URL, rendered.facebook_post_text)
+        self.assertIn("👉 Регистрация тук:", rendered.facebook_post_text)
+        self.assertIn(
+            f"Вижте какво казва Садгуру: {SURYA_KRIYA_LEARN_MORE_URL}",
+            rendered.facebook_post_text,
+        )
+        self.assertNotIn(SURYA_KRIYA_LEARN_MORE_LABEL, rendered.facebook_post_text)
+        self.assertIn(
+            '☀️ Програма "Суря крия" в София, България ☀️',
+            rendered.facebook_post_text,
+        )
+        self.assertTrue(
+            rendered.facebook_post_text.startswith(
+                '☀️ Програма "Суря крия" в София, България ☀️\n'
+            )
         )
         self.assertIn("Регистрация", rendered.html_body)
         self.assertIn("<br>в София, България</h2>", rendered.html_body)
@@ -136,7 +147,7 @@ class EventPageTests(unittest.TestCase):
             self.assertTrue((root / "index.html").is_file())
             html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("Пловдив", html)
-            self.assertIn("Facebook пост", html)
+            self.assertNotIn("Facebook пост", html)
             self.assertIn("Събития", html)
             self.assertIn("assets/sadhguru.png", html)
             self.assertNotIn("Обявени програми", html)
@@ -273,8 +284,8 @@ class EventPublishTests(unittest.TestCase):
                 api_version="v21.0",
             )
         self.assertIs(info, fake_info)
-        self.assertEqual(missing, ["pages_manage_engagement"])
-        self.assertIn("pages_manage_engagement", REQUIRED_EVENT_META_SCOPES)
+        self.assertEqual(missing, [])
+        self.assertIn("pages_manage_posts", REQUIRED_EVENT_META_SCOPES)
 
 
 class MetaFeedAndCommentTests(unittest.TestCase):
@@ -291,6 +302,29 @@ class MetaFeedAndCommentTests(unittest.TestCase):
             "page123/feed",
             body={"message": "Hello event", "published": "true"},
         )
+
+    def test_create_facebook_photo_post(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "event.jpg"
+            image.write_bytes(b"fake-image")
+            with patch.object(
+                client,
+                "_multipart_request",
+                return_value={"id": "photo_1", "post_id": "page123_99"},
+            ) as request_mock:
+                post_id = client.create_facebook_photo_post(
+                    page_id="page123",
+                    message="Hello event",
+                    image_path=image,
+                )
+        self.assertEqual(post_id, "page123_99")
+        request_mock.assert_called_once()
+        args, kwargs = request_mock.call_args
+        self.assertEqual(args[0], "page123/photos")
+        self.assertEqual(kwargs["fields"]["published"], "true")
+        self.assertEqual(kwargs["fields"]["caption"], "Hello event")
+        self.assertIn("source", kwargs["files"])
 
     def test_create_facebook_comment(self) -> None:
         client = MetaClient("token-test", app_id="app123")

@@ -1528,6 +1528,45 @@ class MetaClient:
             raise MetaError("Meta Facebook photo upload response is missing photo id")
         return photo_id
 
+    def create_facebook_photo_post(
+        self,
+        *,
+        page_id: str,
+        message: str,
+        image_path: Path,
+    ) -> str:
+        """Publish an immediate Facebook Page photo post with caption.
+
+        Returns the feed post id when Meta includes ``post_id``. Falls back to
+        the photo id otherwise.
+        """
+        path = image_path.resolve()
+        if not path.is_file():
+            raise MetaError(f"Image file not found: {path}")
+        text = message.strip()
+        if not text:
+            raise MetaError("Facebook photo post message is required")
+
+        content = path.read_bytes()
+        fields: dict[str, str] = {
+            "published": "true",
+            "caption": text,
+        }
+        response = self._multipart_request(
+            f"{page_id}/photos",
+            fields=fields,
+            files={
+                "source": (path.name, content, _guess_image_mime(path)),
+            },
+        )
+        post_id = response.get("post_id")
+        if isinstance(post_id, str) and post_id.strip():
+            return post_id.strip()
+        photo_id = response.get("id")
+        if isinstance(photo_id, str) and photo_id.strip():
+            return photo_id.strip()
+        raise MetaError("Meta Facebook photo post response is missing post id")
+
     def create_facebook_feed_post(
         self,
         *,

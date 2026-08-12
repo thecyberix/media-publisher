@@ -30,7 +30,6 @@ class RenderedEvent:
     learn_more_url: str
     full_text: str
     facebook_post_text: str
-    facebook_comment_text: str
     html_body: str
 
 
@@ -77,6 +76,10 @@ def render_event(
     title_line1 = '☀️ Програма "Суря крия" ☀️'
     title_line2 = f"{city_preposition(city_text)} {city_text}, {country_text}"
     title = f"{title_line1}\n{title_line2}"
+    title_one_line = (
+        f'☀️ Програма "Суря крия" {city_preposition(city_text)} '
+        f"{city_text}, {country_text} ☀️"
+    )
 
     body_lines = [
         title_line1,
@@ -108,9 +111,11 @@ def render_event(
     ]
     full_text = "\n".join(body_lines)
 
+    # Facebook caption matches the page/template, but:
+    # - title is one line (as in the shared Doc template)
+    # - YouTube line is URL-only (no video title) so Facebook can linkify it
     facebook_post_lines = [
-        title_line1,
-        title_line2,
+        title_one_line,
         "",
         f"🗓: {datetime_display}",
         "",
@@ -130,13 +135,12 @@ def render_event(
         "",
         f"Вижте какво казва Садгуру: {SURYA_KRIYA_LEARN_MORE_URL}",
         "",
-        "👉 Регистрацията е в коментара.",
+        f"👉 Регистрация тук: {link}",
         "",
         "💫 С любов, светлина и смях,",
         "Доброволци от Иша",
     ]
     facebook_post_text = "\n".join(facebook_post_lines)
-    facebook_comment_text = f"👉 Регистрация тук: {link}"
 
     html_body = _html_section(
         title_line1=title_line1,
@@ -161,7 +165,6 @@ def render_event(
         learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
         full_text=full_text,
         facebook_post_text=facebook_post_text,
-        facebook_comment_text=facebook_comment_text,
         html_body=html_body,
     )
 

@@ -4,7 +4,7 @@ Manual workflow that announces a Bulgarian **Surya Kriya** programme:
 
 1. Renders the Bulgarian template
 2. Appends the event to [`events/data/events.json`](../events/data/events.json) and rebuilds [`events/index.html`](../events/index.html)
-3. Posts to the Facebook Page, then comments with the registration link
+3. Posts a photo + caption to the Facebook Page (same text as the events page, including registration link)
 4. Commits the site files and deploys GitHub Pages
 
 ## Dispatch inputs
@@ -38,10 +38,9 @@ python -m media_publisher --check-event-meta
 
 Required scopes:
 
-- `pages_manage_posts` — create the feed post
-- `pages_manage_engagement` — comment with the registration link
+- `pages_manage_posts` — create the photo post
 
-If `pages_manage_engagement` is missing, re-authorize a Page token for a user with the Page **MODERATE** task and update `META_ACCESS_TOKEN`.
+If `pages_manage_posts` is missing, re-authorize a Page token for a user with the Page **CREATE CONTENT** task and update `META_ACCESS_TOKEN`.
 
 ## Past events
 

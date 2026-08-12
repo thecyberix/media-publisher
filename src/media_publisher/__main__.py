@@ -273,7 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Inspect META_ACCESS_TOKEN scopes needed for event posts "
-            "(pages_manage_posts, pages_manage_engagement)."
+            "(pages_manage_posts)."
         ),
     )
     parser.add_argument(
@@ -670,8 +670,8 @@ def run_check_event_meta(settings) -> int:
     if missing_scopes:
         print("MISSING scopes:", ", ".join(missing_scopes))
         print(
-            "Re-authorize a Page token that includes pages_manage_posts and "
-            "pages_manage_engagement (Page MODERATE task), then update META_ACCESS_TOKEN."
+            "Re-authorize a Page token that includes pages_manage_posts "
+            "(Page CREATE_CONTENT task), then update META_ACCESS_TOKEN."
         )
         return 1
     print("Event Meta scopes OK.")
@@ -769,8 +769,6 @@ def run_publish_event(settings, args) -> int:
     print_console(result.rendered.full_text)
     print_console("--- Facebook post ---")
     print_console(result.rendered.facebook_post_text)
-    print_console("--- Facebook comment ---")
-    print_console(result.rendered.facebook_comment_text)
 
     if result.dry_run:
         print("Dry run: page and Facebook were not updated.")
@@ -787,8 +785,6 @@ def run_publish_event(settings, args) -> int:
 
     if result.facebook_post_id:
         print(f"Facebook post id: {result.facebook_post_id}")
-    if result.facebook_comment_id:
-        print(f"Facebook comment id: {result.facebook_comment_id}")
     if result.facebook_permalink:
         print(f"Facebook permalink: {result.facebook_permalink}")
     elif args.skip_facebook:

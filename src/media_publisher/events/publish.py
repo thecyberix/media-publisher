@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from media_publisher.events.facebook_event import publish_event_to_facebook
+from media_publisher.events.facebook_event import (
+    default_facebook_image_path,
+    publish_event_to_facebook,
+)
 from media_publisher.events.format import parse_event_date, parse_event_time
 from media_publisher.events.page import (
     StoredEvent,
@@ -25,7 +28,6 @@ from media_publisher.publishers.meta import MetaAccessTokenInfo, MetaClient, Met
 
 REQUIRED_EVENT_META_SCOPES = (
     "pages_manage_posts",
-    "pages_manage_engagement",
 )
 
 
@@ -40,7 +42,6 @@ class EventPublishResult:
     created_on_page: bool
     dry_run: bool
     facebook_post_id: str | None = None
-    facebook_comment_id: str | None = None
     facebook_permalink: str | None = None
     skipped_duplicate: bool = False
     pruned_count: int = 0
@@ -128,7 +129,6 @@ def publish_event(
         )
 
     facebook_post_id: str | None = None
-    facebook_comment_id: str | None = None
     facebook_permalink: str | None = None
 
     if not skip_facebook:
@@ -136,11 +136,13 @@ def publish_event(
             raise EventPublishError(
                 "Meta client and page_id are required unless dry_run or skip_facebook is set"
             )
+        image_path = default_facebook_image_path(project_root)
         try:
-            facebook_post_id, facebook_comment_id, facebook_permalink = publish_event_to_facebook(
+            facebook_post_id, facebook_permalink = publish_event_to_facebook(
                 meta_client,
                 page_id=page_id,
                 rendered=rendered,
+                image_path=image_path,
             )
         except MetaError as exc:
             raise EventPublishError(str(exc)) from exc
@@ -157,7 +159,6 @@ def publish_event(
         created_on_page=created,
         dry_run=False,
         facebook_post_id=facebook_post_id,
-        facebook_comment_id=facebook_comment_id,
         facebook_permalink=facebook_permalink,
         skipped_duplicate=not created,
         pruned_count=pruned_count,
