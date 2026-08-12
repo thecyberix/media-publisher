@@ -884,30 +884,54 @@ class YouTubeClient:
     ) -> dict[str, str]:
         """Keep one video each for quote / reel / lau slots in the daily playlist.
 
-        Updates ``slot`` to ``video_id``, removes playlist items that are not in the
-        current three-slot set, and ensures ``video_id`` is present. Persists slots
-        to ``state_path``.
+        Updates ``slot`` to ``video_id``, removes only the previous video for that
+        slot (when known), and ensures ``video_id`` is present. Persists slots to
+        ``state_path``.
         """
         if slot not in DAILY_PLAYLIST_SLOTS:
             raise YouTubePublishError(
                 f"Unsupported daily playlist slot {slot!r}; expected one of {DAILY_PLAYLIST_SLOTS}"
             )
+        video_id = video_id.strip()
         slots = load_daily_playlist_slots(state_path)
-        slots[slot] = video_id.strip()
+        previous_video_id = slots.get(slot)
+        slots[slot] = video_id
         desired = {value for value in slots.values() if value}
+
+        if previous_video_id and previous_video_id != video_id:
+            for item in self.list_playlist_items(playlist_id):
+                item_id = item.get("id")
+                if not isinstance(item_id, str) or not item_id:
+                    continue
+                if _playlist_item_video_id(item) == previous_video_id:
+                    self.remove_playlist_item(item_id)
+
         already_present = False
+        for item in self.list_playlist_items(playlist_id):
+            item_video_id = _playlist_item_video_id(item)
+            if item_video_id == video_id:
+                already_present = True
+                break
+
+        if not already_present:
+            self.add_video_to_playlist(video_id, playlist_id)
+
+        # Prune only when we can identify a stale video id (never delete unknown rows).
+        stale_ids = set()
+        if previous_video_id and previous_video_id != video_id:
+            stale_ids.add(previous_video_id)
         for item in self.list_playlist_items(playlist_id):
             item_id = item.get("id")
             if not isinstance(item_id, str) or not item_id:
                 continue
             item_video_id = _playlist_item_video_id(item)
-            if item_video_id is None or item_video_id not in desired:
-                self.remove_playlist_item(item_id)
+            if item_video_id is None:
                 continue
-            if item_video_id == video_id:
-                already_present = True
-        if not already_present:
-            self.add_video_to_playlist(video_id, playlist_id)
+            if item_video_id in desired:
+                continue
+            if item_video_id in stale_ids:
+                self.remove_playlist_item(item_id)
+
         save_daily_playlist_slots(state_path, slots)
         return slots
 

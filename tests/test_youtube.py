@@ -549,10 +549,21 @@ class YouTubeClientTests(unittest.TestCase):
             )
             client = YouTubeClient.__new__(YouTubeClient)
             client.list_playlist_items = MagicMock(
-                return_value=[
-                    {"id": "item-quote", "snippet": {"resourceId": {"videoId": "quote1"}}},
-                    {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
-                    {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                side_effect=[
+                    [
+                        {"id": "item-quote", "snippet": {"resourceId": {"videoId": "quote1"}}},
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                    ],
+                    [
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                    ],
+                    [
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                        {"id": "item-quote2", "snippet": {"resourceId": {"videoId": "quote2"}}},
+                    ],
                 ]
             )
             client.remove_playlist_item = MagicMock()
@@ -571,9 +582,43 @@ class YouTubeClientTests(unittest.TestCase):
                 updated,
                 {"quote": "quote2", "reel": "reel1", "lau": "lau1"},
             )
+
+    def test_sync_daily_playlist_skips_unknown_playlist_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text('{"quote":"quote1","reel":"reel1"}\n', encoding="utf-8")
+            client = YouTubeClient.__new__(YouTubeClient)
+            client.list_playlist_items = MagicMock(
+                side_effect=[
+                    [
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-unknown", "snippet": {}},
+                    ],
+                    [
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-unknown", "snippet": {}},
+                    ],
+                    [
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-unknown", "snippet": {}},
+                    ],
+                ]
+            )
+            client.remove_playlist_item = MagicMock()
+            client.add_video_to_playlist = MagicMock()
+
+            client.sync_daily_playlist_slot(
+                "PLdaily",
+                "quote2",
+                slot="quote",
+                state_path=slots_path,
+            )
+
+            client.remove_playlist_item.assert_not_called()
+            client.add_video_to_playlist.assert_called_once_with("quote2", "PLdaily")
             self.assertEqual(
                 load_daily_playlist_slots(slots_path),
-                {"quote": "quote2", "reel": "reel1", "lau": "lau1"},
+                {"quote": "quote2", "reel": "reel1"},
             )
 
     def test_sync_daily_playlist_skips_add_when_already_present(self) -> None:
