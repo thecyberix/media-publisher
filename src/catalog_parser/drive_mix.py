@@ -190,6 +190,23 @@ def _is_all_video_name(name: str) -> bool:
     return "all video" in Path(name).stem.casefold()
 
 
+def _is_copy_video_name(name: str) -> bool:
+    """True for Drive duplicate-style names (often English burned-in exports).
+
+    Matches ``Copy of …``, ``… copy``, and common ``_copy`` / ``-copy`` stems.
+    """
+    stem = Path(name).stem.casefold().strip()
+    if not stem:
+        return False
+    if stem.startswith("copy of ") or stem.startswith("copy_of_"):
+        return True
+    if stem.startswith("copy-") or stem.startswith("copy_"):
+        return True
+    if stem.endswith(" copy") or stem.endswith("_copy") or stem.endswith("-copy"):
+        return True
+    return False
+
+
 def _has_reel_in_name(name: str) -> bool:
     return "reel" in name.casefold()
 
@@ -252,6 +269,10 @@ def _pick_preferred_video(
     else:
         preferred = [video for video in candidates if not _has_reel_in_name(video.name)]
     pool = preferred or candidates
+    # Prefer originals over Drive "copy" duplicates when both exist (copies often
+    # carry burned-in English captions). If every candidate is a copy, keep them.
+    non_copy = [video for video in pool if not _is_copy_video_name(video.name)]
+    pool = non_copy or pool
     return sorted(pool, key=lambda video: video.name.casefold())[0]
 
 

@@ -164,6 +164,35 @@ class DriveMixStructureTests(unittest.TestCase):
         )
         self.assertEqual(picked.name, "All Titles.mp4")
 
+    def test_pick_merge_video_prefers_non_copy_over_copy_duplicate(self) -> None:
+        picked = _pick_merge_video(
+            [
+                self._media(
+                    "Make This High-Energy Superfood Your Staple Diet copy.mp4",
+                    file_id="copy",
+                ),
+                self._media(
+                    "Make This High-Energy Superfood Your Staple Diet.mp4",
+                    file_id="orig",
+                ),
+                self._media(
+                    "REF_Make This High-Energy Superfood Your Staple Diet | Sadhguru.mp4",
+                    file_id="ref",
+                ),
+            ]
+        )
+        self.assertEqual(picked.id, "orig")
+
+    def test_pick_merge_video_keeps_copy_of_all_video_when_only_copies(self) -> None:
+        picked = _pick_merge_video(
+            [
+                self._media("Copy of YT_Ask-your-burning-questions-EOE - All Video.mp4", file_id="yt"),
+                self._media("Copy of REEL_Ask your burning questions-EOE - All Video.mp4", file_id="reel"),
+                self._media("Copy of FB_Ask your burning questions-EOE - All Video.mp4", file_id="fb"),
+            ]
+        )
+        self.assertEqual(picked.id, "reel")
+
     def test_pick_merge_video_rejects_only_ref_and_ocd(self) -> None:
         with self.assertRaises(DriveCombineError):
             _pick_merge_video(
