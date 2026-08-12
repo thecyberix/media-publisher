@@ -568,6 +568,7 @@ class YouTubeClientTests(unittest.TestCase):
             )
             client.remove_playlist_item = MagicMock()
             client.add_video_to_playlist = MagicMock()
+            client.reorder_daily_playlist_slots = MagicMock()
 
             updated = client.sync_daily_playlist_slot(
                 "PLdaily",
@@ -577,7 +578,15 @@ class YouTubeClientTests(unittest.TestCase):
             )
 
             client.remove_playlist_item.assert_called_once_with("item-quote")
-            client.add_video_to_playlist.assert_called_once_with("quote2", "PLdaily")
+            client.add_video_to_playlist.assert_called_once_with(
+                "quote2",
+                "PLdaily",
+                position=0,
+            )
+            client.reorder_daily_playlist_slots.assert_called_once_with(
+                "PLdaily",
+                {"quote": "quote2", "reel": "reel1", "lau": "lau1"},
+            )
             self.assertEqual(
                 updated,
                 {"quote": "quote2", "reel": "reel1", "lau": "lau1"},
@@ -606,6 +615,7 @@ class YouTubeClientTests(unittest.TestCase):
             )
             client.remove_playlist_item = MagicMock()
             client.add_video_to_playlist = MagicMock()
+            client.reorder_daily_playlist_slots = MagicMock()
 
             client.sync_daily_playlist_slot(
                 "PLdaily",
@@ -615,7 +625,11 @@ class YouTubeClientTests(unittest.TestCase):
             )
 
             client.remove_playlist_item.assert_not_called()
-            client.add_video_to_playlist.assert_called_once_with("quote2", "PLdaily")
+            client.add_video_to_playlist.assert_called_once_with(
+                "quote2",
+                "PLdaily",
+                position=0,
+            )
             self.assertEqual(
                 load_daily_playlist_slots(slots_path),
                 {"quote": "quote2", "reel": "reel1"},
@@ -636,6 +650,7 @@ class YouTubeClientTests(unittest.TestCase):
             )
             client.remove_playlist_item = MagicMock()
             client.add_video_to_playlist = MagicMock()
+            client.reorder_daily_playlist_slots = MagicMock()
 
             client.sync_daily_playlist_slot(
                 "PLdaily",
@@ -646,6 +661,49 @@ class YouTubeClientTests(unittest.TestCase):
 
             client.remove_playlist_item.assert_not_called()
             client.add_video_to_playlist.assert_not_called()
+            client.reorder_daily_playlist_slots.assert_called_once()
+
+    def test_reorder_daily_playlist_slots_sets_positions(self) -> None:
+        client = YouTubeClient.__new__(YouTubeClient)
+        client.list_playlist_items = MagicMock(
+            return_value=[
+                {
+                    "id": "item-lau",
+                    "snippet": {"resourceId": {"videoId": "lau1"}, "position": 0},
+                },
+                {
+                    "id": "item-quote",
+                    "snippet": {"resourceId": {"videoId": "quote1"}, "position": 1},
+                },
+                {
+                    "id": "item-reel",
+                    "snippet": {"resourceId": {"videoId": "reel1"}, "position": 2},
+                },
+            ]
+        )
+        client.set_playlist_item_position = MagicMock()
+        client.reorder_daily_playlist_slots(
+            "PLdaily",
+            {"quote": "quote1", "reel": "reel1", "lau": "lau1"},
+        )
+        client.set_playlist_item_position.assert_any_call(
+            playlist_item_id="item-quote",
+            playlist_id="PLdaily",
+            video_id="quote1",
+            position=0,
+        )
+        client.set_playlist_item_position.assert_any_call(
+            playlist_item_id="item-reel",
+            playlist_id="PLdaily",
+            video_id="reel1",
+            position=1,
+        )
+        client.set_playlist_item_position.assert_any_call(
+            playlist_item_id="item-lau",
+            playlist_id="PLdaily",
+            video_id="lau1",
+            position=2,
+        )
 
     def test_clear_playlist_removes_all_items(self) -> None:
         client = YouTubeClient.__new__(YouTubeClient)

@@ -801,8 +801,14 @@ class YouTubeClient:
             f"YouTube playlist {normalized_title!r} was not found on the authorized channel"
         )
 
-    def add_video_to_playlist(self, video_id: str, playlist_id: str) -> None:
-        body = {
+    def add_video_to_playlist(
+        self,
+        video_id: str,
+        playlist_id: str,
+        *,
+        position: int | None = None,
+    ) -> None:
+        body: dict[str, Any] = {
             "snippet": {
                 "playlistId": playlist_id,
                 "resourceId": {
@@ -811,6 +817,8 @@ class YouTubeClient:
                 },
             }
         }
+        if position is not None:
+            body["snippet"]["position"] = int(position)
         query = urllib.parse.urlencode({"part": "snippet"})
         url = f"{API_BASE}/playlistItems?{query}"
         status, _, payload = self._request(
@@ -823,6 +831,79 @@ class YouTubeClient:
             detail = payload.decode("utf-8", errors="replace").strip()
             raise YouTubePublishError(
                 f"YouTube playlist insert failed with HTTP {status}: {detail}"
+            )
+
+    def set_playlist_item_position(
+        self,
+        *,
+        playlist_item_id: str,
+        playlist_id: str,
+        video_id: str,
+        position: int,
+    ) -> None:
+        body = {
+            "id": playlist_item_id,
+            "snippet": {
+                "playlistId": playlist_id,
+                "resourceId": {
+                    "kind": "youtube#video",
+                    "videoId": video_id,
+                },
+                "position": int(position),
+            },
+        }
+        query = urllib.parse.urlencode({"part": "snippet"})
+        url = f"{API_BASE}/playlistItems?{query}"
+        status, _, payload = self._request(
+            "PUT",
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        if status != 200:
+            detail = payload.decode("utf-8", errors="replace").strip()
+            raise YouTubePublishError(
+                f"YouTube playlist reorder failed with HTTP {status}: {detail}"
+            )
+
+    def reorder_daily_playlist_slots(
+        self,
+        playlist_id: str,
+        slots: dict[str, str],
+    ) -> None:
+        """Place quote / reel / lau at positions 0 / 1 / 2 when present."""
+        items = self.list_playlist_items(playlist_id)
+        by_video: dict[str, dict[str, Any]] = {}
+        for item in items:
+            video_id = _playlist_item_video_id(item)
+            item_id = item.get("id")
+            if not isinstance(video_id, str) or not video_id:
+                continue
+            if not isinstance(item_id, str) or not item_id:
+                continue
+            by_video[video_id] = item
+
+        for position, slot in enumerate(DAILY_PLAYLIST_SLOTS):
+            video_id = slots.get(slot)
+            if not isinstance(video_id, str) or not video_id.strip():
+                continue
+            item = by_video.get(video_id.strip())
+            if item is None:
+                continue
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                continue
+            snippet = item.get("snippet")
+            current_position = None
+            if isinstance(snippet, dict):
+                current_position = snippet.get("position")
+            if current_position == position:
+                continue
+            self.set_playlist_item_position(
+                playlist_item_id=item_id,
+                playlist_id=playlist_id,
+                video_id=video_id.strip(),
+                position=position,
             )
 
     def list_playlist_items(self, playlist_id: str) -> list[dict[str, Any]]:
@@ -885,8 +966,8 @@ class YouTubeClient:
         """Keep one video each for quote / reel / lau slots in the daily playlist.
 
         Updates ``slot`` to ``video_id``, removes only the previous video for that
-        slot (when known), and ensures ``video_id`` is present. Persists slots to
-        ``state_path``.
+        slot (when known), ensures ``video_id`` is present, and reorders to
+        quote → reel → lau (positions 0 / 1 / 2). Persists slots to ``state_path``.
         """
         if slot not in DAILY_PLAYLIST_SLOTS:
             raise YouTubePublishError(
@@ -897,6 +978,7 @@ class YouTubeClient:
         previous_video_id = slots.get(slot)
         slots[slot] = video_id
         desired = {value for value in slots.values() if value}
+        target_position = DAILY_PLAYLIST_SLOTS.index(slot)  # type: ignore[arg-type]
 
         if previous_video_id and previous_video_id != video_id:
             for item in self.list_playlist_items(playlist_id):
@@ -914,7 +996,11 @@ class YouTubeClient:
                 break
 
         if not already_present:
-            self.add_video_to_playlist(video_id, playlist_id)
+            self.add_video_to_playlist(
+                video_id,
+                playlist_id,
+                position=target_position,
+            )
 
         # Prune only when we can identify a stale video id (never delete unknown rows).
         stale_ids = set()
@@ -932,6 +1018,7 @@ class YouTubeClient:
             if item_video_id in stale_ids:
                 self.remove_playlist_item(item_id)
 
+        self.reorder_daily_playlist_slots(playlist_id, slots)
         save_daily_playlist_slots(state_path, slots)
         return slots
 
