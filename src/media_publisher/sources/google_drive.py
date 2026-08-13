@@ -11,6 +11,10 @@ from media_publisher.transient_retry import call_with_transient_retry
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document"
+DOCX_MIME_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
 IMAGE_MIME_PREFIX = "image/"
 VIDEO_MIME_PREFIX = "video/"
 
@@ -390,6 +394,31 @@ class GoogleDriveClient:
 
         destination.parent.mkdir(parents=True, exist_ok=True)
         request = self._drive.files().get_media(fileId=file_id, supportsAllDrives=True)
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request)
+        done = False
+        while not done:
+            _, done = call_with_transient_retry(downloader.next_chunk)
+        destination.write_bytes(buffer.getvalue())
+        return destination
+
+    def download_document(self, file_id: str, destination: Path) -> Path:
+        """Download a Drive file, exporting Google Docs to .docx."""
+        from googleapiclient.http import MediaIoBaseDownload
+        import io
+
+        meta = self.get_file(file_id)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if meta.mime_type == GOOGLE_DOC_MIME_TYPE:
+            request = self._drive.files().export_media(
+                fileId=file_id,
+                mimeType=DOCX_MIME_TYPE,
+            )
+        else:
+            request = self._drive.files().get_media(
+                fileId=file_id,
+                supportsAllDrives=True,
+            )
         buffer = io.BytesIO()
         downloader = MediaIoBaseDownload(buffer, request)
         done = False
