@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from media_publisher.transient_retry import call_with_transient_retry
+
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 IMAGE_MIME_PREFIX = "image/"
@@ -110,17 +112,19 @@ class GoogleDriveClient:
         service = build("drive", "v3", credentials=credentials, cache_discovery=False)
         return cls(service)
 
+    def _execute(self, request: Any) -> Any:
+        """Run a Drive API request with retries for transient failures."""
+        return call_with_transient_retry(request.execute)
+
     def list_children(self, folder_id: str) -> list[DriveFile]:
-        response = (
-            self._drive.files()
-            .list(
+        response = self._execute(
+            self._drive.files().list(
                 q=f"'{folder_id}' in parents and trashed=false",
                 fields="files(id,name,mimeType,md5Checksum,modifiedTime)",
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
                 pageSize=1000,
             )
-            .execute()
         )
         files = response.get("files", [])
         if not isinstance(files, list):
@@ -165,9 +169,8 @@ class GoogleDriveClient:
         if existing is not None:
             return existing
         try:
-            created = (
-                self._drive.files()
-                .create(
+            created = self._execute(
+                self._drive.files().create(
                     body={
                         "name": folder_name,
                         "mimeType": FOLDER_MIME_TYPE,
@@ -176,7 +179,6 @@ class GoogleDriveClient:
                     fields="id,name,mimeType",
                     supportsAllDrives=True,
                 )
-                .execute()
             )
         except Exception as exc:
             raise GoogleDriveError(
@@ -282,15 +284,13 @@ class GoogleDriveClient:
 
         if existing is not None:
             try:
-                updated = (
-                    self._drive.files()
-                    .update(
+                updated = self._execute(
+                    self._drive.files().update(
                         fileId=existing.id,
                         media_body=media,
                         fields="id,name,mimeType,md5Checksum,modifiedTime",
                         supportsAllDrives=True,
                     )
-                    .execute()
                 )
             except Exception as exc:
                 raise GoogleDriveError(
@@ -316,15 +316,13 @@ class GoogleDriveClient:
             )
 
         try:
-            created = (
-                self._drive.files()
-                .create(
+            created = self._execute(
+                self._drive.files().create(
                     body={"name": name, "parents": [parent_id]},
                     media_body=media,
                     fields="id,name,mimeType,md5Checksum,modifiedTime",
                     supportsAllDrives=True,
                 )
-                .execute()
             )
         except Exception as exc:
             raise GoogleDriveError(
@@ -362,20 +360,18 @@ class GoogleDriveClient:
         downloader = MediaIoBaseDownload(buffer, request)
         done = False
         while not done:
-            _, done = downloader.next_chunk()
+            _, done = call_with_transient_retry(downloader.next_chunk)
         destination.write_bytes(buffer.getvalue())
         return destination
 
     def _file_capabilities(self, file_id: str) -> dict[str, bool]:
         try:
-            metadata = (
-                self._drive.files()
-                .get(
+            metadata = self._execute(
+                self._drive.files().get(
                     fileId=file_id,
                     fields="capabilities/canDelete,capabilities/canTrash",
                     supportsAllDrives=True,
                 )
-                .execute()
             )
         except Exception as exc:
             raise GoogleDriveError(
@@ -393,10 +389,12 @@ class GoogleDriveClient:
 
     def delete_file(self, file_id: str) -> None:
         try:
-            self._drive.files().delete(
-                fileId=file_id,
-                supportsAllDrives=True,
-            ).execute()
+            self._execute(
+                self._drive.files().delete(
+                    fileId=file_id,
+                    supportsAllDrives=True,
+                )
+            )
         except Exception as exc:
             raise GoogleDriveError(
                 f"Failed to delete Drive file {file_id}: {exc}"
@@ -404,11 +402,13 @@ class GoogleDriveClient:
 
     def trash_file(self, file_id: str) -> None:
         try:
-            self._drive.files().update(
-                fileId=file_id,
-                body={"trashed": True},
-                supportsAllDrives=True,
-            ).execute()
+            self._execute(
+                self._drive.files().update(
+                    fileId=file_id,
+                    body={"trashed": True},
+                    supportsAllDrives=True,
+                )
+            )
         except Exception as exc:
             raise GoogleDriveError(
                 f"Failed to trash Drive file {file_id}: {exc}"
@@ -429,24 +429,24 @@ class GoogleDriveClient:
 
     def move_file(self, file_id: str, destination_folder_id: str) -> None:
         try:
-            metadata = (
-                self._drive.files()
-                .get(
+            metadata = self._execute(
+                self._drive.files().get(
                     fileId=file_id,
                     fields="parents",
                     supportsAllDrives=True,
                 )
-                .execute()
             )
             parents = metadata.get("parents", [])
             previous_parents = ",".join(parents) if isinstance(parents, list) else None
-            self._drive.files().update(
-                fileId=file_id,
-                addParents=destination_folder_id,
-                removeParents=previous_parents,
-                supportsAllDrives=True,
-                fields="id, parents",
-            ).execute()
+            self._execute(
+                self._drive.files().update(
+                    fileId=file_id,
+                    addParents=destination_folder_id,
+                    removeParents=previous_parents,
+                    supportsAllDrives=True,
+                    fields="id, parents",
+                )
+            )
         except Exception as exc:
             raise GoogleDriveError(
                 f"Failed to move Drive file {file_id} to folder {destination_folder_id}: {exc}"
