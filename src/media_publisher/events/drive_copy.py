@@ -8,6 +8,7 @@ from media_publisher.events.templates import (
     EVENT_IMAGES_DRIVE_FOLDER_ID,
     EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
+    EVENT_TYPE_YOGASANA,
     PROGRAMS,
     ProgramTemplate,
     get_program,
@@ -37,7 +38,7 @@ W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 EVENT_TYPE_BY_ENGLISH_NAME = {
     "surya kriya": EVENT_TYPE_SURYA_KRIYA,
     "bhuta shuddhi": EVENT_TYPE_BHUTA_SHUDDHI,
-    "yogasana": "yogasana",
+    "yogasana": EVENT_TYPE_YOGASANA,
     "angamardana": "angamardana",
 }
 
@@ -187,8 +188,14 @@ def parse_program_copy(
     bulgarian_lines: list[str],
     youtube_url: str | None = None,
 ) -> ParsedProgramCopy:
-    english = _parse_language_block(english_lines, benefits_heading="benefits")
-    bulgarian = _parse_language_block(bulgarian_lines, benefits_heading="ползи")
+    english = _parse_language_block(
+        english_lines,
+        benefits_headings=("benefits", "this programme offers"),
+    )
+    bulgarian = _parse_language_block(
+        bulgarian_lines,
+        benefits_headings=("ползи", "те спомагат за"),
+    )
     title = next((line for line in bulgarian_lines if line.strip()), "")
     program_name = _program_name_from_title(title)
     if not program_name:
@@ -255,7 +262,11 @@ class _LanguageBlock:
     learn_more_label: str
 
 
-def _parse_language_block(lines: list[str], *, benefits_heading: str) -> _LanguageBlock:
+def _parse_language_block(
+    lines: list[str],
+    *,
+    benefits_headings: tuple[str, ...],
+) -> _LanguageBlock:
     stripped = [line.strip() for line in lines]
     quote = ""
     body = ""
@@ -265,13 +276,14 @@ def _parse_language_block(lines: list[str], *, benefits_heading: str) -> _Langua
     learn_more_url = ""
     learn_more_label = ""
     mode = "pre"
+    heading_set = {heading.casefold().rstrip(":") for heading in benefits_headings}
     for line in stripped:
         if not line:
             continue
         if line.startswith("🗓") or line.startswith("🗓️"):
             mode = "quote"
             continue
-        if line.casefold().rstrip(":") == benefits_heading:
+        if line.casefold().rstrip(":") in heading_set:
             mode = "benefits"
             continue
         if _is_learn_more_line(line):
@@ -394,7 +406,9 @@ def _clean_quote(text: str) -> str:
 
 def _is_learn_more_line(line: str) -> bool:
     folded = line.casefold()
-    return bool(LEARN_MORE_URL_RE.search(line)) or folded.startswith("вижте") or folded.startswith("watch")
+    return bool(LEARN_MORE_URL_RE.search(line)) or folded.startswith(
+        ("вижте", "watch", "научете", "learn more", "find out")
+    )
 
 
 def _split_learn_more(line: str) -> tuple[str, str, str]:

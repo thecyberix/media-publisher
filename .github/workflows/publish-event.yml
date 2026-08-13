@@ -1,6 +1,6 @@
 name: Publish event
 
-# Manually announce a Bulgarian Hatha programme (Surya Kriya or Bhuta Shuddhi).
+# Manually announce a Bulgarian Hatha programme (Surya Kriya, Bhuta Shuddhi, or Yogasanas).
 # Updates events/ for GitHub Pages and posts a photo + caption to the Facebook Page.
 on:
   workflow_dispatch:
@@ -13,6 +13,7 @@ on:
         options:
           - Surya Kriya
           - Bhuta Shuddhi
+          - Yogasanas
       city:
         description: City (град)
         type: string

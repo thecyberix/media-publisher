@@ -3,6 +3,7 @@
 from media_publisher.events.publish import (
     EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
+    EVENT_TYPE_YOGASANA,
     EventPublishError,
     EventPublishResult,
     REQUIRED_EVENT_META_SCOPES,
@@ -15,6 +16,7 @@ from media_publisher.events.publish import (
 __all__ = [
     "EVENT_TYPE_BHUTA_SHUDDHI",
     "EVENT_TYPE_SURYA_KRIYA",
+    "EVENT_TYPE_YOGASANA",
     "EventPublishError",
     "EventPublishResult",
     "REQUIRED_EVENT_META_SCOPES",

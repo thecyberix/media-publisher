@@ -7,6 +7,7 @@ from media_publisher.events.format import format_bulgarian_datetime, format_iso_
 
 EVENT_TYPE_SURYA_KRIYA = "surya_kriya"
 EVENT_TYPE_BHUTA_SHUDDHI = "bhuta_shuddhi"
+EVENT_TYPE_YOGASANA = "yogasana"
 
 # Google Drive root with one subfolder of Facebook images per programme.
 EVENT_IMAGES_DRIVE_FOLDER_ID = "1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6"
@@ -48,6 +49,24 @@ BHUTA_SHUDDHI_BENEFITS = (
     "Хармония и баланс между тялото и ума",
     "Увеличен капацитет на цялата ви система",
     "Пречистване на петте елемента във вас",
+)
+
+YOGASANA_LEARN_MORE_URL = "https://youtu.be/H_3dIi6H84M"
+YOGASANA_LEARN_MORE_LABEL = "Йогасани - пози за издигане на съзнанието | Садгуру"
+YOGASANA_QUOTE = (
+    "„Ако сте в една асана осъзнато, тя може да промени начина, по който мислите, "
+    "чувствате и преживявате живота. Това може да постигне Хата йога.“ – Садгуру"
+)
+YOGASANA_BODY = (
+    "Йогасаните са мощна поредица от 21 пози, или асани, структурирани така, "
+    "че да способстват за това вашето тяло да поддържа високи енергийни нива. "
+    "Не се изисква предишен опит в йога или гъвкавост."
+)
+YOGASANA_BENEFITS = (
+    "Облекчаване на хронични здравословни проблеми",
+    "Развиване на тялото и ума до пълния им потенциал",
+    "Стабилизиране на тялото, ума и енергийната система",
+    "Забавяне на процеса на стареене",
 )
 
 
@@ -93,6 +112,19 @@ PROGRAMS: dict[str, ProgramTemplate] = {
         learn_more_label=BHUTA_SHUDDHI_LEARN_MORE_LABEL,
         facebook_image_folder="Bhuta Shuddhi",
     ),
+    EVENT_TYPE_YOGASANA: ProgramTemplate(
+        event_type=EVENT_TYPE_YOGASANA,
+        program_name="Йогасани",
+        title_emoji="🧘‍♀️",
+        quote=YOGASANA_QUOTE,
+        body=YOGASANA_BODY,
+        benefits=YOGASANA_BENEFITS,
+        benefit_bullet="✅",
+        learn_more_intro="Научете повече тук:",
+        learn_more_url=YOGASANA_LEARN_MORE_URL,
+        learn_more_label=YOGASANA_LEARN_MORE_LABEL,
+        facebook_image_folder="Yogasanas",
+    ),
 }
 
 
@@ -119,7 +151,10 @@ def supported_event_types() -> tuple[str, ...]:
 
 
 def normalize_event_type(event_type: str) -> str:
-    return event_type.strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = event_type.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized == "yogasanas":
+        return EVENT_TYPE_YOGASANA
+    return normalized
 
 
 def get_program(event_type: str) -> ProgramTemplate:

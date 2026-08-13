@@ -286,8 +286,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="surya_kriya",
         help=(
             "Event type for --publish-event "
-            "('Surya Kriya' / surya_kriya or 'Bhuta Shuddhi' / bhuta_shuddhi; "
-            "default: surya_kriya)."
+            "('Surya Kriya' / surya_kriya, 'Bhuta Shuddhi' / bhuta_shuddhi, "
+            "or 'Yogasanas' / yogasana; default: surya_kriya)."
         ),
     )
     parser.add_argument(

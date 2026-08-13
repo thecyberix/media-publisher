@@ -42,8 +42,10 @@ from media_publisher.events.templates import (
     BHUTA_SHUDDHI_LEARN_MORE_URL,
     EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
+    EVENT_TYPE_YOGASANA,
     SURYA_KRIYA_LEARN_MORE_LABEL,
     SURYA_KRIYA_LEARN_MORE_URL,
+    YOGASANA_LEARN_MORE_URL,
     city_preposition,
     get_program,
     normalize_event_type,
@@ -158,6 +160,8 @@ class EventTemplateTests(unittest.TestCase):
     def test_display_name_event_types(self) -> None:
         self.assertEqual(normalize_event_type("Surya Kriya"), EVENT_TYPE_SURYA_KRIYA)
         self.assertEqual(normalize_event_type("Bhuta Shuddhi"), EVENT_TYPE_BHUTA_SHUDDHI)
+        self.assertEqual(normalize_event_type("Yogasanas"), EVENT_TYPE_YOGASANA)
+        self.assertEqual(normalize_event_type("yogasana"), EVENT_TYPE_YOGASANA)
         rendered = render_event(
             event_type="Surya Kriya",
             city="София",
@@ -168,10 +172,26 @@ class EventTemplateTests(unittest.TestCase):
         )
         self.assertEqual(rendered.event_type, EVENT_TYPE_SURYA_KRIYA)
 
+    def test_render_yogasana_bulgarian(self) -> None:
+        rendered = render_event(
+            event_type="Yogasanas",
+            city="Пловдив",
+            country="България",
+            event_date=date(2026, 9, 26),
+            event_time=time(9, 0),
+            registration_link="https://sadanandayoga.com/events/yogasanas#registration",
+        )
+        self.assertEqual(rendered.event_type, EVENT_TYPE_YOGASANA)
+        self.assertIn("Йогасани", rendered.title)
+        self.assertIn("\nв Пловдив, България", rendered.title)
+        self.assertIn(YOGASANA_LEARN_MORE_URL, rendered.full_text)
+        self.assertIn("✅ Облекчаване на хронични здравословни проблеми", rendered.html_body)
+        self.assertEqual(rendered.facebook_image_folder, "Yogasanas")
+
     def test_unsupported_event_type(self) -> None:
         with self.assertRaises(ValueError):
             render_event(
-                event_type="yogasana",
+                event_type="angamardana",
                 city="София",
                 country="България",
                 event_date=date(2026, 9, 15),

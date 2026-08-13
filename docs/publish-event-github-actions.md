@@ -1,6 +1,6 @@
 # Publish event (GitHub Actions)
 
-Manual workflow that announces a Bulgarian **Surya Kriya** or **Bhuta Shuddhi** programme:
+Manual workflow that announces a Bulgarian **Surya Kriya**, **Bhuta Shuddhi**, or **Yogasanas** programme:
 
 1. Renders the Bulgarian template for the selected programme
 2. Appends the event to [`events/data/events.json`](../events/data/events.json) and rebuilds [`events/index.html`](../events/index.html)
@@ -11,7 +11,7 @@ Manual workflow that announces a Bulgarian **Surya Kriya** or **Bhuta Shuddhi** 
 
 | Input | Required | Notes |
 |-------|----------|--------|
-| `event_type` | yes | `Surya Kriya` or `Bhuta Shuddhi` |
+| `event_type` | yes | `Surya Kriya`, `Bhuta Shuddhi`, or `Yogasanas` |
 | `city` | yes | Fills `[град]` |
 | `country` | yes | Default `България` |
 | `date` | yes | `YYYY-MM-DD` |
@@ -37,6 +37,7 @@ Facebook images live in the same folder:
 
 - `Surya Kriya/` — images for Surya Kriya
 - `Bhuta Shuddhi/` — images for Bhuta Shuddhi
+- `Yogasanas/` — images for Yogasanas
 
 When `image_id` is omitted, the workflow picks the next unused image in that subfolder (by filename), then wraps around after all images have been used. Explicit `image_id` choices count as used for later defaults. Usage history is stored in [`events/data/facebook-image-rotation.json`](../events/data/facebook-image-rotation.json) and each event also records `facebook_image_id`.
 

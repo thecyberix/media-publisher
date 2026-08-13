@@ -23,6 +23,7 @@ from media_publisher.events.page import (
 from media_publisher.events.templates import (
     EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
+    EVENT_TYPE_YOGASANA,
     RenderedEvent,
     render_event,
     supported_event_types,
@@ -206,6 +207,7 @@ def publish_event(
 __all__ = [
     "EVENT_TYPE_BHUTA_SHUDDHI",
     "EVENT_TYPE_SURYA_KRIYA",
+    "EVENT_TYPE_YOGASANA",
     "EventPublishError",
     "EventPublishResult",
     "REQUIRED_EVENT_META_SCOPES",
