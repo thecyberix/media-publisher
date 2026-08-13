@@ -196,6 +196,35 @@ class EventPageTests(unittest.TestCase):
             events = load_events(root)
             self.assertEqual(len(events), 1)
 
+    def test_append_event_sorts_earliest_first(self) -> None:
+        later = render_event(
+            event_type=EVENT_TYPE_SURYA_KRIYA,
+            city="София",
+            country="България",
+            event_date=date(2026, 11, 1),
+            event_time=time(18, 0),
+            registration_link="https://example.com/later",
+        )
+        earlier = render_event(
+            event_type=EVENT_TYPE_BHUTA_SHUDDHI,
+            city="Варна",
+            country="България",
+            event_date=date(2026, 9, 15),
+            event_time=time(10, 0),
+            registration_link="https://example.com/earlier",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event(root, later)
+            append_event(root, earlier)
+            events = load_events(root)
+            self.assertEqual(
+                [item["city"] for item in events],
+                ["Варна", "София"],
+            )
+            html = (root / "index.html").read_text(encoding="utf-8")
+            self.assertLess(html.index("Варна"), html.index("София"))
+
     def test_rebuild_index_empty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -412,6 +441,28 @@ class EventFacebookImageTests(unittest.TestCase):
                 events_root=root,
             )
             self.assertEqual(wrapped.id, "img1")
+
+    def test_explicit_selector_accepts_filename_and_number(self) -> None:
+        drive = self._drive_with_images()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            by_name, mode_name = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+                image_id="2.jpg",
+            )
+            self.assertEqual(mode_name, "explicit")
+            self.assertEqual(by_name.id, "img2")
+
+            by_number, mode_number = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+                image_id="1",
+            )
+            self.assertEqual(mode_number, "explicit")
+            self.assertEqual(by_number.id, "img1")
 
     def test_prior_event_image_ids_seed_rotation(self) -> None:
         drive = self._drive_with_images()

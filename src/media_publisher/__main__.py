@@ -318,8 +318,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--image-id",
         default="",
         help=(
-            "Optional Google Drive file id for the Facebook event image. "
-            "Must be an image inside the programme subfolder. "
+            "Optional Facebook event image selector: Google Drive file id, "
+            "filename (e.g. 1.jpg), or basename/number (e.g. 1). "
+            "Must resolve to an image inside the programme subfolder. "
             "When omitted, images rotate through the folder."
         ),
     )

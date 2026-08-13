@@ -35,7 +35,7 @@ on:
         type: string
         required: true
       image_id:
-        description: Optional Drive file id for the Facebook image (blank = rotate through the programme folder)
+        description: Optional image — Drive file id, filename (1.jpg), or number (1). Blank = rotate.
         type: string
         required: false
         default: ""

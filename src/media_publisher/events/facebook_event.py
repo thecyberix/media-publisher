@@ -179,6 +179,51 @@ def list_programme_images(
     return images
 
 
+def resolve_image_selector(
+    images: list[DriveFile],
+    *,
+    selector: str,
+    folder_name: str,
+) -> DriveFile:
+    """Resolve an image by Drive file id, filename, or basename (e.g. ``1`` → ``1.jpg``)."""
+    requested = selector.strip()
+    if not requested:
+        raise EventImageError("Image selector is empty")
+
+    by_id = {item.id: item for item in images}
+    selected = by_id.get(requested)
+    if selected is not None:
+        return selected
+
+    requested_cf = requested.casefold()
+    for item in images:
+        if item.name.casefold() == requested_cf:
+            return item
+
+    stem_matches = [
+        item
+        for item in images
+        if Path(item.name).stem.casefold() == requested_cf
+    ]
+    if len(stem_matches) == 1:
+        return stem_matches[0]
+    if len(stem_matches) > 1:
+        names = ", ".join(repr(item.name) for item in stem_matches)
+        raise EventImageError(
+            f"Image selector {requested!r} matches multiple files in "
+            f"{folder_name!r}: {names}"
+        )
+
+    available = ", ".join(
+        f"{item.name} ({item.id})" for item in images
+    ) or "(none)"
+    raise EventImageError(
+        f"Image selector {requested!r} is not in the {folder_name!r} Drive folder. "
+        f"Use a Drive file id, filename (e.g. 1.jpg), or number (e.g. 1). "
+        f"Available: {available}"
+    )
+
+
 def choose_facebook_image(
     drive_client: GoogleDriveClient,
     *,
@@ -188,7 +233,7 @@ def choose_facebook_image(
     folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
     persist_rotation: bool = True,
 ) -> tuple[DriveFile, str]:
-    """Pick a programme image by explicit Drive id or round-robin rotation.
+    """Pick a programme image by explicit Drive id/name or round-robin rotation.
 
     Default selection skips every image already used in the current cycle, including
     images previously chosen explicitly by the user. After all images have been used
@@ -213,12 +258,11 @@ def choose_facebook_image(
 
     requested = (image_id or "").strip()
     if requested:
-        selected = by_id.get(requested)
-        if selected is None:
-            raise EventImageError(
-                f"Image id {requested!r} is not in the "
-                f"{get_program(normalized).facebook_image_folder!r} Drive folder"
-            )
+        selected = resolve_image_selector(
+            images,
+            selector=requested,
+            folder_name=get_program(normalized).facebook_image_folder,
+        )
         selection = "explicit"
     else:
         available = [item for item in images if item.id not in set(used)]

@@ -17,7 +17,7 @@ Manual workflow that announces a Bulgarian **Surya Kriya** or **Bhuta Shuddhi** 
 | `date` | yes | `YYYY-MM-DD` |
 | `time` | yes | `HH:MM` |
 | `registration_link` | yes | Full URL |
-| `image_id` | no | Drive file id from the programme subfolder; blank rotates images |
+| `image_id` | no | Drive file id, filename (`1.jpg`), or number (`1`); blank rotates images |
 | `dry_run` | no | Preview only |
 | `skip_facebook` | no | Page update only |
 

@@ -216,7 +216,7 @@ def append_event(
         facebook_image_name=facebook_image_name,
     )
     existing.append(asdict(stored))
-    existing.sort(key=lambda item: str(item.get("datetime_iso") or ""), reverse=True)
+    existing.sort(key=lambda item: str(item.get("datetime_iso") or ""))
     _write_events_json(events_root, existing)
     rebuild_index(events_root, existing)
     return stored, True
