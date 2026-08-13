@@ -25,7 +25,7 @@ from media_publisher.sources.google_drive import (
 
 TEMPLATE_CACHE_NAME = "hatha-message-template.docx"
 ENGLISH_HEADING_RE = re.compile(
-    r"(?P<name>Surya Kriya|Bhuta Shuddhi|Yogasana|Angamardana)\s+Programme",
+    r"(?P<name>Surya Kriya|Bhuta Shuddhi|Yogasanas?|Angamardana)\s+Programme",
     re.IGNORECASE,
 )
 PROGRAM_NAME_RE = re.compile(
@@ -39,6 +39,7 @@ EVENT_TYPE_BY_ENGLISH_NAME = {
     "surya kriya": EVENT_TYPE_SURYA_KRIYA,
     "bhuta shuddhi": EVENT_TYPE_BHUTA_SHUDDHI,
     "yogasana": EVENT_TYPE_YOGASANA,
+    "yogasanas": EVENT_TYPE_YOGASANA,
     "angamardana": "angamardana",
 }
 
