@@ -11,7 +11,7 @@ Manual workflow that announces a Bulgarian **Surya Kriya** or **Bhuta Shuddhi** 
 
 | Input | Required | Notes |
 |-------|----------|--------|
-| `event_type` | yes | `surya_kriya` or `bhuta_shuddhi` |
+| `event_type` | yes | `Surya Kriya` or `Bhuta Shuddhi` |
 | `city` | yes | Fills `[град]` |
 | `country` | yes | Default `България` |
 | `date` | yes | `YYYY-MM-DD` |
@@ -29,12 +29,14 @@ Same Meta secrets as the publish pipeline:
 - `META_APP_ID`
 - `META_APP_SECRET`
 - `META_PAGE_ID` (optional if username resolution works)
-- `GOOGLE_SERVICE_ACCOUNT_JSON` — downloads Facebook event images from the shared Drive folder
+- `GOOGLE_SERVICE_ACCOUNT_JSON` — loads the Hatha message template and Facebook images from Drive
 
-Facebook images live under [this Drive folder](https://drive.google.com/drive/folders/1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6):
+Programme copy (quote, body, benefits, YouTube link) is read from the Hatha WhatsApp template in [this Drive folder](https://drive.google.com/drive/folders/1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6) (`NEW Hatha WA Message Template ENG.docx`). Bulgarian cells are used, including the YouTube hyperlink on the video title.
 
-- `Surya Kriya/` — images for `surya_kriya`
-- `Bhuta Shuddhi/` — images for `bhuta_shuddhi`
+Facebook images live in the same folder:
+
+- `Surya Kriya/` — images for Surya Kriya
+- `Bhuta Shuddhi/` — images for Bhuta Shuddhi
 
 When `image_id` is omitted, the workflow picks the next unused image in that subfolder (by filename), then wraps around after all images have been used. Explicit `image_id` choices count as used for later defaults. Usage history is stored in [`events/data/facebook-image-rotation.json`](../events/data/facebook-image-rotation.json) and each event also records `facebook_image_id`.
 

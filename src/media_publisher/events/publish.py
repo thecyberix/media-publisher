@@ -8,6 +8,7 @@ from media_publisher.events.facebook_event import (
     publish_event_to_facebook,
     resolve_facebook_image_from_drive,
 )
+from media_publisher.events.drive_copy import EventTemplateError, load_program_from_drive
 from media_publisher.events.format import parse_event_date, parse_event_time
 from media_publisher.events.page import (
     StoredEvent,
@@ -95,6 +96,13 @@ def publish_event(
     try:
         event_date = parse_event_date(date_text)
         event_time = parse_event_time(time_text)
+        program = None
+        if drive_client is not None:
+            program = load_program_from_drive(
+                drive_client,
+                event_type,
+                project_root=project_root,
+            )
         rendered = render_event(
             event_type=event_type,
             city=city,
@@ -102,8 +110,9 @@ def publish_event(
             event_date=event_date,
             event_time=event_time,
             registration_link=registration_link,
+            program=program,
         )
-    except ValueError as exc:
+    except (ValueError, EventTemplateError) as exc:
         raise EventPublishError(str(exc)) from exc
 
     root = events_root or default_events_root(project_root)

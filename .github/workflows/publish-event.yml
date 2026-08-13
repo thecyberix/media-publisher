@@ -9,10 +9,10 @@ on:
         description: Programme type
         type: choice
         required: true
-        default: surya_kriya
+        default: Surya Kriya
         options:
-          - surya_kriya
-          - bhuta_shuddhi
+          - Surya Kriya
+          - Bhuta Shuddhi
       city:
         description: City (град)
         type: string

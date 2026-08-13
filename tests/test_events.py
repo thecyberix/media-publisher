@@ -8,6 +8,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
+from media_publisher.events.drive_copy import (
+    apply_parsed_copy,
+    parse_hatha_template_docx,
+    parse_program_copy,
+)
 from media_publisher.events.format import (
     format_bulgarian_datetime,
     parse_event_date,
@@ -40,6 +45,8 @@ from media_publisher.events.templates import (
     SURYA_KRIYA_LEARN_MORE_LABEL,
     SURYA_KRIYA_LEARN_MORE_URL,
     city_preposition,
+    get_program,
+    normalize_event_type,
     render_event,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
@@ -145,6 +152,19 @@ class EventTemplateTests(unittest.TestCase):
         self.assertIn("\nвъв Варна, България", rendered.title)
         self.assertIn("<br>във Варна, България</h2>", rendered.html_body)
 
+    def test_display_name_event_types(self) -> None:
+        self.assertEqual(normalize_event_type("Surya Kriya"), EVENT_TYPE_SURYA_KRIYA)
+        self.assertEqual(normalize_event_type("Bhuta Shuddhi"), EVENT_TYPE_BHUTA_SHUDDHI)
+        rendered = render_event(
+            event_type="Surya Kriya",
+            city="София",
+            country="България",
+            event_date=date(2026, 9, 15),
+            event_time=time(18, 0),
+            registration_link="https://example.com/register",
+        )
+        self.assertEqual(rendered.event_type, EVENT_TYPE_SURYA_KRIYA)
+
     def test_unsupported_event_type(self) -> None:
         with self.assertRaises(ValueError):
             render_event(
@@ -155,6 +175,188 @@ class EventTemplateTests(unittest.TestCase):
                 event_time=time(18, 0),
                 registration_link="https://example.com/register",
             )
+
+
+class EventDriveCopyTests(unittest.TestCase):
+    def test_parsed_copy_uses_template_quote(self) -> None:
+        copy = parse_program_copy(
+            event_type=EVENT_TYPE_SURYA_KRIYA,
+            english_lines=[
+                "☀️ Surya Kriya Programme in [city], [country] ☀️",
+                "🗓: [date, month, and time]",
+                '"Surya Kriya is a powerful process."- Sadhguru',
+                "English body.",
+                "Benefits:",
+                "✅ Focus",
+                "Watch Sadhguru: https://youtu.be/Lh0ZucHjp14",
+            ],
+            bulgarian_lines=[
+                "☀️ Програма “Суря крия” [град], [държава] ☀️",
+                "🗓: [дата и час]",
+                "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. – Садгуру",
+                "Ползи:",
+                "✅ Умствена яснота и фокус",
+                "Вижте какво казва Садгуру: Заглавие",
+            ],
+        )
+        self.assertEqual(
+            copy.quote,
+            "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. – Садгуру",
+        )
+        self.assertEqual(copy.body, "")
+        self.assertEqual(copy.benefits, ("Умствена яснота и фокус",))
+        program = apply_parsed_copy(get_program(EVENT_TYPE_SURYA_KRIYA), copy)
+        rendered = render_event(
+            event_type=EVENT_TYPE_SURYA_KRIYA,
+            city="София",
+            country="България",
+            event_date=date(2026, 9, 12),
+            event_time=time(8, 0),
+            registration_link="https://example.com/register",
+            program=program,
+        )
+        self.assertIn(copy.quote, rendered.full_text)
+        self.assertIn(copy.quote, rendered.html_body)
+        self.assertNotIn("<p></p>", rendered.html_body)
+
+    def test_joins_sadhguru_attribution_line(self) -> None:
+        copy = parse_program_copy(
+            event_type=EVENT_TYPE_BHUTA_SHUDDHI,
+            english_lines=[
+                "💫 Bhuta Shuddhi Programme in [city], [country] 💫",
+                "🗓: [date, month, and time]",
+                '"English quote."- Sadhguru',
+                "English body.",
+                "Benefits:",
+                "🎯 Harmony",
+                "Watch the video: https://youtu.be/jzSX_uBstSA",
+            ],
+            bulgarian_lines=[
+                "💫 Програма “Бута Шудди” в [град], [държава] 💫",
+                "🗓: [дата и час]",
+                "Бута Шудди е йога система, фокусирана върху пречистването на петте елемента.",
+                " – Садгуру",
+                "Ползи:",
+                "🎯 Хармония и баланс между тялото и ума",
+                "Вижте видеото: Заглавие",
+            ],
+        )
+        self.assertEqual(
+            copy.quote,
+            "Бута Шудди е йога система, фокусирана върху пречистването на петте елемента. – Садгуру",
+        )
+        self.assertEqual(copy.body, "")
+
+    def test_parse_hatha_template_docx(self) -> None:
+        from docx import Document
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "template.docx"
+            document = Document()
+            english = document.add_table(rows=1, cols=1)
+            english.cell(0, 0).text = (
+                "☀️ Surya Kriya Programme in [city], [country] ☀️\n"
+                "🗓: [date, month, and time]\n"
+                '"Surya Kriya is a powerful process."- Sadhguru\n'
+                "Surya body.\n"
+                "Benefits:\n"
+                "✅ Focus\n"
+                "Watch Sadhguru: https://youtu.be/Lh0ZucHjp14"
+            )
+            languages = document.add_table(rows=2, cols=1)
+            languages.cell(0, 0).text = "Bulgarian"
+            languages.cell(1, 0).text = (
+                "☀️ Програма “Суря крия” [град], [държава] ☀️\n"
+                "🗓: [дата и час]\n"
+                "Цитат на български. – Садгуру\n"
+                "Тяло на български.\n"
+                "Ползи:\n"
+                "✅ Яснота\n"
+                "Вижте какво казва Садгуру: Заглавие"
+            )
+            document.save(path)
+            copies = parse_hatha_template_docx(path)
+            self.assertIn(EVENT_TYPE_SURYA_KRIYA, copies)
+            self.assertEqual(copies[EVENT_TYPE_SURYA_KRIYA].program_name, "Суря крия")
+            self.assertEqual(copies[EVENT_TYPE_SURYA_KRIYA].quote, "Цитат на български. – Садгуру")
+            self.assertEqual(copies[EVENT_TYPE_SURYA_KRIYA].body, "Тяло на български.")
+            self.assertEqual(
+                copies[EVENT_TYPE_SURYA_KRIYA].learn_more_url,
+                "https://youtu.be/Lh0ZucHjp14",
+            )
+
+    def test_parse_hatha_template_docx_uses_bulgarian_hyperlink(self) -> None:
+        from docx import Document
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "template.docx"
+            document = Document()
+            english = document.add_table(rows=1, cols=1)
+            english.cell(0, 0).text = (
+                "☀️ Surya Kriya Programme in [city], [country] ☀️\n"
+                "🗓: [date, month, and time]\n"
+                "Benefits:\n"
+                "✅ Focus\n"
+                "Watch Sadhguru: https://youtu.be/Lh0ZucHjp14"
+            )
+            languages = document.add_table(rows=2, cols=1)
+            languages.cell(0, 0).text = "Bulgarian"
+            bg = languages.cell(1, 0)
+            bg.text = (
+                "☀️ Програма “Суря крия” [град], [държава] ☀️\n"
+                "🗓: [дата и час]\n"
+                "Цитат. – Садгуру\n"
+                "Тяло.\n"
+                "Ползи:\n"
+                "✅ Яснота\n"
+                "Вижте какво казва Садгуру: "
+            )
+            paragraph = bg.paragraphs[-1]
+            rid = paragraph.part.relate_to(
+                "https://youtu.be/QFd8S1EHvU8?si=tracking",
+                RT.HYPERLINK,
+                is_external=True,
+            )
+            hyperlink = OxmlElement("w:hyperlink")
+            hyperlink.set(qn("r:id"), rid)
+            run = OxmlElement("w:r")
+            text = OxmlElement("w:t")
+            text.text = "Суря крия - Запалете Слънцето във вас!"
+            run.append(text)
+            hyperlink.append(run)
+            paragraph._p.append(hyperlink)
+            document.save(path)
+            copies = parse_hatha_template_docx(path)
+            self.assertEqual(
+                copies[EVENT_TYPE_SURYA_KRIYA].learn_more_url,
+                "https://youtu.be/QFd8S1EHvU8",
+            )
+
+    def test_prefers_bulgarian_youtube_url(self) -> None:
+        copy = parse_program_copy(
+            event_type=EVENT_TYPE_SURYA_KRIYA,
+            english_lines=[
+                "☀️ Surya Kriya Programme in [city], [country] ☀️",
+                "🗓: [date, month, and time]",
+                "Watch Sadhguru: https://youtu.be/Lh0ZucHjp14",
+                "Benefits:",
+                "✅ Focus",
+            ],
+            bulgarian_lines=[
+                "☀️ Програма “Суря крия” в [град], [държава] ☀️",
+                "🗓: [дата и час]",
+                "Цитат. – Садгуру",
+                "Тяло.",
+                "Ползи:",
+                "✅ Яснота",
+                "Вижте какво казва Садгуру: Заглавие",
+            ],
+            youtube_url="https://youtu.be/QFd8S1EHvU8?si=tracking",
+        )
+        self.assertEqual(copy.learn_more_url, "https://youtu.be/QFd8S1EHvU8")
 
 
 class EventPageTests(unittest.TestCase):

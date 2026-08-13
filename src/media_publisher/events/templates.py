@@ -14,10 +14,10 @@ EVENT_IMAGES_DRIVE_FOLDER_URL = (
     f"https://drive.google.com/drive/folders/{EVENT_IMAGES_DRIVE_FOLDER_ID}"
 )
 
-SURYA_KRIYA_LEARN_MORE_URL = "https://youtu.be/Lh0ZucHjp14"
+SURYA_KRIYA_LEARN_MORE_URL = "https://youtu.be/QFd8S1EHvU8"
 SURYA_KRIYA_LEARN_MORE_LABEL = "Суря крия - Запалете Слънцето във вас! | Садгуру"
 SURYA_KRIYA_QUOTE = (
-    "„Суря крия е мощен процес за активиране на слънчевата сила във вас.“ – Садгуру"
+    "„Суря крия е мощен процес за активиране на слънчевата енергия във вас.“ – Садгуру"
 )
 SURYA_KRIYA_BODY = (
     "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. "
@@ -32,13 +32,12 @@ SURYA_KRIYA_BENEFITS = (
     "Балансирани хормонални нива",
 )
 
-BHUTA_SHUDDHI_LEARN_MORE_URL = "https://youtu.be/jzSX_uBstSA"
+BHUTA_SHUDDHI_LEARN_MORE_URL = "https://youtu.be/bWsQ1Yz9VDM"
 BHUTA_SHUDDHI_LEARN_MORE_LABEL = (
     "Бута Шудди - Основното Пречистване | Садгуру на Български"
 )
-# Bulgarian Doc leaves "~ Цитат от Садгуру ~"; use the English template quote in BG.
 BHUTA_SHUDDHI_QUOTE = (
-    "„Бута Шудди е за премахването на всичко, което сте натрупали, "
+    "„Бута Шудди цели премахването на всичко, което сте натрупали, "
     "за да може творението на Твореца да се издигне и да засияе във вас.“ – Садгуру"
 )
 BHUTA_SHUDDHI_BODY = (
@@ -150,8 +149,9 @@ def render_event(
     event_date: date,
     event_time: time,
     registration_link: str,
+    program: ProgramTemplate | None = None,
 ) -> RenderedEvent:
-    program = get_program(event_type)
+    program = program or get_program(event_type)
 
     city_text = city.strip()
     country_text = country.strip()
@@ -184,23 +184,27 @@ def render_event(
         title_line2,
         "",
         f"🗓: {datetime_display}",
-        "",
-        program.quote,
-        "",
-        program.body,
-        "",
-        "Ползи:",
-        "",
-        *benefit_lines,
-        "",
-        f"{program.learn_more_intro} {program.learn_more_label}",
-        program.learn_more_url,
-        "",
-        f"👉 Регистрация тук: {link}",
-        "",
-        "💫 С любов, светлина и смях,",
-        "Доброволци от Иша",
     ]
+    if program.quote:
+        body_lines.extend(["", program.quote])
+    if program.body:
+        body_lines.extend(["", program.body])
+    body_lines.extend(
+        [
+            "",
+            "Ползи:",
+            "",
+            *benefit_lines,
+            "",
+            f"{program.learn_more_intro} {program.learn_more_label}",
+            program.learn_more_url,
+            "",
+            f"👉 Регистрация тук: {link}",
+            "",
+            "💫 С любов, светлина и смях,",
+            "Доброволци от Иша",
+        ]
+    )
     full_text = "\n".join(body_lines)
 
     # Facebook caption: one-line title; learn-more line is URL-only.
@@ -208,22 +212,26 @@ def render_event(
         title_one_line,
         "",
         f"🗓: {datetime_display}",
-        "",
-        program.quote,
-        "",
-        program.body,
-        "",
-        "Ползи:",
-        "",
-        *benefit_lines,
-        "",
-        f"{program.learn_more_intro} {program.learn_more_url}",
-        "",
-        f"👉 Регистрация тук: {link}",
-        "",
-        "💫 С любов, светлина и смях,",
-        "Доброволци от Иша",
     ]
+    if program.quote:
+        facebook_post_lines.extend(["", program.quote])
+    if program.body:
+        facebook_post_lines.extend(["", program.body])
+    facebook_post_lines.extend(
+        [
+            "",
+            "Ползи:",
+            "",
+            *benefit_lines,
+            "",
+            f"{program.learn_more_intro} {program.learn_more_url}",
+            "",
+            f"👉 Регистрация тук: {link}",
+            "",
+            "💫 С любов, светлина и смях,",
+            "Доброволци от Иша",
+        ]
+    )
     facebook_post_text = "\n".join(facebook_post_lines)
 
     html_body = _html_section(
@@ -282,12 +290,16 @@ def _html_section(
     benefit_items = "\n".join(
         f"<li>{_html_escape(benefit)}</li>" for benefit in benefits
     )
-    return "\n".join(
+    parts = [
+        f"<h2>{_html_escape(title_line1)}<br>{_html_escape(title_line2)}</h2>",
+        f'<p class="when">🗓 {_html_escape(datetime_display)}</p>',
+    ]
+    if quote:
+        parts.append(f'<p class="quote">{_html_escape(quote)}</p>')
+    if body:
+        parts.append(f"<p>{_html_escape(body)}</p>")
+    parts.extend(
         [
-            f"<h2>{_html_escape(title_line1)}<br>{_html_escape(title_line2)}</h2>",
-            f'<p class="when">🗓 {_html_escape(datetime_display)}</p>',
-            f'<p class="quote">{_html_escape(quote)}</p>',
-            f"<p>{_html_escape(body)}</p>",
             "<p><strong>Ползи:</strong></p>",
             "<ul>",
             benefit_items,
@@ -306,3 +318,4 @@ def _html_section(
             "<p>💫 С любов, светлина и смях,<br>Доброволци от Иша</p>",
         ]
     )
+    return "\n".join(parts)

@@ -286,7 +286,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="surya_kriya",
         help=(
             "Event type for --publish-event "
-            "(surya_kriya or bhuta_shuddhi; default: surya_kriya)."
+            "('Surya Kriya' / surya_kriya or 'Bhuta Shuddhi' / bhuta_shuddhi; "
+            "default: surya_kriya)."
         ),
     )
     parser.add_argument(
@@ -748,22 +749,35 @@ def run_publish_event(settings, args) -> int:
     meta_client = None
     page_id = None
     drive_client = None
+    service_account = PROJECT_ROOT / settings.google_sheets_service_account
+    if not service_account.is_file():
+        if args.dry_run:
+            print(
+                "Warning: Google service account credentials missing "
+                f"({service_account}); using built-in event copy."
+            )
+        else:
+            print(
+                "Missing Google service account credentials "
+                f"({service_account}). Needed to load the event description "
+                "and Facebook image from Drive."
+            )
+            return 1
+    else:
+        try:
+            drive_client = GoogleDriveClient.from_service_account(service_account)
+        except GoogleDriveError as exc:
+            print(f"Event publish setup failed: {exc}")
+            return 1
+
     if not args.dry_run and not args.skip_facebook:
         if not settings.meta_access_token:
             print("Missing required settings: META_ACCESS_TOKEN")
             return 1
-        service_account = PROJECT_ROOT / settings.google_sheets_service_account
-        if not service_account.is_file():
-            print(
-                "Missing Google service account credentials "
-                f"({service_account}). Needed to download event images from Drive."
-            )
-            return 1
         try:
             page_id, page_info = resolve_facebook_page_id(settings)
             meta_client = meta_client_from_settings(settings)
-            drive_client = GoogleDriveClient.from_service_account(service_account)
-        except (MetaError, GoogleDriveError) as exc:
+        except MetaError as exc:
             print(f"Event publish setup failed: {exc}")
             return 1
         print(f"Facebook page: {page_info.name} ({page_id})")
