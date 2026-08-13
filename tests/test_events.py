@@ -210,6 +210,9 @@ class EventPageTests(unittest.TestCase):
             self.assertIn("Merriweather", html)
             self.assertIn("coming-soon", html)
             self.assertIn("is-empty", html)
+            self.assertIn('class="profile"', html)
+            self.assertIn("assets/sadhguru.png", html)
+            self.assertIn("<h1>Събития</h1>", html)
 
     def test_prune_past_events(self) -> None:
         past = render_event(

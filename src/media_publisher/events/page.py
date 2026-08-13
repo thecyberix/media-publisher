@@ -225,15 +225,15 @@ def rebuild_index(events_root: Path, events: list[dict[str, Any]] | None = None)
     if sections:
         body_class = ""
         main_html = "\n".join(sections)
-        chrome = _LIST_CHROME.format(
-            events=main_html,
-            profile_src=_html_escape(PROFILE_IMAGE_SRC),
-        )
     else:
         body_class = ' class="is-empty"'
-        chrome = (
-            f'<p class="coming-soon">{_html_escape(EMPTY_STATE_TEXT)}</p>'
+        main_html = (
+            f'    <p class="coming-soon">{_html_escape(EMPTY_STATE_TEXT)}</p>'
         )
+    chrome = _LIST_CHROME.format(
+        events=main_html,
+        profile_src=_html_escape(PROFILE_IMAGE_SRC),
+    )
 
     html = _INDEX_TEMPLATE.format(
         background=SMARTLINK_BACKGROUND,
@@ -312,9 +312,15 @@ _INDEX_TEMPLATE = """\
     }}
     body.is-empty {{
       min-height: 100%;
+      display: flex;
+      flex-direction: column;
+    }}
+    body.is-empty main {{
+      flex: 1;
       display: grid;
       place-items: center;
-      padding: 1.5rem;
+      padding: 1.5rem 1.25rem 3rem;
+      text-align: center;
     }}
     .coming-soon {{
       margin: 0;

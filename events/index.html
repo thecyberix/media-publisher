@@ -31,9 +31,15 @@
     }
     body.is-empty {
       min-height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    body.is-empty main {
+      flex: 1;
       display: grid;
       place-items: center;
-      padding: 1.5rem;
+      padding: 1.5rem 1.25rem 3rem;
+      text-align: center;
     }
     .coming-soon {
       margin: 0;
@@ -147,6 +153,12 @@
   </style>
 </head>
 <body class="is-empty">
-<p class="coming-soon">Очаквайте скоро!</p>
+  <header>
+    <img class="profile" src="assets/sadhguru.png" alt="Садгуру" width="128" height="128">
+    <h1>Събития</h1>
+  </header>
+  <main>
+    <p class="coming-soon">Очаквайте скоро!</p>
+  </main>
 </body>
 </html>
