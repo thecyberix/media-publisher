@@ -368,11 +368,13 @@ _INDEX_TEMPLATE = """\
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
-      align-items: flex-start;
+      align-items: stretch;
       gap: 2rem 1.5rem;
       text-align: left;
     }}
     .event {{
+      display: flex;
+      flex-direction: column;
       flex: 0 1 22rem;
       width: min(100%, 22rem);
       padding: 1.25rem 1rem 0;
@@ -385,12 +387,23 @@ _INDEX_TEMPLATE = """\
       text-align: center;
     }}
     .when {{
+      margin: 0 0 0.75rem;
       color: var(--muted);
       font-weight: 700;
       text-align: center;
     }}
     .quote {{
+      margin: 0 0 0.75rem;
       font-style: italic;
+    }}
+    .description {{
+      margin: 0 0 0.75rem;
+    }}
+    .benefits-block {{
+      margin: 0;
+    }}
+    .benefits-block > p {{
+      margin: 0 0 0.5rem;
     }}
     .learn-more {{
       margin: 1rem 0;
@@ -421,7 +434,9 @@ _INDEX_TEMPLATE = """\
     }}
     .cta {{
       text-align: center;
-      margin: 1.25rem 0;
+      margin-top: auto;
+      padding-top: 1.25rem;
+      margin-bottom: 0.5rem;
     }}
     .cta a {{
       display: inline-block;
@@ -437,10 +452,14 @@ _INDEX_TEMPLATE = """\
     .cta a:hover {{
       filter: brightness(1.05);
     }}
+    .closing {{
+      margin: 0 0 1rem;
+    }}
     a {{ color: var(--link); }}
     ul.benefits {{
       list-style: none;
       padding-left: 0;
+      margin: 0;
       text-align: left;
     }}
     ul.benefits li {{

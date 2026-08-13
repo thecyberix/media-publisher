@@ -328,20 +328,19 @@ def _html_section(
     benefit_items = "\n".join(
         f"<li>{mark}{_html_escape(benefit)}</li>" for benefit in benefits
     )
-    parts = [
-        f"<h2>{_html_escape(title_line1)}<br>{_html_escape(title_line2)}</h2>",
-        f'<p class="when">🗓 {_html_escape(datetime_display)}</p>',
-    ]
-    if quote:
-        parts.append(f'<p class="quote">{_html_escape(quote)}</p>')
-    if body:
-        parts.append(f"<p>{_html_escape(body)}</p>")
-    parts.extend(
+    # Fixed section order (one DOM node per aligned subgrid row).
+    return "\n".join(
         [
+            f"<h2>{_html_escape(title_line1)}<br>{_html_escape(title_line2)}</h2>",
+            f'<p class="when">🗓 {_html_escape(datetime_display)}</p>',
+            f'<p class="quote">{_html_escape(quote)}</p>',
+            f'<p class="description">{_html_escape(body)}</p>',
+            '<div class="benefits-block">',
             "<p><strong>Ползи:</strong></p>",
             '<ul class="benefits">',
             benefit_items,
             "</ul>",
+            "</div>",
             f'<p class="learn-more">{_html_escape(learn_more_intro)}<br>'
             f'<a class="yt-link" href="{_html_escape(learn_more_url)}" '
             'target="_blank" rel="noopener noreferrer">'
@@ -353,7 +352,6 @@ def _html_section(
             "</a></p>",
             '<p class="cta">'
             f'<a href="{_html_escape(registration_link)}">Регистрация</a></p>',
-            "<p>💫 С любов, светлина и смях,<br>Доброволци</p>",
+            '<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>',
         ]
     )
-    return "\n".join(parts)

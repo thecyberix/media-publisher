@@ -75,11 +75,13 @@
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
-      align-items: flex-start;
+      align-items: stretch;
       gap: 2rem 1.5rem;
       text-align: left;
     }
     .event {
+      display: flex;
+      flex-direction: column;
       flex: 0 1 22rem;
       width: min(100%, 22rem);
       padding: 1.25rem 1rem 0;
@@ -92,12 +94,23 @@
       text-align: center;
     }
     .when {
+      margin: 0 0 0.75rem;
       color: var(--muted);
       font-weight: 700;
       text-align: center;
     }
     .quote {
+      margin: 0 0 0.75rem;
       font-style: italic;
+    }
+    .description {
+      margin: 0 0 0.75rem;
+    }
+    .benefits-block {
+      margin: 0;
+    }
+    .benefits-block > p {
+      margin: 0 0 0.5rem;
     }
     .learn-more {
       margin: 1rem 0;
@@ -128,7 +141,9 @@
     }
     .cta {
       text-align: center;
-      margin: 1.25rem 0;
+      margin-top: auto;
+      padding-top: 1.25rem;
+      margin-bottom: 0.5rem;
     }
     .cta a {
       display: inline-block;
@@ -144,10 +159,14 @@
     .cta a:hover {
       filter: brightness(1.05);
     }
+    .closing {
+      margin: 0 0 1rem;
+    }
     a { color: var(--link); }
     ul.benefits {
       list-style: none;
       padding-left: 0;
+      margin: 0;
       text-align: left;
     }
     ul.benefits li {
@@ -165,7 +184,8 @@
 <h2>☀️ Програма &quot;Суря крия&quot; ☀️<br>в София, България</h2>
 <p class="when">🗓 12 септември 2026 г., 08:00</p>
 <p class="quote">„Суря крия е мощен процес за активиране на слънчевата енергия във вас.“ – Садгуру</p>
-<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<p class="description">„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<div class="benefits-block">
 <p><strong>Ползи:</strong></p>
 <ul class="benefits">
 <li>✅ Умствена яснота и фокус</li>
@@ -174,30 +194,34 @@
 <li>✅ Повишена енергия и жизненост</li>
 <li>✅ Балансирани хормонални нива</li>
 </ul>
+</div>
 <p class="learn-more">Вижте какво казва Садгуру:<br><a class="yt-link" href="https://youtu.be/QFd8S1EHvU8" target="_blank" rel="noopener noreferrer"><svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#FF0000" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"/><path fill="#fff" d="M9.75 15.5v-7L16 12z"/></svg><span class="yt-title">Суря крия - Запалете Слънцето във вас! | Садгуру</span></a></p>
 <p class="cta"><a href="https://forms.gle/8DHoL41hwk5N84cJ7">Регистрация</a></p>
-<p>💫 С любов, светлина и смях,<br>Доброволци</p>
+<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>
 </article>
 <article class="event" id="event-d39aa2776a46ba2a">
 <h2>💫 Програма &quot;Бута Шудди&quot; 💫<br>в София, България</h2>
 <p class="when">🗓 12 септември 2026 г., 11:30</p>
 <p class="quote">„Бута Шудди цели премахването на всичко, което сте натрупали, за да може творението на Твореца да се издигне и да засияе във вас.“ – Садгуру</p>
-<p>Бута Шудди е йога система, фокусирана върху пречистването на петте елемента (бути), които съставляват нашето тяло: земя, вода, въздух, огън и пространство.</p>
+<p class="description">Бута Шудди е йога система, фокусирана върху пречистването на петте елемента (бути), които съставляват нашето тяло: земя, вода, въздух, огън и пространство.</p>
+<div class="benefits-block">
 <p><strong>Ползи:</strong></p>
 <ul class="benefits">
 <li>🎯 Хармония и баланс между тялото и ума</li>
 <li>🎯 Увеличен капацитет на цялата ви система</li>
 <li>🎯 Пречистване на петте елемента във вас</li>
 </ul>
+</div>
 <p class="learn-more">Вижте видеото:<br><a class="yt-link" href="https://youtu.be/bWsQ1Yz9VDM" target="_blank" rel="noopener noreferrer"><svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#FF0000" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"/><path fill="#fff" d="M9.75 15.5v-7L16 12z"/></svg><span class="yt-title">Бута Шудди - Основното Пречистване | Садгуру на Български</span></a></p>
 <p class="cta"><a href="https://forms.gle/kB4T8SD2TbTEfgNw6">Регистрация</a></p>
-<p>💫 С любов, светлина и смях,<br>Доброволци</p>
+<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>
 </article>
 <article class="event" id="event-e0beb2faae7ba177">
 <h2>☀️ Програма &quot;Суря крия&quot; ☀️<br>в Пловдив, България</h2>
 <p class="when">🗓 19 септември 2026 г., 09:00</p>
 <p class="quote">„Суря крия е мощен процес за активиране на слънчевата енергия във вас.“ – Садгуру</p>
-<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<p class="description">„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<div class="benefits-block">
 <p><strong>Ползи:</strong></p>
 <ul class="benefits">
 <li>✅ Умствена яснота и фокус</li>
@@ -206,15 +230,17 @@
 <li>✅ Повишена енергия и жизненост</li>
 <li>✅ Балансирани хормонални нива</li>
 </ul>
+</div>
 <p class="learn-more">Вижте какво казва Садгуру:<br><a class="yt-link" href="https://youtu.be/QFd8S1EHvU8" target="_blank" rel="noopener noreferrer"><svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#FF0000" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"/><path fill="#fff" d="M9.75 15.5v-7L16 12z"/></svg><span class="yt-title">Суря крия - Запалете Слънцето във вас! | Садгуру</span></a></p>
 <p class="cta"><a href="https://sadanandayoga.com/events/suryakriya#registration">Регистрация</a></p>
-<p>💫 С любов, светлина и смях,<br>Доброволци</p>
+<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>
 </article>
 <article class="event" id="event-f5cd7a426c3ca87f">
 <h2>🧘‍♀️ Програма &quot;Йогасани&quot; 🧘‍♀️<br>в Пловдив, България</h2>
 <p class="when">🗓 26 септември 2026 г., 09:00</p>
 <p class="quote">„Ако сте в една асана осъзнато, тя може да промени начина, по който мислите, чувствате и преживявате живота. Това може да постигне Хата йога.“ – Садгуру</p>
-<p>Йогасаните са мощна поредица от 21 пози, или асани, структурирани така, че да способстват за това вашето тяло да поддържа високи енергийни нива. Не се изисква предишен опит в йога или гъвкавост.</p>
+<p class="description">Йогасаните са мощна поредица от 21 пози, или асани, структурирани така, че да способстват за това вашето тяло да поддържа високи енергийни нива. Не се изисква предишен опит в йога или гъвкавост.</p>
+<div class="benefits-block">
 <p><strong>Ползи:</strong></p>
 <ul class="benefits">
 <li>✅ Облекчаване на хронични здравословни проблеми</li>
@@ -222,15 +248,17 @@
 <li>✅ Стабилизиране на тялото, ума и енергийната система</li>
 <li>✅ Забавяне на процеса на стареене</li>
 </ul>
+</div>
 <p class="learn-more">Научете повече тук:<br><a class="yt-link" href="https://youtu.be/H_3dIi6H84M" target="_blank" rel="noopener noreferrer"><svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#FF0000" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"/><path fill="#fff" d="M9.75 15.5v-7L16 12z"/></svg><span class="yt-title">Йогасани - пози за издигане на съзнанието   Садгуру</span></a></p>
 <p class="cta"><a href="https://sadanandayoga.com/events/yogasanas#registration">Регистрация</a></p>
-<p>💫 С любов, светлина и смях,<br>Доброволци</p>
+<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>
 </article>
 <article class="event" id="event-7e41e6452974fb04">
 <h2>☀️ Програма &quot;Суря крия&quot; ☀️<br>в София, България</h2>
 <p class="when">🗓 3 октомври 2026 г., 09:00</p>
 <p class="quote">„Суря крия е мощен процес за активиране на слънчевата енергия във вас.“ – Садгуру</p>
-<p>„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<p class="description">„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. Суря крия активира слънчевия сплит, което води до повишаване на „самат прана“, или слънчевата топлина, в системата.</p>
+<div class="benefits-block">
 <p><strong>Ползи:</strong></p>
 <ul class="benefits">
 <li>✅ Умствена яснота и фокус</li>
@@ -239,15 +267,17 @@
 <li>✅ Повишена енергия и жизненост</li>
 <li>✅ Балансирани хормонални нива</li>
 </ul>
+</div>
 <p class="learn-more">Вижте какво казва Садгуру:<br><a class="yt-link" href="https://youtu.be/QFd8S1EHvU8" target="_blank" rel="noopener noreferrer"><svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#FF0000" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"/><path fill="#fff" d="M9.75 15.5v-7L16 12z"/></svg><span class="yt-title">Суря крия - Запалете Слънцето във вас! | Садгуру</span></a></p>
 <p class="cta"><a href="https://sadanandayoga.com/events/suryakriya#registration">Регистрация</a></p>
-<p>💫 С любов, светлина и смях,<br>Доброволци</p>
+<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>
 </article>
 <article class="event" id="event-a80ed63aeaf51b96">
 <h2>🧘‍♀️ Програма &quot;Йогасани&quot; 🧘‍♀️<br>в София, България</h2>
 <p class="when">🗓 10 октомври 2026 г., 09:00</p>
 <p class="quote">„Ако сте в една асана осъзнато, тя може да промени начина, по който мислите, чувствате и преживявате живота. Това може да постигне Хата йога.“ – Садгуру</p>
-<p>Йогасаните са мощна поредица от 21 пози, или асани, структурирани така, че да способстват за това вашето тяло да поддържа високи енергийни нива. Не се изисква предишен опит в йога или гъвкавост.</p>
+<p class="description">Йогасаните са мощна поредица от 21 пози, или асани, структурирани така, че да способстват за това вашето тяло да поддържа високи енергийни нива. Не се изисква предишен опит в йога или гъвкавост.</p>
+<div class="benefits-block">
 <p><strong>Ползи:</strong></p>
 <ul class="benefits">
 <li>✅ Облекчаване на хронични здравословни проблеми</li>
@@ -255,9 +285,10 @@
 <li>✅ Стабилизиране на тялото, ума и енергийната система</li>
 <li>✅ Забавяне на процеса на стареене</li>
 </ul>
+</div>
 <p class="learn-more">Научете повече тук:<br><a class="yt-link" href="https://youtu.be/H_3dIi6H84M" target="_blank" rel="noopener noreferrer"><svg class="yt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="#FF0000" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"/><path fill="#fff" d="M9.75 15.5v-7L16 12z"/></svg><span class="yt-title">Йогасани - пози за издигане на съзнанието   Садгуру</span></a></p>
 <p class="cta"><a href="https://sadanandayoga.com/events/yogasanas#registration">Регистрация</a></p>
-<p>💫 С любов, светлина и смях,<br>Доброволци</p>
+<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>
 </article>
   </main>
 </body>
