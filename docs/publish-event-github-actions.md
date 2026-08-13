@@ -17,6 +17,7 @@ Manual workflow that announces a Bulgarian **Surya Kriya** or **Bhuta Shuddhi** 
 | `date` | yes | `YYYY-MM-DD` |
 | `time` | yes | `HH:MM` |
 | `registration_link` | yes | Full URL |
+| `image_id` | no | Drive file id from the programme subfolder; blank rotates images |
 | `dry_run` | no | Preview only |
 | `skip_facebook` | no | Page update only |
 
@@ -30,7 +31,12 @@ Same Meta secrets as the publish pipeline:
 - `META_PAGE_ID` (optional if username resolution works)
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — downloads Facebook event images from the shared Drive folder
 
-Facebook images are loaded from [this Drive folder](https://drive.google.com/drive/folders/1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6) (`surya-kriya-fb.jpg`, `bhuta-shuddhi-fb.jpg`).
+Facebook images live under [this Drive folder](https://drive.google.com/drive/folders/1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6):
+
+- `Surya Kriya/` — images for `surya_kriya`
+- `Bhuta Shuddhi/` — images for `bhuta_shuddhi`
+
+When `image_id` is omitted, the workflow picks the next unused image in that subfolder (by filename), then wraps around after all images have been used. Explicit `image_id` choices count as used for later defaults. Usage history is stored in [`events/data/facebook-image-rotation.json`](../events/data/facebook-image-rotation.json) and each event also records `facebook_image_id`.
 
 ## Permissions check
 
@@ -54,7 +60,7 @@ Events are removed when their start datetime (Europe/Sofia) is in the past:
 - on every `--publish-event` / **Publish event** run
 - manually: `python -m media_publisher --prune-past-events`
 
-When no upcoming events remain, the page shows a centered **Очаквайте скоро!** on the Smartlink cream background.
+When no upcoming events remain, the page shows the Sadhguru portrait header and **Очаквайте скоро!** on the Smartlink cream background.
 
 ## Local dry run
 

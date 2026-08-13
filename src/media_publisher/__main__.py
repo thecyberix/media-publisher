@@ -315,6 +315,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Registration URL for --publish-event.",
     )
     parser.add_argument(
+        "--image-id",
+        default="",
+        help=(
+            "Optional Google Drive file id for the Facebook event image. "
+            "Must be an image inside the programme subfolder. "
+            "When omitted, images rotate through the folder."
+        ),
+    )
+    parser.add_argument(
         "--events-root",
         default="",
         help="Optional path to the events/ site root (default: <repo>/events).",
@@ -773,6 +782,7 @@ def run_publish_event(settings, args) -> int:
             meta_client=meta_client,
             page_id=page_id,
             drive_client=drive_client,
+            image_id=(args.image_id.strip() or None),
         )
     except EventPublishError as exc:
         print(f"Publish event failed: {exc}")
@@ -800,6 +810,10 @@ def run_publish_event(settings, args) -> int:
         print(f"Facebook post id: {result.facebook_post_id}")
     if result.facebook_permalink:
         print(f"Facebook permalink: {result.facebook_permalink}")
+    if result.facebook_image_id:
+        mode = result.facebook_image_selection or "unknown"
+        name = result.facebook_image_name or "?"
+        print(f"Facebook image ({mode}): {name} ({result.facebook_image_id})")
     elif args.skip_facebook:
         print("Skipped Facebook publish (--skip-facebook).")
     return 0

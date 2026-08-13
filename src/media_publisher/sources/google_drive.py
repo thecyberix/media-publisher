@@ -350,6 +350,40 @@ class GoogleDriveClient:
             ),
         )
 
+    def get_file(self, file_id: str) -> DriveFile:
+        try:
+            metadata = self._execute(
+                self._drive.files().get(
+                    fileId=file_id,
+                    fields="id,name,mimeType,md5Checksum,modifiedTime",
+                    supportsAllDrives=True,
+                )
+            )
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to read Drive file {file_id}: {exc}"
+            ) from exc
+        if not isinstance(metadata, dict):
+            raise GoogleDriveError(f"Drive file {file_id} returned an invalid response")
+        file_id_value = metadata.get("id")
+        name = metadata.get("name")
+        mime_type = metadata.get("mimeType")
+        if not (
+            isinstance(file_id_value, str)
+            and isinstance(name, str)
+            and isinstance(mime_type, str)
+        ):
+            raise GoogleDriveError(f"Drive file {file_id} is missing required metadata")
+        md5 = metadata.get("md5Checksum")
+        modified = metadata.get("modifiedTime")
+        return DriveFile(
+            id=file_id_value,
+            name=name,
+            mime_type=mime_type,
+            md5_checksum=md5 if isinstance(md5, str) else None,
+            modified_time=modified if isinstance(modified, str) else None,
+        )
+
     def download_file(self, file_id: str, destination: Path) -> Path:
         from googleapiclient.http import MediaIoBaseDownload
         import io

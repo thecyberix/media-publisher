@@ -40,6 +40,8 @@ class StoredEvent:
     created_at: str
     facebook_post_id: str | None = None
     facebook_permalink: str | None = None
+    facebook_image_id: str | None = None
+    facebook_image_name: str | None = None
 
 
 def event_dedupe_key(rendered: RenderedEvent) -> str:
@@ -110,6 +112,12 @@ def stored_event_from_dict(item: dict[str, Any]) -> StoredEvent:
         facebook_permalink=(
             str(item["facebook_permalink"]) if item.get("facebook_permalink") else None
         ),
+        facebook_image_id=(
+            str(item["facebook_image_id"]) if item.get("facebook_image_id") else None
+        ),
+        facebook_image_name=(
+            str(item["facebook_image_name"]) if item.get("facebook_image_name") else None
+        ),
     )
 
 
@@ -167,6 +175,8 @@ def append_event(
     *,
     facebook_post_id: str | None = None,
     facebook_permalink: str | None = None,
+    facebook_image_id: str | None = None,
+    facebook_image_name: str | None = None,
     created_at: datetime | None = None,
     now: datetime | None = None,
 ) -> tuple[StoredEvent, bool]:
@@ -202,6 +212,8 @@ def append_event(
         created_at=stamp.astimezone(timezone.utc).isoformat(timespec="seconds"),
         facebook_post_id=facebook_post_id,
         facebook_permalink=facebook_permalink,
+        facebook_image_id=facebook_image_id,
+        facebook_image_name=facebook_image_name,
     )
     existing.append(asdict(stored))
     existing.sort(key=lambda item: str(item.get("datetime_iso") or ""), reverse=True)

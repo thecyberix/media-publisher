@@ -23,7 +23,11 @@ from media_publisher.events.page import (
     prune_past_events,
     rebuild_index,
 )
-from media_publisher.events.facebook_event import resolve_facebook_image_from_drive
+from media_publisher.events.facebook_event import (
+    choose_facebook_image,
+    load_image_rotation_state,
+    resolve_facebook_image_from_drive,
+)
 from media_publisher.events.publish import (
     REQUIRED_EVENT_META_SCOPES,
     check_event_meta_scopes,
@@ -39,7 +43,6 @@ from media_publisher.events.templates import (
     render_event,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
-from media_publisher.sources.google_drive import DriveFile
 from media_publisher.sources.google_drive import DriveFile
 
 
@@ -125,7 +128,7 @@ class EventTemplateTests(unittest.TestCase):
             rendered.facebook_post_text,
         )
         self.assertIn("Регистрация", rendered.html_body)
-        self.assertEqual(rendered.facebook_image_name, "bhuta-shuddhi-fb.jpg")
+        self.assertEqual(rendered.facebook_image_folder, "Bhuta Shuddhi")
 
     def test_city_preposition_vv_before_v(self) -> None:
         self.assertEqual(city_preposition("София"), "в")
@@ -322,15 +325,144 @@ class EventPublishTests(unittest.TestCase):
 
 
 class EventFacebookImageTests(unittest.TestCase):
-    def test_resolve_facebook_image_from_drive(self) -> None:
-        drive = MagicMock()
-        drive.find_child_by_name.return_value = DriveFile(
-            id="file123",
-            name="surya-kriya-fb.jpg",
-            mime_type="image/jpeg",
-        )
+    def _surya_images(self) -> list[DriveFile]:
+        return [
+            DriveFile(id="img1", name="1.jpg", mime_type="image/jpeg"),
+            DriveFile(id="img2", name="2.jpg", mime_type="image/jpeg"),
+            DriveFile(id="img3", name="3.jpg", mime_type="image/jpeg"),
+        ]
 
-        def _download(_file_id: str, destination: Path) -> Path:
+    def _drive_with_images(self, images: list[DriveFile] | None = None) -> MagicMock:
+        images = images if images is not None else self._surya_images()
+        drive = MagicMock()
+        drive.find_child_folder.return_value = DriveFile(
+            id="folder-surya",
+            name="Surya Kriya",
+            mime_type="application/vnd.google-apps.folder",
+        )
+        drive.list_children.return_value = images
+        return drive
+
+    def test_rotation_cycles_through_images(self) -> None:
+        drive = self._drive_with_images()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first, mode1 = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            second, mode2 = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            third, _ = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            fourth, _ = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            self.assertEqual(mode1, "rotation")
+            self.assertEqual(mode2, "rotation")
+            self.assertEqual([first.id, second.id, third.id], ["img1", "img2", "img3"])
+            self.assertEqual(fourth.id, "img1")
+            state = load_image_rotation_state(root)
+            self.assertEqual(
+                state[EVENT_TYPE_SURYA_KRIYA],
+                ["img1", "img2", "img3", "img1"],
+            )
+
+    def test_explicit_selection_is_skipped_by_later_defaults(self) -> None:
+        drive = self._drive_with_images()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected, mode = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+                image_id="img3",
+            )
+            self.assertEqual(mode, "explicit")
+            self.assertEqual(selected.id, "img3")
+
+            next_default, next_mode = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            self.assertEqual(next_mode, "rotation")
+            self.assertEqual(next_default.id, "img1")
+
+            after_user_gap, _ = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            self.assertEqual(after_user_gap.id, "img2")
+
+            # Cycle complete after img3 (user), img1, img2 — next wraps to img1.
+            wrapped, _ = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            self.assertEqual(wrapped.id, "img1")
+
+    def test_prior_event_image_ids_seed_rotation(self) -> None:
+        drive = self._drive_with_images()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            data_dir.mkdir(parents=True)
+            (data_dir / "events.json").write_text(
+                json.dumps(
+                    {
+                        "events": [
+                            {
+                                "event_type": EVENT_TYPE_SURYA_KRIYA,
+                                "facebook_image_id": "img2",
+                                "created_at": "2026-01-01T10:00:00+00:00",
+                            },
+                            {
+                                "event_type": EVENT_TYPE_SURYA_KRIYA,
+                                "facebook_image_id": "img1",
+                                "created_at": "2026-01-02T10:00:00+00:00",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            selected, mode = choose_facebook_image(
+                drive,
+                event_type=EVENT_TYPE_SURYA_KRIYA,
+                events_root=root,
+            )
+            self.assertEqual(mode, "rotation")
+            # img1 and img2 already used by prior events → default is img3.
+            self.assertEqual(selected.id, "img3")
+
+    def test_explicit_image_id_must_be_in_folder(self) -> None:
+        drive = self._drive_with_images()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(Exception, "not in the"):
+                choose_facebook_image(
+                    drive,
+                    event_type=EVENT_TYPE_SURYA_KRIYA,
+                    events_root=root,
+                    image_id="missing",
+                )
+
+    def test_resolve_facebook_image_from_drive(self) -> None:
+        drive = self._drive_with_images()
+
+        def _download(file_id: str, destination: Path) -> Path:
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(b"fake-image")
             return destination
@@ -338,14 +470,19 @@ class EventFacebookImageTests(unittest.TestCase):
         drive.download_file.side_effect = _download
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            path = resolve_facebook_image_from_drive(
+            events_root = root / "events"
+            events_root.mkdir()
+            selected = resolve_facebook_image_from_drive(
                 project_root=root,
+                events_root=events_root,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 drive_client=drive,
             )
-            self.assertTrue(path.is_file())
-            self.assertEqual(path.name, "surya-kriya-fb.jpg")
-            drive.find_child_by_name.assert_called_once()
+            self.assertTrue(selected.local_path.is_file())
+            self.assertEqual(selected.drive_file.id, "img1")
+            self.assertEqual(selected.selection, "rotation")
+            self.assertIn("img1", selected.local_path.name)
+            drive.find_child_folder.assert_called_once()
             drive.download_file.assert_called_once()
 
 

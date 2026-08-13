@@ -1,58 +1,274 @@
 from __future__ import annotations
 
+import json
+import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from media_publisher.events.page import load_events
 from media_publisher.events.templates import (
     EVENT_IMAGES_DRIVE_FOLDER_ID,
     EVENT_TYPE_SURYA_KRIYA,
     RenderedEvent,
     get_program,
+    normalize_event_type,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
-from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
+from media_publisher.sources.google_drive import (
+    FOLDER_MIME_TYPE,
+    DriveFile,
+    GoogleDriveClient,
+    GoogleDriveError,
+)
+
+IMAGE_ROTATION_RELATIVE = Path("data") / "facebook-image-rotation.json"
+_SAFE_FILENAME_RE = re.compile(r"[^\w.\-]+", re.UNICODE)
 
 
 class EventImageError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class SelectedEventImage:
+    drive_file: DriveFile
+    local_path: Path
+    selection: str  # "explicit" | "rotation"
+
+
 def event_image_cache_dir(project_root: Path) -> Path:
     return project_root / "downloads" / "event-images"
+
+
+def image_rotation_path(events_root: Path) -> Path:
+    return events_root / IMAGE_ROTATION_RELATIVE
+
+
+def load_image_rotation_state(events_root: Path) -> dict[str, list[str]]:
+    """Load append-only image usage history per event type."""
+    path = image_rotation_path(events_root)
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    state: dict[str, list[str]] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            continue
+        # Support both {"surya_kriya": ["id", ...]} and
+        # {"surya_kriya": {"history": ["id", ...]}}.
+        if isinstance(value, dict):
+            value = value.get("history")
+        if not isinstance(value, list):
+            continue
+        ids = [item for item in value if isinstance(item, str) and item.strip()]
+        state[key] = ids
+    return state
+
+
+def save_image_rotation_state(events_root: Path, state: dict[str, list[str]]) -> Path:
+    path = image_rotation_path(events_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return path
+
+
+def usage_history_from_events(
+    events: list[dict[str, Any]],
+    *,
+    event_type: str,
+) -> list[str]:
+    """Return facebook image ids used by prior events of this type (oldest first)."""
+    normalized = normalize_event_type(event_type)
+    rows: list[tuple[str, str]] = []
+    for item in events:
+        if normalize_event_type(str(item.get("event_type") or "")) != normalized:
+            continue
+        image_id = str(item.get("facebook_image_id") or "").strip()
+        if not image_id:
+            continue
+        created_at = str(item.get("created_at") or "")
+        rows.append((created_at, image_id))
+    rows.sort(key=lambda row: row[0])
+    return [image_id for _created, image_id in rows]
+
+
+def merge_usage_history(rotation_history: list[str], event_history: list[str]) -> list[str]:
+    """Prefer durable rotation history; seed from events when rotation is empty.
+
+    If events contain a longer continuation of the same sequence (rotation was not
+    saved for the latest publish), keep the longer event history.
+    """
+    if not rotation_history:
+        return list(event_history)
+    if not event_history:
+        return list(rotation_history)
+    if (
+        len(event_history) > len(rotation_history)
+        and event_history[: len(rotation_history)] == rotation_history
+    ):
+        return list(event_history)
+    return list(rotation_history)
+
+
+def used_ids_in_current_cycle(
+    history: list[str],
+    *,
+    image_ids: set[str],
+) -> list[str]:
+    """Replay usage history and return unused-cycle membership for the next pick.
+
+    Explicit and automatic selections both append to ``history``. Once every image
+    in ``image_ids`` has been used in the current cycle, the next pick starts a
+    fresh cycle.
+    """
+    if not image_ids:
+        return []
+    used: list[str] = []
+    for image_id in history:
+        if image_id not in image_ids:
+            continue
+        if image_ids <= set(used):
+            used = []
+        if image_id not in used:
+            used.append(image_id)
+    if image_ids <= set(used):
+        return []
+    return used
+
+
+def list_programme_images(
+    drive_client: GoogleDriveClient,
+    *,
+    event_type: str,
+    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+) -> list[DriveFile]:
+    program = get_program(event_type)
+    try:
+        subfolder = drive_client.find_child_folder(folder_id, program.facebook_image_folder)
+    except GoogleDriveError as exc:
+        raise EventImageError(
+            f"Failed to list programme folders under Drive root {folder_id}: {exc}"
+        ) from exc
+    if subfolder is None or subfolder.mime_type != FOLDER_MIME_TYPE:
+        raise EventImageError(
+            f"Programme image folder {program.facebook_image_folder!r} not found under "
+            f"Drive root {folder_id}"
+        )
+    try:
+        children = drive_client.list_children(subfolder.id)
+    except GoogleDriveError as exc:
+        raise EventImageError(
+            f"Failed to list images in {program.facebook_image_folder!r}: {exc}"
+        ) from exc
+    images = [item for item in children if item.mime_type.startswith("image/")]
+    images.sort(key=lambda item: (item.name.casefold(), item.id))
+    if not images:
+        raise EventImageError(
+            f"No images found in Drive folder {program.facebook_image_folder!r}"
+        )
+    return images
+
+
+def choose_facebook_image(
+    drive_client: GoogleDriveClient,
+    *,
+    event_type: str,
+    events_root: Path,
+    image_id: str | None = None,
+    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+    persist_rotation: bool = True,
+) -> tuple[DriveFile, str]:
+    """Pick a programme image by explicit Drive id or round-robin rotation.
+
+    Default selection skips every image already used in the current cycle, including
+    images previously chosen explicitly by the user. After all images have been used
+    once in the cycle, selection starts over.
+
+    Returns ``(drive_file, selection_mode)`` where selection_mode is
+    ``\"explicit\"`` or ``\"rotation\"``.
+    """
+    normalized = normalize_event_type(event_type)
+    images = list_programme_images(
+        drive_client,
+        event_type=normalized,
+        folder_id=folder_id,
+    )
+    by_id = {item.id: item for item in images}
+    image_ids = set(by_id)
+
+    state = load_image_rotation_state(events_root)
+    event_history = usage_history_from_events(load_events(events_root), event_type=normalized)
+    history = merge_usage_history(state.get(normalized, []), event_history)
+    used = used_ids_in_current_cycle(history, image_ids=image_ids)
+
+    requested = (image_id or "").strip()
+    if requested:
+        selected = by_id.get(requested)
+        if selected is None:
+            raise EventImageError(
+                f"Image id {requested!r} is not in the "
+                f"{get_program(normalized).facebook_image_folder!r} Drive folder"
+            )
+        selection = "explicit"
+    else:
+        available = [item for item in images if item.id not in set(used)]
+        if not available:
+            # Cycle complete (or empty used after wrap); start over by name order.
+            available = list(images)
+        selected = available[0]
+        selection = "rotation"
+
+    history.append(selected.id)
+    state[normalized] = history
+    if persist_rotation:
+        save_image_rotation_state(events_root, state)
+    return selected, selection
 
 
 def resolve_facebook_image_from_drive(
     *,
     project_root: Path,
+    events_root: Path,
     event_type: str = EVENT_TYPE_SURYA_KRIYA,
     drive_client: GoogleDriveClient,
     folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
-) -> Path:
-    """Download the programme Facebook image from Drive into a local cache."""
-    program = get_program(event_type)
-    cache_dir = event_image_cache_dir(project_root)
+    image_id: str | None = None,
+    persist_rotation: bool = True,
+) -> SelectedEventImage:
+    """Select and download a Facebook event image from the programme Drive folder."""
+    selected, selection = choose_facebook_image(
+        drive_client,
+        event_type=event_type,
+        events_root=events_root,
+        image_id=image_id,
+        folder_id=folder_id,
+        persist_rotation=persist_rotation,
+    )
+    cache_dir = event_image_cache_dir(project_root) / normalize_event_type(event_type)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    destination = cache_dir / program.facebook_image_name
-
+    safe_name = _SAFE_FILENAME_RE.sub("_", selected.name).strip("._") or "image.jpg"
+    destination = cache_dir / f"{selected.id}_{safe_name}"
     try:
-        item = drive_client.find_child_by_name(folder_id, program.facebook_image_name)
-    except GoogleDriveError as exc:
-        raise EventImageError(f"Failed to list event images in Drive: {exc}") from exc
-    if item is None:
-        raise EventImageError(
-            f"Event image {program.facebook_image_name!r} not found in Drive folder "
-            f"{folder_id}"
-        )
-    if not item.mime_type.startswith("image/"):
-        raise EventImageError(
-            f"Drive file {program.facebook_image_name!r} is not an image "
-            f"(mime={item.mime_type!r})"
-        )
-    try:
-        return drive_client.download_file(item.id, destination)
+        local_path = drive_client.download_file(selected.id, destination)
     except GoogleDriveError as exc:
         raise EventImageError(
-            f"Failed to download {program.facebook_image_name!r} from Drive: {exc}"
+            f"Failed to download {selected.name!r} ({selected.id}) from Drive: {exc}"
         ) from exc
+    return SelectedEventImage(
+        drive_file=selected,
+        local_path=local_path,
+        selection=selection,
+    )
 
 
 def publish_event_to_facebook(

@@ -48,6 +48,9 @@ class EventPublishResult:
     facebook_permalink: str | None = None
     skipped_duplicate: bool = False
     pruned_count: int = 0
+    facebook_image_id: str | None = None
+    facebook_image_name: str | None = None
+    facebook_image_selection: str | None = None
 
 
 def prune_events_site(events_root: Path) -> tuple[list[dict], list[dict]]:
@@ -87,6 +90,7 @@ def publish_event(
     meta_client: MetaClient | None = None,
     page_id: str | None = None,
     drive_client: GoogleDriveClient | None = None,
+    image_id: str | None = None,
 ) -> EventPublishResult:
     try:
         event_date = parse_event_date(date_text)
@@ -134,6 +138,9 @@ def publish_event(
 
     facebook_post_id: str | None = None
     facebook_permalink: str | None = None
+    facebook_image_id: str | None = None
+    facebook_image_name: str | None = None
+    facebook_image_selection: str | None = None
 
     if not skip_facebook:
         if meta_client is None or not page_id:
@@ -145,16 +152,21 @@ def publish_event(
                 "Google Drive client is required to download the Facebook event image"
             )
         try:
-            image_path = resolve_facebook_image_from_drive(
+            selected = resolve_facebook_image_from_drive(
                 project_root=project_root,
+                events_root=root,
                 event_type=rendered.event_type,
                 drive_client=drive_client,
+                image_id=image_id,
             )
+            facebook_image_id = selected.drive_file.id
+            facebook_image_name = selected.drive_file.name
+            facebook_image_selection = selected.selection
             facebook_post_id, facebook_permalink = publish_event_to_facebook(
                 meta_client,
                 page_id=page_id,
                 rendered=rendered,
-                image_path=image_path,
+                image_path=selected.local_path,
             )
         except (MetaError, EventImageError) as exc:
             raise EventPublishError(str(exc)) from exc
@@ -164,6 +176,8 @@ def publish_event(
         rendered,
         facebook_post_id=facebook_post_id,
         facebook_permalink=facebook_permalink,
+        facebook_image_id=facebook_image_id,
+        facebook_image_name=facebook_image_name,
     )
     return EventPublishResult(
         rendered=rendered,
@@ -174,6 +188,9 @@ def publish_event(
         facebook_permalink=facebook_permalink,
         skipped_duplicate=not created,
         pruned_count=pruned_count,
+        facebook_image_id=facebook_image_id,
+        facebook_image_name=facebook_image_name,
+        facebook_image_selection=facebook_image_selection,
     )
 
 

@@ -34,6 +34,11 @@ on:
         description: Registration URL
         type: string
         required: true
+      image_id:
+        description: Optional Drive file id for the Facebook image (blank = rotate through the programme folder)
+        type: string
+        required: false
+        default: ""
       dry_run:
         description: Preview only (no page commit, no Facebook post)
         type: boolean
@@ -79,6 +84,7 @@ jobs:
           EVENT_DATE: ${{ inputs.date }}
           EVENT_TIME: ${{ inputs.time }}
           EVENT_REGISTRATION_LINK: ${{ inputs.registration_link }}
+          EVENT_IMAGE_ID: ${{ inputs.image_id }}
           EVENT_DRY_RUN: ${{ inputs.dry_run }}
           EVENT_SKIP_FACEBOOK: ${{ inputs.skip_facebook }}
         run: |
@@ -92,6 +98,9 @@ jobs:
             --time "$EVENT_TIME"
             --registration-link "$EVENT_REGISTRATION_LINK"
           )
+          if [ -n "${EVENT_IMAGE_ID:-}" ]; then
+            args+=(--image-id "$EVENT_IMAGE_ID")
+          fi
           if [ "$EVENT_DRY_RUN" = "true" ]; then
             args+=(--dry-run)
           fi
@@ -107,6 +116,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add events/data/events.json events/index.html
+          if [ -f events/data/facebook-image-rotation.json ]; then
+            git add events/data/facebook-image-rotation.json
+          fi
           if git diff --cached --quiet; then
             echo "No events site changes to commit."
           else
