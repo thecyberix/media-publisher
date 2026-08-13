@@ -202,7 +202,7 @@ def render_event(
             f"👉 Регистрация тук: {link}",
             "",
             "💫 С любов, светлина и смях,",
-            "Доброволци от Иша",
+            "Доброволци",
         ]
     )
     full_text = "\n".join(body_lines)
@@ -229,7 +229,7 @@ def render_event(
             f"👉 Регистрация тук: {link}",
             "",
             "💫 С любов, светлина и смях,",
-            "Доброволци от Иша",
+            "Доброволци",
         ]
     )
     facebook_post_text = "\n".join(facebook_post_lines)
@@ -318,7 +318,7 @@ def _html_section(
             "</a></p>",
             '<p class="cta">'
             f'<a href="{_html_escape(registration_link)}">Регистрация</a></p>',
-            "<p>💫 С любов, светлина и смях,<br>Доброволци от Иша</p>",
+            "<p>💫 С любов, светлина и смях,<br>Доброволци</p>",
         ]
     )
     return "\n".join(parts)
