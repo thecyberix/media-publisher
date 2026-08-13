@@ -337,10 +337,9 @@ _INDEX_TEMPLATE = """\
     .coming-soon {{
       margin: 0;
       text-align: center;
-      font-size: clamp(2.2rem, 9vw, 4.5rem);
+      font-size: clamp(1.75rem, 4vw, 2.25rem);
       font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1.15;
+      line-height: 1.25;
       color: var(--ink);
     }}
     header {{
@@ -439,9 +438,13 @@ _INDEX_TEMPLATE = """\
       filter: brightness(1.05);
     }}
     a {{ color: var(--link); }}
-    ul {{
-      padding-left: 1.2rem;
+    ul.benefits {{
+      list-style: none;
+      padding-left: 0;
       text-align: left;
+    }}
+    ul.benefits li {{
+      padding-left: 0;
     }}
   </style>
 </head>

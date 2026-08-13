@@ -111,6 +111,8 @@ class EventTemplateTests(unittest.TestCase):
             f'href="{SURYA_KRIYA_LEARN_MORE_URL}"',
             rendered.html_body,
         )
+        self.assertIn("✅ Умствена яснота и фокус", rendered.html_body)
+        self.assertIn('class="benefits"', rendered.html_body)
 
     def test_render_bhuta_shuddhi_bulgarian(self) -> None:
         rendered = render_event(
@@ -135,6 +137,7 @@ class EventTemplateTests(unittest.TestCase):
             rendered.facebook_post_text,
         )
         self.assertIn("Регистрация", rendered.html_body)
+        self.assertIn("🎯 Хармония и баланс между тялото и ума", rendered.html_body)
         self.assertEqual(rendered.facebook_image_folder, "Bhuta Shuddhi")
 
     def test_city_preposition_vv_before_v(self) -> None:
@@ -447,6 +450,11 @@ class EventPageTests(unittest.TestCase):
             self.assertIn('class="profile"', html)
             self.assertIn("assets/sadhguru.png", html)
             self.assertIn("<h1>Събития</h1>", html)
+            self.assertIn("font-size: clamp(1.75rem, 4vw, 2.25rem)", html)
+            self.assertEqual(
+                html.count("font-size: clamp(1.75rem, 4vw, 2.25rem)"),
+                2,
+            )
 
     def test_prune_past_events(self) -> None:
         past = render_event(

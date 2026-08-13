@@ -241,6 +241,7 @@ def render_event(
         quote=program.quote,
         body=program.body,
         benefits=program.benefits,
+        benefit_bullet=program.benefit_bullet,
         learn_more_intro=program.learn_more_intro,
         learn_more_url=program.learn_more_url,
         learn_more_label=program.learn_more_label,
@@ -282,13 +283,15 @@ def _html_section(
     quote: str,
     body: str,
     benefits: tuple[str, ...],
+    benefit_bullet: str,
     learn_more_intro: str,
     learn_more_url: str,
     learn_more_label: str,
     registration_link: str,
 ) -> str:
+    mark = f"{_html_escape(benefit_bullet)} " if benefit_bullet else ""
     benefit_items = "\n".join(
-        f"<li>{_html_escape(benefit)}</li>" for benefit in benefits
+        f"<li>{mark}{_html_escape(benefit)}</li>" for benefit in benefits
     )
     parts = [
         f"<h2>{_html_escape(title_line1)}<br>{_html_escape(title_line2)}</h2>",
@@ -301,7 +304,7 @@ def _html_section(
     parts.extend(
         [
             "<p><strong>Ползи:</strong></p>",
-            "<ul>",
+            '<ul class="benefits">',
             benefit_items,
             "</ul>",
             f'<p class="learn-more">{_html_escape(learn_more_intro)}<br>'
