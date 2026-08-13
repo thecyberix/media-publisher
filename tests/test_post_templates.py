@@ -30,7 +30,7 @@ class PostTemplateTests(unittest.TestCase):
         self.assertEqual(prepared.title, job.title)
         self.assertIn("Садгуру разказва", prepared.description)
         self.assertIn("Original video: https://youtu.be/wCnnfKRycwI", prepared.description)
-        self.assertIn("Доброволец от Иша:", prepared.description)
+        self.assertNotIn("Доброволец от Иша:", prepared.description)
         self.assertIn(SMARTLINK_CTA, prepared.description)
         self.assertNotIn("facebook.com/SadhguruBulgarian", prepared.description)
         self.assertNotIn("instagram.com/sadhguru.bulgarian", prepared.description)
@@ -253,7 +253,7 @@ class PostTemplateTests(unittest.TestCase):
         )
         self.assertIn("Заглавие", text)
         self.assertIn("Original video:", text)
-        self.assertIn("Доброволец от Иша:", text)
+        self.assertNotIn("Доброволец от Иша:", text)
         self.assertIn(SMARTLINK_CTA, text)
         self.assertNotIn("facebook.com/SadhguruBulgarian", text)
 

@@ -43,13 +43,6 @@ DEFAULT_SMARTLINK_URL = (
     "https://t-sml.mtrbio.com/public/smartlink/sadhguru-bulgarian"
 )
 SMARTLINK_CTA = f"Научете повече: {DEFAULT_SMARTLINK_URL}"
-LONG_FORM_YOUTUBE_FOOTER = (
-    "Доброволец от Иша: Това трансформиращо видео беше създадено изцяло от нашия "
-    "екип доброволци. Ако усещате вътрешен призив да станете доброволец или искате "
-    "да научите повече за Садгуру България, кликнете върху линка в описанието 🙏.\n"
-    "\n"
-    f"{SMARTLINK_CTA}"
-)
 ORIGINAL_VIDEO_LABEL = "Original video: {original_video_url}"
 
 
@@ -81,7 +74,7 @@ def _long_form_youtube_footer(
     if include_original_video and original_video_url:
         lines.append(ORIGINAL_VIDEO_LABEL.format(original_video_url=original_video_url))
         lines.append("")
-    lines.append(LONG_FORM_YOUTUBE_FOOTER)
+    lines.append(SMARTLINK_CTA)
     return "\n".join(lines)
 
 
