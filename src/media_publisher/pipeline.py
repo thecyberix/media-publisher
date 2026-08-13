@@ -15,7 +15,12 @@ from media_publisher.publishers.instagram import (
     publish_to_instagram,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
-from media_publisher.publishers.youtube import YouTubePublishError, publish_to_youtube, youtube_video_url
+from media_publisher.publishers.youtube import (
+    YouTubePublishError,
+    flush_configured_daily_playlist,
+    publish_to_youtube,
+    youtube_video_url,
+)
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
@@ -199,6 +204,23 @@ def run_publish_pipeline(
     print_line: Callable[[str], None] = print,
 ) -> tuple[int, list[PlatformPublishResult]]:
     """Fetch pending catalog rows, download videos, publish, and update Airtable."""
+    try:
+        synced_slots = flush_configured_daily_playlist(
+            client_secrets_path=settings.youtube_client_secrets,
+            token_path=settings.youtube_token,
+            expected_channel_handle=settings.youtube_channel_handle,
+            daily_playlist_id=settings.youtube_daily_playlist_id,
+            daily_playlist_title=settings.youtube_daily_playlist_title,
+            daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
+        )
+        if synced_slots:
+            print_line(
+                "Daily playlist updated for public slots: "
+                + ", ".join(synced_slots)
+            )
+    except Exception as exc:
+        print_line(f"Daily playlist flush skipped: {exc}")
+
     tasks = fetch_pending_schedule_tasks(
         airtable,
         publish_timezone=settings.publish_timezone,

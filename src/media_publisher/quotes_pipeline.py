@@ -11,7 +11,10 @@ from media_publisher.publishers.facebook import FacebookPublishError
 from media_publisher.publishers.instagram import InstagramPublishError
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.publishers.quotes import publish_local_quote
-from media_publisher.publishers.youtube import YouTubePublishError
+from media_publisher.publishers.youtube import (
+    YouTubePublishError,
+    flush_configured_daily_playlist,
+)
 from media_publisher.quotes_render_pipeline import (
     QuotesRenderPipelineError,
     prepare_quote_posts_for_publish,
@@ -183,6 +186,23 @@ def run_quotes_pipeline(
     print_line: Callable[[str], None] = print,
 ) -> tuple[int, list[PlatformPublishResult]]:
     """Render quotes from Google Sheet + Drive backgrounds and schedule/publish them."""
+    try:
+        synced_slots = flush_configured_daily_playlist(
+            client_secrets_path=settings.youtube_client_secrets,
+            token_path=settings.youtube_token,
+            expected_channel_handle=settings.youtube_channel_handle,
+            daily_playlist_id=settings.youtube_daily_playlist_id,
+            daily_playlist_title=settings.youtube_daily_playlist_title,
+            daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
+        )
+        if synced_slots:
+            print_line(
+                "Daily playlist updated for public slots: "
+                + ", ".join(synced_slots)
+            )
+    except Exception as exc:
+        print_line(f"Daily playlist flush skipped: {exc}")
+
     year, month = resolve_quote_month(
         settings.reference_date,
         publish_timezone=settings.publish_timezone,

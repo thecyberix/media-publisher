@@ -871,7 +871,7 @@ class YouTubeClient:
         playlist_id: str,
         slots: dict[str, str],
     ) -> None:
-        """Place quote / reel / lau at positions 0 / 1 / 2 when present."""
+        """Place quote / reel / lau in that order, packed to positions 0..n-1."""
         items = self.list_playlist_items(playlist_id)
         by_video: dict[str, dict[str, Any]] = {}
         for item in items:
@@ -883,7 +883,8 @@ class YouTubeClient:
                 continue
             by_video[video_id] = item
 
-        for position, slot in enumerate(DAILY_PLAYLIST_SLOTS):
+        position = 0
+        for slot in DAILY_PLAYLIST_SLOTS:
             video_id = slots.get(slot)
             if not isinstance(video_id, str) or not video_id.strip():
                 continue
@@ -897,14 +898,14 @@ class YouTubeClient:
             current_position = None
             if isinstance(snippet, dict):
                 current_position = snippet.get("position")
-            if current_position == position:
-                continue
-            self.set_playlist_item_position(
-                playlist_item_id=item_id,
-                playlist_id=playlist_id,
-                video_id=video_id.strip(),
-                position=position,
-            )
+            if current_position != position:
+                self.set_playlist_item_position(
+                    playlist_item_id=item_id,
+                    playlist_id=playlist_id,
+                    video_id=video_id.strip(),
+                    position=position,
+                )
+            position += 1
 
     def list_playlist_items(self, playlist_id: str) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -967,7 +968,7 @@ class YouTubeClient:
 
         Updates ``slot`` to ``video_id``, removes only the previous video for that
         slot (when known), ensures ``video_id`` is present, and reorders to
-        quote → reel → lau (positions 0 / 1 / 2). Persists slots to ``state_path``.
+        quote → reel → lau (packed positions). Persists slots to ``state_path``.
         """
         if slot not in DAILY_PLAYLIST_SLOTS:
             raise YouTubePublishError(
@@ -978,7 +979,12 @@ class YouTubeClient:
         previous_video_id = slots.get(slot)
         slots[slot] = video_id
         desired = {value for value in slots.values() if value}
-        target_position = DAILY_PLAYLIST_SLOTS.index(slot)  # type: ignore[arg-type]
+        target_position = sum(
+            1
+            for name in DAILY_PLAYLIST_SLOTS
+            if name != slot and isinstance(slots.get(name), str) and slots[name].strip()
+            and DAILY_PLAYLIST_SLOTS.index(name) < DAILY_PLAYLIST_SLOTS.index(slot)
+        )
 
         if previous_video_id and previous_video_id != video_id:
             for item in self.list_playlist_items(playlist_id):
@@ -1019,8 +1025,63 @@ class YouTubeClient:
                 self.remove_playlist_item(item_id)
 
         self.reorder_daily_playlist_slots(playlist_id, slots)
-        save_daily_playlist_slots(state_path, slots)
+        pending = load_daily_playlist_pending(state_path)
+        pending.pop(slot, None)
+        save_daily_playlist_state(state_path, slots, pending)
         return slots
+
+    def flush_pending_daily_playlist_slots(
+        self,
+        playlist_id: str,
+        *,
+        state_path: Path,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """Add pending slot videos to Днес once they are public/unlisted.
+
+        Returns the slot names that were synced on this call.
+        """
+        now = now or datetime.now(timezone.utc)
+        pending = load_daily_playlist_pending(state_path)
+        if not pending:
+            return []
+
+        synced: list[str] = []
+        for slot, entry in list(pending.items()):
+            if slot not in DAILY_PLAYLIST_SLOTS:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            video_id = entry.get("video_id")
+            if not isinstance(video_id, str) or not video_id.strip():
+                continue
+            video_id = video_id.strip()
+            publish_at_raw = entry.get("publish_at")
+            if isinstance(publish_at_raw, str) and publish_at_raw.strip():
+                try:
+                    publish_at = datetime.fromisoformat(
+                        publish_at_raw.strip().replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    publish_at = None
+                if publish_at is not None:
+                    if publish_at.tzinfo is None:
+                        publish_at = publish_at.replace(tzinfo=timezone.utc)
+                    else:
+                        publish_at = publish_at.astimezone(timezone.utc)
+                    if publish_at > now:
+                        continue
+            item = self.get_video_status_item(video_id)
+            if item is None or not _video_is_listable_on_playlist(item):
+                continue
+            self.sync_daily_playlist_slot(
+                playlist_id,
+                video_id,
+                slot=slot,
+                state_path=state_path,
+            )
+            synced.append(slot)
+        return synced
 
     def update_video_snippet(
         self,
@@ -1235,8 +1296,34 @@ def daily_playlist_slot_for_job(job: PublishJob) -> DailyPlaylistSlot:
     return "lau"
 
 
-def load_daily_playlist_slots(path: Path) -> dict[str, str]:
-    slots: dict[str, str] = {}
+def job_ready_for_daily_playlist(
+    job: PublishJob, *, now: datetime | None = None
+) -> bool:
+    """True when the upload is (or will immediately be) public/unlisted for Smartlink."""
+    now = now or datetime.now(timezone.utc)
+    if job.publish_at is not None:
+        publish_at = job.publish_at
+        if publish_at.tzinfo is None:
+            publish_at = publish_at.replace(tzinfo=timezone.utc)
+        else:
+            publish_at = publish_at.astimezone(timezone.utc)
+        if publish_at > now:
+            return False
+    privacy = (job.privacy_status or "public").strip().lower()
+    return privacy in {"public", "unlisted"}
+
+
+def should_queue_daily_playlist(
+    job: PublishJob, *, now: datetime | None = None
+) -> bool:
+    """True when a scheduled private upload should wait for go-live before Днес."""
+    return job.publish_at is not None and not job_ready_for_daily_playlist(
+        job, now=now
+    )
+
+
+def _daily_playlist_payload(path: Path) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
     env_payload = os.getenv("YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON", "").strip()
     if env_payload:
         try:
@@ -1244,31 +1331,110 @@ def load_daily_playlist_slots(path: Path) -> dict[str, str]:
         except json.JSONDecodeError:
             parsed = None
         if isinstance(parsed, dict):
-            for key in DAILY_PLAYLIST_SLOTS:
-                value = parsed.get(key)
-                if isinstance(value, str) and value.strip():
-                    slots[key] = value.strip()
+            merged.update(parsed)
     if path.is_file():
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             payload = None
         if isinstance(payload, dict):
-            for key in DAILY_PLAYLIST_SLOTS:
-                value = payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    slots[key] = value.strip()
+            merged.update(payload)
+    return merged
+
+
+def load_daily_playlist_slots(path: Path) -> dict[str, str]:
+    slots: dict[str, str] = {}
+    payload = _daily_playlist_payload(path)
+    for key in DAILY_PLAYLIST_SLOTS:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            slots[key] = value.strip()
     return slots
 
 
+def load_daily_playlist_pending(path: Path) -> dict[str, dict[str, str]]:
+    payload = _daily_playlist_payload(path)
+    raw = payload.get("pending")
+    if not isinstance(raw, dict):
+        return {}
+    pending: dict[str, dict[str, str]] = {}
+    for key in DAILY_PLAYLIST_SLOTS:
+        entry = raw.get(key)
+        if not isinstance(entry, dict):
+            continue
+        video_id = entry.get("video_id")
+        if not isinstance(video_id, str) or not video_id.strip():
+            continue
+        cleaned: dict[str, str] = {"video_id": video_id.strip()}
+        publish_at = entry.get("publish_at")
+        if isinstance(publish_at, str) and publish_at.strip():
+            cleaned["publish_at"] = publish_at.strip()
+        pending[key] = cleaned
+    return pending
+
+
 def save_daily_playlist_slots(path: Path, slots: dict[str, str]) -> None:
+    save_daily_playlist_state(path, slots, load_daily_playlist_pending(path))
+
+
+def save_daily_playlist_state(
+    path: Path,
+    slots: dict[str, str],
+    pending: dict[str, dict[str, str]] | None = None,
+) -> None:
     cleaned = {
         key: slots[key].strip()
         for key in DAILY_PLAYLIST_SLOTS
         if isinstance(slots.get(key), str) and slots[key].strip()
     }
+    pending_cleaned: dict[str, dict[str, str]] = {}
+    if pending:
+        for key in DAILY_PLAYLIST_SLOTS:
+            entry = pending.get(key)
+            if not isinstance(entry, dict):
+                continue
+            video_id = entry.get("video_id")
+            if not isinstance(video_id, str) or not video_id.strip():
+                continue
+            cleaned_entry: dict[str, str] = {"video_id": video_id.strip()}
+            publish_at = entry.get("publish_at")
+            if isinstance(publish_at, str) and publish_at.strip():
+                cleaned_entry["publish_at"] = publish_at.strip()
+            pending_cleaned[key] = cleaned_entry
+    if pending_cleaned:
+        cleaned["pending"] = pending_cleaned
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+
+def queue_pending_daily_playlist_slot(
+    state_path: Path,
+    *,
+    slot: str,
+    video_id: str,
+    publish_at: datetime | None,
+) -> None:
+    if slot not in DAILY_PLAYLIST_SLOTS:
+        raise YouTubePublishError(
+            f"Unsupported daily playlist slot {slot!r}; expected one of {DAILY_PLAYLIST_SLOTS}"
+        )
+    slots = load_daily_playlist_slots(state_path)
+    pending = load_daily_playlist_pending(state_path)
+    entry: dict[str, str] = {"video_id": video_id.strip()}
+    if publish_at is not None:
+        entry["publish_at"] = format_publish_at(publish_at)
+    pending[slot] = entry
+    save_daily_playlist_state(state_path, slots, pending)
+
+
+def _video_is_listable_on_playlist(item: dict[str, Any]) -> bool:
+    status = item.get("status")
+    if not isinstance(status, dict):
+        return False
+    privacy = status.get("privacyStatus")
+    return privacy in {"public", "unlisted"}
 
 
 def _playlist_item_video_id(item: dict[str, Any]) -> str | None:
@@ -1393,11 +1559,54 @@ def publish_to_youtube(
             playlist_id=daily_playlist_id,
         )
         slots_path = daily_playlist_slots_path or Path(DEFAULT_DAILY_PLAYLIST_SLOTS_PATH)
-        client.sync_daily_playlist_slot(
+        client.flush_pending_daily_playlist_slots(
             resolved_daily_id,
-            video_id,
-            slot=daily_playlist_slot_for_job(job),
             state_path=slots_path,
         )
+        slot = daily_playlist_slot_for_job(job)
+        if job_ready_for_daily_playlist(job):
+            client.sync_daily_playlist_slot(
+                resolved_daily_id,
+                video_id,
+                slot=slot,
+                state_path=slots_path,
+            )
+        elif should_queue_daily_playlist(job):
+            queue_pending_daily_playlist_slot(
+                slots_path,
+                slot=slot,
+                video_id=video_id,
+                publish_at=job.publish_at,
+            )
 
     return video_id
+
+
+def flush_configured_daily_playlist(
+    *,
+    client_secrets_path: Path,
+    token_path: Path,
+    expected_channel_handle: str | None = DEFAULT_CHANNEL_HANDLE,
+    daily_playlist_id: str | None = None,
+    daily_playlist_title: str | None = None,
+    daily_playlist_slots_path: Path | None = None,
+) -> list[str]:
+    """Promote any due pending Днес slots. No-op when none are pending."""
+    if not (daily_playlist_id or daily_playlist_title):
+        return []
+    slots_path = daily_playlist_slots_path or Path(DEFAULT_DAILY_PLAYLIST_SLOTS_PATH)
+    if not load_daily_playlist_pending(slots_path):
+        return []
+    client = YouTubeClient(
+        client_secrets_path,
+        token_path,
+        expected_channel_handle=expected_channel_handle,
+    )
+    resolved_daily_id = client.resolve_playlist_id(
+        daily_playlist_title or DEFAULT_YOUTUBE_DAILY_PLAYLIST_TITLE,
+        playlist_id=daily_playlist_id,
+    )
+    return client.flush_pending_daily_playlist_slots(
+        resolved_daily_id,
+        state_path=slots_path,
+    )

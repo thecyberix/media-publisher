@@ -1,5 +1,15 @@
 {
-  "quote": "xtVEhVE_6ok",
+  "quote": "GwlWzNzOg7E",
   "reel": "CiLBEsv1Ixw",
-  "lau": "Fs8KjtgL-CQ"
+  "lau": "Fs8KjtgL-CQ",
+  "pending": {
+    "quote": {
+      "video_id": "xtVEhVE_6ok",
+      "publish_at": "2026-08-13T05:00:00Z"
+    },
+    "reel": {
+      "video_id": "-Lg5u70ZmlE",
+      "publish_at": "2026-08-13T15:00:00Z"
+    }
+  }
 }

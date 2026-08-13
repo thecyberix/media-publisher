@@ -39,16 +39,30 @@ YOUTUBE_TAGS_SHORT = (
     "духовно развитие",
 )
 
-SOCIAL_FOOTER_FACEBOOK_LABEL = (
-    "Официална страница на български във Facebook: {facebook_url}"
+DEFAULT_SMARTLINK_URL = (
+    "https://t-sml.mtrbio.com/public/smartlink/sadhguru-bulgarian"
 )
-SOCIAL_FOOTER_INSTAGRAM_LABEL = (
-    "Официален профил на български в Instagram: {instagram_url}"
-)
-SOCIAL_FOOTER_YOUTUBE_LABEL = (
-    "Садгуру - официален канал на български език в YouTube {youtube_channel_url}"
+SMARTLINK_CTA = f"Научете повече: {DEFAULT_SMARTLINK_URL}"
+LONG_FORM_YOUTUBE_FOOTER = (
+    "Доброволец от Иша: Това трансформиращо видео беше създадено изцяло от нашия "
+    "екип доброволци. Ако усещате вътрешен призив да станете доброволец или искате "
+    "да научите повече за Садгуру България, кликнете върху линка в описанието 🙏.\n"
+    "\n"
+    f"{SMARTLINK_CTA}"
 )
 ORIGINAL_VIDEO_LABEL = "Original video: {original_video_url}"
+
+
+def append_smartlink_cta(text: str) -> str:
+    """Append the Smartlink CTA after a blank line when not already present."""
+    clean = text.rstrip()
+    if SMARTLINK_CTA in clean or DEFAULT_SMARTLINK_URL in clean:
+        if SMARTLINK_CTA in clean:
+            return clean
+        return clean.replace(DEFAULT_SMARTLINK_URL, SMARTLINK_CTA)
+    if not clean:
+        return SMARTLINK_CTA
+    return f"{clean}\n\n{SMARTLINK_CTA}"
 
 
 def _original_video_url(job: PublishJob) -> str | None:
@@ -58,11 +72,8 @@ def _original_video_url(job: PublishJob) -> str | None:
     return None
 
 
-def _social_footer(
+def _long_form_youtube_footer(
     *,
-    facebook_url: str,
-    instagram_url: str,
-    youtube_channel_url: str,
     include_original_video: bool,
     original_video_url: str | None,
 ) -> str:
@@ -70,15 +81,7 @@ def _social_footer(
     if include_original_video and original_video_url:
         lines.append(ORIGINAL_VIDEO_LABEL.format(original_video_url=original_video_url))
         lines.append("")
-    lines.extend(
-        [
-            SOCIAL_FOOTER_FACEBOOK_LABEL.format(facebook_url=facebook_url),
-            "",
-            SOCIAL_FOOTER_INSTAGRAM_LABEL.format(instagram_url=instagram_url),
-            "",
-            SOCIAL_FOOTER_YOUTUBE_LABEL.format(youtube_channel_url=youtube_channel_url),
-        ]
-    )
+    lines.append(LONG_FORM_YOUTUBE_FOOTER)
     return "\n".join(lines)
 
 
@@ -93,11 +96,9 @@ def build_long_form_description(
     instagram_url: str = DEFAULT_INSTAGRAM_PROFILE_URL,
     youtube_channel_url: str = DEFAULT_YOUTUBE_CHANNEL_URL,
 ) -> str:
+    del facebook_url, instagram_url, youtube_channel_url
     body = _youtube_body_text(job)
-    footer = _social_footer(
-        facebook_url=facebook_url,
-        instagram_url=instagram_url,
-        youtube_channel_url=youtube_channel_url,
+    footer = _long_form_youtube_footer(
         include_original_video=True,
         original_video_url=_original_video_url(job),
     )
@@ -132,8 +133,8 @@ def build_short_form_youtube_description(description: str) -> str:
     clean = description.strip()
     header = "#shorts #садгуру"
     if clean:
-        return f"{header}\n{clean}"
-    return header
+        return append_smartlink_cta(f"{header}\n{clean}")
+    return append_smartlink_cta(header)
 
 
 def _description_after_hashtag(description: str) -> str:
@@ -150,20 +151,25 @@ def build_long_form_social_caption(job: PublishJob) -> str:
     description = job.description.strip()
     if not title:
         if not description:
-            return QUOTE_HASHTAG
-        return f"{QUOTE_HASHTAG} {_description_after_hashtag(description)}"
+            return append_smartlink_cta(QUOTE_HASHTAG)
+        return append_smartlink_cta(
+            f"{QUOTE_HASHTAG} {_description_after_hashtag(description)}"
+        )
     if not description:
-        return f"{title}. {QUOTE_HASHTAG}"
+        return append_smartlink_cta(f"{title}. {QUOTE_HASHTAG}")
     if description.startswith(title):
         rest = description[len(title) :].lstrip(" .")
         if rest.startswith(QUOTE_HASHTAG):
-            return description
+            return append_smartlink_cta(description)
         if rest.startswith(LEGACY_QUOTE_HASHTAG):
             rest = rest[len(LEGACY_QUOTE_HASHTAG) :].lstrip()
         rest = _description_after_hashtag(rest)
-        return f"{title}. {QUOTE_HASHTAG} {rest}" if rest else f"{title}. {QUOTE_HASHTAG}"
+        caption = (
+            f"{title}. {QUOTE_HASHTAG} {rest}" if rest else f"{title}. {QUOTE_HASHTAG}"
+        )
+        return append_smartlink_cta(caption)
     rest = _description_after_hashtag(description)
-    return f"{title}. {QUOTE_HASHTAG} {rest}"
+    return append_smartlink_cta(f"{title}. {QUOTE_HASHTAG} {rest}")
 
 
 def inject_published_video_url(description: str, video_id: str) -> str:
@@ -197,6 +203,12 @@ def build_quote_post_caption(caption: str) -> str:
 
 def _quote_body(caption: str) -> str:
     clean = caption.strip()
+    if SMARTLINK_CTA in clean:
+        clean = clean.split(SMARTLINK_CTA, 1)[0].rstrip()
+    elif DEFAULT_SMARTLINK_URL in clean:
+        clean = clean.split(DEFAULT_SMARTLINK_URL, 1)[0].rstrip()
+        if clean.endswith("Научете повече:"):
+            clean = clean[: -len("Научете повече:")].rstrip()
     if clean.endswith(QUOTE_HASHTAG):
         return clean[: -len(QUOTE_HASHTAG)].rstrip()
     if clean.endswith(LEGACY_QUOTE_HASHTAG):
@@ -254,12 +266,12 @@ def build_facebook_video_caption(job: PublishJob) -> str:
     if not title:
         return build_quote_post_caption(description)
     if not description:
-        return f"{title}. {QUOTE_HASHTAG}"
+        return append_smartlink_cta(f"{title}. {QUOTE_HASHTAG}")
     if description.startswith(title):
         body = description
     else:
         body = f"{title}. {description}"
-    return _append_trailing_hashtag(body)
+    return append_smartlink_cta(_append_trailing_hashtag(body))
 
 
 def build_short_form_social_caption(job: PublishJob) -> str:

@@ -18,12 +18,16 @@ from media_publisher.publishers.youtube import (
     build_video_status,
     daily_playlist_slot_for_job,
     format_publish_at,
+    job_ready_for_daily_playlist,
     load_client_secrets,
+    load_daily_playlist_pending,
     load_daily_playlist_slots,
     parse_channel_handle,
     prepare_youtube_thumbnail,
     publish_to_youtube,
+    queue_pending_daily_playlist_slot,
     save_token,
+    should_queue_daily_playlist,
     validate_schedule_time,
 )
 
@@ -495,7 +499,6 @@ class YouTubeClientTests(unittest.TestCase):
                 title="Clip",
                 video_path=str(video_path),
                 video_format="post",
-                publish_at=datetime(2026, 8, 11, 15, 0, tzinfo=timezone.utc),
             )
             with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
                 client_cls.return_value.upload_video.return_value = "vid123"
@@ -513,11 +516,84 @@ class YouTubeClientTests(unittest.TestCase):
                 )
 
         self.assertEqual(video_id, "vid123")
+        client_cls.return_value.flush_pending_daily_playlist_slots.assert_called_once_with(
+            "PLdaily",
+            state_path=slots_path,
+        )
         client_cls.return_value.sync_daily_playlist_slot.assert_called_once_with(
             "PLdaily",
             "vid123",
             slot="lau",
             state_path=slots_path,
+        )
+
+    def test_publish_to_youtube_queues_scheduled_daily_playlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            slots_path = root / "slots.json"
+            video_path = root / "clip.mp4"
+            video_path.write_bytes(b"video")
+            publish_at = datetime.now(timezone.utc) + timedelta(hours=6)
+            job = PublishJob(
+                title="Clip",
+                video_path=str(video_path),
+                video_format="post",
+                publish_at=publish_at,
+            )
+            with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                client_cls.return_value.upload_video.return_value = "vid123"
+                client_cls.return_value.resolve_playlist_id.side_effect = [
+                    "PLarchive",
+                    "PLdaily",
+                ]
+                video_id = publish_to_youtube(
+                    job,
+                    client_secrets_path=secrets_path,
+                    token_path=token_path,
+                    playlist_id="PLarchive",
+                    daily_playlist_id="PLdaily",
+                    daily_playlist_slots_path=slots_path,
+                )
+                client_cls.return_value.sync_daily_playlist_slot.assert_not_called()
+                self.assertEqual(
+                    load_daily_playlist_pending(slots_path),
+                    {
+                        "lau": {
+                            "video_id": "vid123",
+                            "publish_at": format_publish_at(publish_at),
+                        }
+                    },
+                )
+
+        self.assertEqual(video_id, "vid123")
+
+    def test_job_ready_for_daily_playlist(self) -> None:
+        now = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
+        self.assertTrue(
+            job_ready_for_daily_playlist(PublishJob(title="now"), now=now)
+        )
+        self.assertFalse(
+            job_ready_for_daily_playlist(
+                PublishJob(
+                    title="later",
+                    publish_at=now + timedelta(hours=2),
+                ),
+                now=now,
+            )
+        )
+        self.assertFalse(
+            job_ready_for_daily_playlist(
+                PublishJob(title="private", privacy_status="private"),
+                now=now,
+            )
+        )
+        self.assertTrue(
+            should_queue_daily_playlist(
+                PublishJob(title="later", publish_at=now + timedelta(hours=2)),
+                now=now,
+            )
         )
 
     def test_daily_playlist_slot_for_job(self) -> None:
@@ -662,6 +738,83 @@ class YouTubeClientTests(unittest.TestCase):
             client.remove_playlist_item.assert_not_called()
             client.add_video_to_playlist.assert_not_called()
             client.reorder_daily_playlist_slots.assert_called_once()
+
+    def test_flush_pending_daily_playlist_promotes_public_videos(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text(
+                json.dumps(
+                    {
+                        "quote": "quote1",
+                        "pending": {
+                            "lau": {
+                                "video_id": "scheduled1",
+                                "publish_at": "2026-08-12T10:00:00Z",
+                            }
+                        },
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            client = YouTubeClient.__new__(YouTubeClient)
+            client.get_video_status_item = MagicMock(
+                return_value={"status": {"privacyStatus": "public"}}
+            )
+            client.sync_daily_playlist_slot = MagicMock(
+                return_value={"quote": "quote1", "lau": "scheduled1"}
+            )
+
+            synced = client.flush_pending_daily_playlist_slots(
+                "PLdaily",
+                state_path=slots_path,
+                now=datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(synced, ["lau"])
+            client.sync_daily_playlist_slot.assert_called_once_with(
+                "PLdaily",
+                "scheduled1",
+                slot="lau",
+                state_path=slots_path,
+            )
+
+    def test_flush_pending_daily_playlist_waits_for_privacy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text(
+                json.dumps(
+                    {
+                        "pending": {
+                            "reel": {
+                                "video_id": "still-private",
+                                "publish_at": "2026-08-12T10:00:00Z",
+                            }
+                        }
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            client = YouTubeClient.__new__(YouTubeClient)
+            client.get_video_status_item = MagicMock(
+                return_value={"status": {"privacyStatus": "private"}}
+            )
+            client.sync_daily_playlist_slot = MagicMock()
+
+            synced = client.flush_pending_daily_playlist_slots(
+                "PLdaily",
+                state_path=slots_path,
+                now=datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(synced, [])
+            client.sync_daily_playlist_slot.assert_not_called()
+            self.assertEqual(
+                load_daily_playlist_pending(slots_path)["reel"]["video_id"],
+                "still-private",
+            )
 
     def test_reorder_daily_playlist_slots_sets_positions(self) -> None:
         client = YouTubeClient.__new__(YouTubeClient)

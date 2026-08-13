@@ -4,6 +4,7 @@ import unittest
 
 from media_publisher.models import PublishJob
 from media_publisher.post_templates import (
+    SMARTLINK_CTA,
     build_long_form_description,
     build_long_form_social_caption,
     build_quote_post_caption,
@@ -29,9 +30,10 @@ class PostTemplateTests(unittest.TestCase):
         self.assertEqual(prepared.title, job.title)
         self.assertIn("Садгуру разказва", prepared.description)
         self.assertIn("Original video: https://youtu.be/wCnnfKRycwI", prepared.description)
-        self.assertIn("facebook.com/SadhguruBulgarian", prepared.description)
-        self.assertIn("instagram.com/sadhguru.bulgarian", prepared.description)
-        self.assertIn("youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q", prepared.description)
+        self.assertIn("Доброволец от Иша:", prepared.description)
+        self.assertIn(SMARTLINK_CTA, prepared.description)
+        self.assertNotIn("facebook.com/SadhguruBulgarian", prepared.description)
+        self.assertNotIn("instagram.com/sadhguru.bulgarian", prepared.description)
         self.assertIn("садгуру българия", prepared.tags)
         self.assertNotIn("духовно развитие", prepared.tags)
 
@@ -55,6 +57,7 @@ class PostTemplateTests(unittest.TestCase):
         )
         self.assertTrue(prepared.description.startswith("#садгуру\n"))
         self.assertIn("Нека следващите месеци", prepared.description)
+        self.assertNotIn(SMARTLINK_CTA, prepared.description)
         self.assertNotIn("#Садгуру", prepared.description)
         self.assertTrue(prepared.title.endswith("#Садгуру"))
 
@@ -88,6 +91,7 @@ class PostTemplateTests(unittest.TestCase):
         prepared = prepare_publish_job(job, "instagram")
         self.assertIn("Нека следващите месеци", prepared.description)
         self.assertIn("#Садгуру", prepared.description)
+        self.assertNotIn(SMARTLINK_CTA, prepared.description)
         self.assertNotIn("[#Садгуру]", prepared.description)
 
     def test_short_form_youtube_template(self) -> None:
@@ -104,7 +108,8 @@ class PostTemplateTests(unittest.TestCase):
         self.assertEqual(
             prepared.description,
             "#shorts #садгуру\n"
-            "Садгуру обяснява защо балансът е най-важното качество.",
+            "Садгуру обяснява защо балансът е най-важното качество.\n\n"
+            f"{SMARTLINK_CTA}",
         )
         self.assertIn("садгуру българия", prepared.tags)
         self.assertNotIn("духовно развитие", prepared.tags)
@@ -119,7 +124,8 @@ class PostTemplateTests(unittest.TestCase):
         self.assertEqual(
             prepared.description,
             "Накарайте всичко да работи за вас. "
-            "Садгуру обяснява защо балансът е най-важното качество. #Садгуру",
+            "Садгуру обяснява защо балансът е най-важното качество. #Садгуру\n\n"
+            f"{SMARTLINK_CTA}",
         )
 
     def test_long_form_facebook_uses_hashtag_caption(self) -> None:
@@ -132,7 +138,8 @@ class PostTemplateTests(unittest.TestCase):
         prepared = prepare_publish_job(job, "facebook")
         self.assertEqual(
             prepared.description,
-            "Когато Садгуру откри Нагамани – бижуто на кобрата. Основен текст. #Садгуру",
+            "Когато Садгуру откри Нагамани – бижуто на кобрата. Основен текст. #Садгуру\n\n"
+            f"{SMARTLINK_CTA}",
         )
         self.assertNotIn("Original video:", prepared.description)
 
@@ -145,7 +152,8 @@ class PostTemplateTests(unittest.TestCase):
         prepared = prepare_publish_job(job, "youtube")
         self.assertEqual(
             prepared.description,
-            "#shorts #садгуру\nНакарайте всичко да работи за вас",
+            "#shorts #садгуру\nНакарайте всичко да работи за вас\n\n"
+            f"{SMARTLINK_CTA}",
         )
 
     def test_long_form_youtube_uses_title_when_description_missing(self) -> None:
@@ -177,7 +185,8 @@ class PostTemplateTests(unittest.TestCase):
                 "Садгуру обяснява защо балансът е най-важното качество."
             ),
             "#shorts #садгуру\n"
-            "Садгуру обяснява защо балансът е най-важното качество.",
+            "Садгуру обяснява защо балансът е най-важното качество.\n\n"
+            f"{SMARTLINK_CTA}",
         )
 
     def test_build_short_form_social_caption(self) -> None:
@@ -189,7 +198,8 @@ class PostTemplateTests(unittest.TestCase):
                     video_format="short_form",
                 )
             ),
-            "Заглавие. Описание на видеото. #Садгуру",
+            "Заглавие. Описание на видеото. #Садгуру\n\n"
+            f"{SMARTLINK_CTA}",
         )
 
     def test_build_long_form_social_caption(self) -> None:
@@ -204,7 +214,8 @@ class PostTemplateTests(unittest.TestCase):
                 )
             ),
             "Когато Садгуру откри Нагамани – бижуто на кобрата. "
-            "#Садгуру разказва за един увлекателен случай, при който е открил нагамани.",
+            "#Садгуру разказва за един увлекателен случай, при който е открил нагамани.\n\n"
+            f"{SMARTLINK_CTA}",
         )
         self.assertEqual(
             build_long_form_social_caption(
@@ -214,7 +225,8 @@ class PostTemplateTests(unittest.TestCase):
                     video_format="post",
                 )
             ),
-            "Когато Садгуру откри Нагамани – бижуто на кобрата. #Садгуру Основен текст.",
+            "Когато Садгуру откри Нагамани – бижуто на кобрата. #Садгуру Основен текст.\n\n"
+            f"{SMARTLINK_CTA}",
         )
 
     def test_inject_published_video_url(self) -> None:
@@ -241,7 +253,9 @@ class PostTemplateTests(unittest.TestCase):
         )
         self.assertIn("Заглавие", text)
         self.assertIn("Original video:", text)
-        self.assertIn("facebook.com/SadhguruBulgarian", text)
+        self.assertIn("Доброволец от Иша:", text)
+        self.assertIn(SMARTLINK_CTA, text)
+        self.assertNotIn("facebook.com/SadhguruBulgarian", text)
 
 
 if __name__ == "__main__":
