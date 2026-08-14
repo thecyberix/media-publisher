@@ -151,6 +151,90 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-export")
         self.assertNotIn("_canvaDesignUrl", enriched[0])
 
+    def test_enrich_records_queues_manual_canva_placeholder_on_design_access_error(
+        self,
+    ) -> None:
+        import tempfile
+
+        from catalog_parser.canva import CanvaError
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value="https://www.canva.com/design/DAGa81rbUOw/view",
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_thumbnail",
+                side_effect=CanvaError(
+                    'Canva POST /exports failed with HTTP 403: '
+                    '{"code":"permission_denied","message":'
+                    '"Not allowed to access design with id DAGa81rbUOw"}'
+                ),
+            ):
+                with patch(
+                    "catalog_parser.drive_thumbnail.video_size_from_pkg_folder",
+                    return_value=(1280, 720),
+                ):
+                    enriched = enrich_records_with_original_video_thumbnails(
+                        records,
+                        drive_service,
+                        None,
+                        staging_dir=staging_dir,
+                        canva_client=MagicMock(),
+                    )
+
+        self.assertIsNone(enriched[0]["ytThumbnail"])
+        self.assertNotIn("_originalThumbnailPath", enriched[0])
+        self.assertIn("_thumbnailReviewPath", enriched[0])
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-manual:review-queue")
+        review_path = Path(enriched[0]["_thumbnailReviewPath"])
+        self.assertTrue(review_path.is_file())
+        self.assertGreater(review_path.stat().st_size, 0)
+
+    def test_enrich_records_raises_on_canva_auth_error(self) -> None:
+        import tempfile
+
+        from catalog_parser.canva import CanvaError
+        from catalog_parser.drive_thumbnail import DriveThumbnailError
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value="https://www.canva.com/design/DAGa81rbUOw/view",
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_thumbnail",
+                side_effect=CanvaError(
+                    'Canva token exchange failed with HTTP 400: '
+                    '{"error":"invalid_grant","error_description":'
+                    '"Token lineage has been revoked"}'
+                ),
+            ):
+                with self.assertRaises(DriveThumbnailError):
+                    enrich_records_with_original_video_thumbnails(
+                        records,
+                        drive_service,
+                        None,
+                        staging_dir=staging_dir,
+                        canva_client=MagicMock(),
+                    )
+
     def test_enrich_records_stages_review_queue_without_canva(self) -> None:
         import tempfile
 

@@ -31,7 +31,42 @@ UPLOAD_CHUNK_MAX_ATTEMPTS = 6
 
 
 class MetaError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.payload = payload
+
+
+def _parse_meta_error_payload(response_text: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(response_text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    error = parsed.get("error")
+    if isinstance(error, dict):
+        return error
+    return parsed
+
+
+def is_meta_transient_unknown_error(exc: MetaError) -> bool:
+    """True for Meta's intermittent HTTP 500 / code 1 / subcode 99 responses."""
+    if exc.http_status != 500:
+        return False
+    payload = exc.payload or {}
+    subcode = payload.get("error_subcode")
+    if subcode == 99:
+        return True
+    code = payload.get("code")
+    message = str(payload.get("message") or "").casefold()
+    return code == 1 and "unknown error" in message
 
 
 def _parse_meta_upload_backoff(response_text: str) -> float | None:
@@ -449,7 +484,9 @@ class MetaClient:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace").strip()
             raise MetaError(
-                f"Meta {method} {path} failed with HTTP {exc.code}: {detail}"
+                f"Meta {method} {path} failed with HTTP {exc.code}: {detail}",
+                http_status=exc.code,
+                payload=_parse_meta_error_payload(detail),
             ) from exc
         except urllib.error.URLError as exc:
             raise MetaError(f"Meta request failed: {exc.reason}") from exc
@@ -506,7 +543,9 @@ class MetaClient:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace").strip()
             raise MetaError(
-                f"Meta multipart POST {path} failed with HTTP {exc.code}: {detail}"
+                f"Meta multipart POST {path} failed with HTTP {exc.code}: {detail}",
+                http_status=exc.code,
+                payload=_parse_meta_error_payload(detail),
             ) from exc
         except urllib.error.URLError as exc:
             raise MetaError(f"Meta multipart request failed: {exc.reason}") from exc
@@ -1280,10 +1319,40 @@ class MetaClient:
         else:
             finish["video_state"] = "PUBLISHED"
 
-        self._request("POST", f"{page_id}/video_reels", body=finish)
+        try:
+            self._request("POST", f"{page_id}/video_reels", body=finish)
+        except MetaError as exc:
+            if not is_meta_transient_unknown_error(exc):
+                raise
+            # Meta sometimes returns HTTP 500 / subcode 99 after the Reel was
+            # already scheduled. Verify the video_id from start before failing.
+            if not self.facebook_video_exists(video_id):
+                raise
         if thumbnail_path is not None:
-            self.set_facebook_video_thumbnail(video_id, thumbnail_path)
+            try:
+                self.set_facebook_video_thumbnail(video_id, thumbnail_path)
+            except MetaError:
+                # Thumbnail is best-effort after a recovered finish response.
+                pass
         return video_id
+
+    def facebook_video_exists(self, video_id: str) -> bool:
+        """Return True when Graph can resolve ``video_id`` (published or scheduled)."""
+        video_id = video_id.strip()
+        if not video_id:
+            return False
+        try:
+            response = self._request(
+                "GET",
+                video_id,
+                query={"fields": "id,permalink_url,status"},
+            )
+        except MetaError:
+            return False
+        if not isinstance(response, dict):
+            return False
+        found_id = response.get("id")
+        return isinstance(found_id, str) and bool(found_id.strip())
 
     def publish_existing_facebook_reel(
         self,
@@ -1537,8 +1606,8 @@ class MetaClient:
     ) -> str:
         """Publish an immediate Facebook Page photo post with caption.
 
-        Returns the feed post id when Meta includes ``post_id``. Falls back to
-        the photo id otherwise.
+        Returns the feed post id (preferred for commenting). Falls back to the
+        photo id when Meta omits ``post_id``.
         """
         path = image_path.resolve()
         if not path.is_file():

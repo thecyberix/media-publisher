@@ -61,9 +61,12 @@ def main() -> int:
 
     smtp_user = os.getenv("GMAIL_SMTP_USER", "").strip()
     smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD", "").strip()
-    notify_email = os.getenv("NOTIFY_EMAIL", "georgi.uzunov-ext@sadhguru.org").strip()
+    notify_email = os.getenv("NOTIFY_EMAIL", "").strip()
     if not smtp_user or not smtp_password:
         print("Missing GMAIL_SMTP_USER or GMAIL_SMTP_APP_PASSWORD", file=sys.stderr)
+        return 1
+    if not notify_email:
+        print("Missing NOTIFY_EMAIL — skipping send", file=sys.stderr)
         return 1
 
     send_email(
@@ -73,7 +76,7 @@ def main() -> int:
         subject=subject,
         body=body,
     )
-    print(f"\nSent weekly report to {notify_email}")
+    print("\nSent weekly report email")
     return 0
 
 

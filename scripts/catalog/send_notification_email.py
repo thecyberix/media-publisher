@@ -78,7 +78,7 @@ def main() -> int:
         print(f"Failed to send email: {exc}", file=sys.stderr)
         return 1
 
-    print(f"Sent notification email to {to_address}")
+    print("Sent notification email")
     return 0
 
 

@@ -48,6 +48,26 @@ class TnReferenceTests(unittest.TestCase):
         self.assertLess(styles[3].fixed_font_size_px or 0, styles[0].font_size_px or 0)
         self.assertLess(styles[1].bbox[1] - styles[0].bbox[3], 40)
 
+    def test_layout_left_aligns_when_english_hugs_left_edge(self) -> None:
+        bands = [
+            (0, 1103, 869, 1162, "#FCFAF9", "#4B2222"),
+            (0, 1215, 891, 1274, "#FBF9F9", "#4B2222"),
+        ]
+        styles = _layout_reference_line_styles(bands, (1080, 1920))
+        self.assertEqual(len(styles), 2)
+        self.assertEqual(styles[0].alignment, "left")
+        self.assertEqual(styles[1].alignment, "left")
+        self.assertEqual(styles[0].fixed_font_size_px, styles[1].fixed_font_size_px)
+        self.assertEqual(styles[0].font_size_px, styles[1].font_size_px)
+        self.assertEqual(styles[0].bbox[0], 0)
+        self.assertEqual(styles[1].bbox[0], 0)
+        self.assertLessEqual(styles[1].bbox[1], styles[0].bbox[3])
+        self.assertGreater(styles[1].bbox[3] - styles[1].bbox[1], 139)
+        self.assertGreaterEqual(styles[0].bbox[2], 869)
+        self.assertEqual(styles[0].stacked_line_backgrounds, ("#4B2222",))
+        self.assertEqual(styles[1].stacked_line_backgrounds, ("#4B2222",))
+        self.assertGreater(styles[0].font_size_px, 65.0)
+
     def test_pdf_has_baked_placeholder_text_detects_top_text(self) -> None:
         template = Image.new("RGB", (1080, 1920), (20, 20, 20))
         reference = Image.new("RGB", (1080, 1920), (20, 20, 20))

@@ -679,6 +679,124 @@ class PublisherWrapperTests(unittest.TestCase):
         self.assertEqual(finish_body["video_state"], "SCHEDULED")
         self.assertIn("scheduled_publish_time", finish_body)
 
+    def test_schedule_facebook_reel_recovers_transient_finish_error(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        finish_error = MetaError(
+            "Meta POST page123/video_reels failed with HTTP 500",
+            http_status=500,
+            payload={"code": 1, "error_subcode": 99, "message": "An unknown error occurred"},
+        )
+        with (
+            patch.object(
+                client,
+                "_request",
+                side_effect=[
+                    {"video_id": "vid_1", "upload_url": "https://upload.example"},
+                    finish_error,
+                ],
+            ),
+            patch.object(client, "_upload_facebook_reel_video"),
+            patch.object(client, "facebook_video_exists", return_value=True) as exists_mock,
+            patch.object(client, "set_facebook_video_thumbnail") as thumb_mock,
+        ):
+            video_id = client.schedule_facebook_reel(
+                page_id="page123",
+                title="Launch",
+                description="Details",
+                video_path=Path("quote.mp4"),
+                thumbnail_path=Path("thumb.jpg"),
+            )
+
+        self.assertEqual(video_id, "vid_1")
+        exists_mock.assert_called_once_with("vid_1")
+        thumb_mock.assert_called_once()
+
+    def test_schedule_facebook_reel_reraises_transient_finish_when_video_missing(
+        self,
+    ) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        finish_error = MetaError(
+            "Meta POST page123/video_reels failed with HTTP 500",
+            http_status=500,
+            payload={"code": 1, "error_subcode": 99, "message": "An unknown error occurred"},
+        )
+        with (
+            patch.object(
+                client,
+                "_request",
+                side_effect=[
+                    {"video_id": "vid_1", "upload_url": "https://upload.example"},
+                    finish_error,
+                ],
+            ),
+            patch.object(client, "_upload_facebook_reel_video"),
+            patch.object(client, "facebook_video_exists", return_value=False),
+            self.assertRaises(MetaError) as raised,
+        ):
+            client.schedule_facebook_reel(
+                page_id="page123",
+                title="Launch",
+                video_path=Path("quote.mp4"),
+            )
+        self.assertIs(raised.exception, finish_error)
+
+    def test_schedule_facebook_reel_does_not_recover_non_transient_finish_error(
+        self,
+    ) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        finish_error = MetaError(
+            "Meta POST page123/video_reels failed with HTTP 400",
+            http_status=400,
+            payload={"code": 100, "message": "Invalid parameter"},
+        )
+        with (
+            patch.object(
+                client,
+                "_request",
+                side_effect=[
+                    {"video_id": "vid_1", "upload_url": "https://upload.example"},
+                    finish_error,
+                ],
+            ),
+            patch.object(client, "_upload_facebook_reel_video"),
+            patch.object(client, "facebook_video_exists") as exists_mock,
+            self.assertRaises(MetaError) as raised,
+        ):
+            client.schedule_facebook_reel(
+                page_id="page123",
+                title="Launch",
+                video_path=Path("quote.mp4"),
+            )
+        self.assertIs(raised.exception, finish_error)
+        exists_mock.assert_not_called()
+
+    def test_is_meta_transient_unknown_error(self) -> None:
+        from media_publisher.publishers.meta import is_meta_transient_unknown_error
+
+        self.assertTrue(
+            is_meta_transient_unknown_error(
+                MetaError(
+                    "fail",
+                    http_status=500,
+                    payload={"code": 1, "error_subcode": 99, "message": "An unknown error occurred"},
+                )
+            )
+        )
+        self.assertTrue(
+            is_meta_transient_unknown_error(
+                MetaError(
+                    "fail",
+                    http_status=500,
+                    payload={"code": 1, "message": "An unknown error occurred"},
+                )
+            )
+        )
+        self.assertFalse(
+            is_meta_transient_unknown_error(
+                MetaError("fail", http_status=400, payload={"code": 1, "error_subcode": 99})
+            )
+        )
+
     def test_publish_to_instagram_skips_long_form_video_with_url(self) -> None:
         job = PublishJob(
             title="Launch",

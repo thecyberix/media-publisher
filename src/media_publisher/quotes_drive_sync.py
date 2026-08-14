@@ -407,8 +407,7 @@ def sync_generated_quotes_for_months(
         else:
             if sent:
                 log(
-                    "Sent generated-quotes email to "
-                    + ", ".join(recipients)
+                    f"Sent generated-quotes email ({len(recipients)} recipient(s))"
                 )
             else:
                 reason = (

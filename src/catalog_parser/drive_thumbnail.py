@@ -6,7 +6,12 @@ from typing import Any
 
 from googleapiclient.discovery import Resource
 
-from catalog_parser.canva import CanvaClient, CanvaError, extract_canva_design_url
+from catalog_parser.canva import (
+    CanvaClient,
+    CanvaError,
+    extract_canva_design_url,
+    is_canva_auth_error,
+)
 from catalog_parser.canva_selection import (
     collect_canva_urls_from_values,
     dedupe_canva_urls,
@@ -170,19 +175,9 @@ def _resolve_canva_attachment(
     *,
     canva_client: CanvaClient | None,
 ) -> tuple[list[dict[str, str]], str]:
-    if canva_client is not None:
-        try:
-            return resolve_thumbnail_from_canva_link(canva_client, canva_url), "canva-export"
-        except CanvaError:
-            pass
-
-    from media_publisher.sources.canva_share_preview import resolve_canva_share_preview_url
-
-    preview_url = resolve_canva_share_preview_url(canva_url)
-    return (
-        build_airtable_attachment(preview_url, filename="canva-preview.jpg"),
-        "canva-share-preview",
-    )
+    if canva_client is None:
+        raise CanvaError("Canva client is not configured")
+    return resolve_thumbnail_from_canva_link(canva_client, canva_url), "canva-export"
 
 
 def _canva_url_from_drive_fields(
@@ -402,7 +397,7 @@ def download_canva_thumbnail(
     *,
     canva_client: CanvaClient | None = None,
 ) -> str:
-    """Write a Canva design export/preview image to ``destination``; return source label."""
+    """Write a Canva API design export to ``destination``; return source label."""
     attachment, source = _resolve_canva_attachment(canva_url, canva_client=canva_client)
     if not attachment:
         raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
@@ -411,6 +406,33 @@ def download_canva_thumbnail(
         raise DriveThumbnailError(f"Canva thumbnail attachment missing URL for {canva_url!r}")
     _download_http_url(url.strip(), destination)
     return source
+
+
+def _stage_manual_canva_review_placeholder(
+    destination: Path,
+    *,
+    canva_url: str,
+    drive_service: Resource,
+    folder_id: str,
+    updated: dict[str, Any],
+    thumbnail_field: str,
+) -> None:
+    from media_publisher.sources.thumbnail_review import (
+        write_manual_canva_review_placeholder,
+    )
+
+    size = video_size_from_pkg_folder(drive_service, folder_id)
+    write_manual_canva_review_placeholder(
+        destination,
+        canva_url=canva_url,
+        size=size,
+    )
+    updated["_thumbnailReviewPath"] = str(destination)
+    updated.pop("_originalThumbnailPath", None)
+    updated[thumbnail_field] = None
+    updated[f"{thumbnail_field}Source"] = "canva-manual:review-queue"
+    updated.pop(f"{thumbnail_field}Error", None)
+    print(f"  -> staged manual Canva download placeholder for review: {destination.name}")
 
 
 def download_original_platform_thumbnail(
@@ -485,10 +507,12 @@ def _stage_original_thumbnail_for_ingest(
     """Stage original thumbnail for Airtable upload or Drive review.
 
     Priority:
-    1. Canva link → Canva design export/preview (direct Airtable upload)
-    2. Otherwise matching-aspect original-platform thumbs are queued for review
+    1. Canva link → Canva API design export (direct Airtable upload)
+    2. Canva link + design-level API failure → manual-download placeholder for review
+    3. Otherwise matching-aspect original-platform thumbs are queued for review
 
-    Drive TN templates are ignored at ingest (used later for translated TN render).
+    Canva auth failures raise (workflow should fail). Drive TN templates are ignored
+    at ingest (used later for translated TN render).
     """
     updated[thumbnail_field] = None
     updated.pop(f"{thumbnail_field}Error", None)
@@ -506,11 +530,25 @@ def _stage_original_thumbnail_for_ingest(
         original_video_url=source_url,
     )
     if canva_url is not None:
-        source = download_canva_thumbnail(
-            canva_url,
-            destination,
-            canva_client=canva_client,
-        )
+        try:
+            source = download_canva_thumbnail(
+                canva_url,
+                destination,
+                canva_client=canva_client,
+            )
+        except Exception as exc:
+            if is_canva_auth_error(exc):
+                raise DriveThumbnailError(str(exc)) from exc
+            print(f"  -> Canva API export failed (manual review): {exc}")
+            _stage_manual_canva_review_placeholder(
+                destination,
+                canva_url=canva_url,
+                drive_service=drive_service,
+                folder_id=folder_id,
+                updated=updated,
+                thumbnail_field=thumbnail_field,
+            )
+            return
         updated["_originalThumbnailPath"] = str(destination)
         updated.pop("_thumbnailReviewPath", None)
         updated[f"{thumbnail_field}Source"] = source
@@ -601,6 +639,8 @@ def enrich_records_with_original_video_thumbnails(
                         canva_client=canva_client,
                     )
                 except DriveThumbnailError as primary_exc:
+                    if is_canva_auth_error(primary_exc):
+                        raise
                     peer_yt = None
                     if detect_platform(source_url) == "instagram":
                         peer_yt = find_peer_youtube_ct_link(
@@ -663,11 +703,15 @@ def enrich_records_with_original_video_thumbnails(
                 updated.pop(f"{thumbnail_field}Error", None)
                 print("  -> no thumbnail source")
         except DriveThumbnailError as exc:
+            if is_canva_auth_error(exc):
+                raise
             updated[thumbnail_field] = None
             updated[f"{thumbnail_field}Source"] = None
             updated[f"{thumbnail_field}Error"] = str(exc)
             print(f"  -> error: {exc}")
         except Exception as exc:
+            if is_canva_auth_error(exc):
+                raise
             updated[thumbnail_field] = None
             updated[f"{thumbnail_field}Source"] = None
             updated[f"{thumbnail_field}Error"] = str(exc)

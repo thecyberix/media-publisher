@@ -5,8 +5,12 @@ from pathlib import Path
 from typing import Protocol
 
 from media_publisher.sources.airtable import build_airtable_attachment
-from media_publisher.sources.canva import CanvaError, CanvaClient, parse_design_id, resolve_canva_url
-from media_publisher.sources.canva_share_preview import resolve_canva_share_preview_url
+from media_publisher.sources.canva import (
+    CanvaClient,
+    CanvaError,
+    parse_design_id,
+    resolve_canva_url,
+)
 from media_publisher.sources.source_thumbnail import SourceThumbnailError, extract_thumbnail_url
 
 PDF_MIME = "application/pdf"
@@ -62,26 +66,18 @@ def resolve_canva_attachment(
     *,
     canva_client: CanvaClient | None,
 ) -> tuple[list[dict[str, str]], str]:
-    if canva_client is not None:
-        try:
-            resolved = resolve_canva_url(canva_url)
-            design_id = parse_design_id(resolved)
-            if design_id is None:
-                raise CanvaError(f"Could not parse Canva design id from {canva_url!r}")
-            job = canva_client.export_design(design_id, export_format="jpg")
-            if not job.urls:
-                raise CanvaError("Canva export returned no download URLs")
-            return (
-                build_airtable_attachment(job.urls[0], filename="canva-thumbnail.jpg"),
-                "canva-export",
-            )
-        except CanvaError:
-            pass
-
-    preview_url = resolve_canva_share_preview_url(canva_url)
+    if canva_client is None:
+        raise CanvaError("Canva client is not configured")
+    resolved = resolve_canva_url(canva_url)
+    design_id = parse_design_id(resolved)
+    if design_id is None:
+        raise CanvaError(f"Could not parse Canva design id from {canva_url!r}")
+    job = canva_client.export_design(design_id, export_format="jpg")
+    if not job.urls:
+        raise CanvaError("Canva export returned no download URLs")
     return (
-        build_airtable_attachment(preview_url, filename="canva-preview.jpg"),
-        "canva-share-preview",
+        build_airtable_attachment(job.urls[0], filename="canva-thumbnail.jpg"),
+        "canva-export",
     )
 
 

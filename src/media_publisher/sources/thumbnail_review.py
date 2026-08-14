@@ -236,7 +236,7 @@ def send_review_notification_email(
 
     smtp_user = os.getenv("GMAIL_SMTP_USER", "").strip()
     smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD", "").strip()
-    notify_email = os.getenv("NOTIFY_EMAIL", "georgi.uzunov-ext@sadhguru.org").strip()
+    notify_email = os.getenv("NOTIFY_EMAIL", "").strip()
     if not smtp_user or not smtp_password or not notify_email:
         return False
 

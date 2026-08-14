@@ -924,10 +924,12 @@ def apply_typography_preferences(
                             faux_bold=style.faux_bold,
                             segments=segments,
                             max_grow_factor=1.02,
+                            fixed_font_size_px=style.fixed_font_size_px,
+                            stacked_line_backgrounds=style.stacked_line_backgrounds,
                         ),
                         bold=True,
                     ),
-                    0.96,
+                    1.0,
                 )
             )
             continue

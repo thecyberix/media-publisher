@@ -37,7 +37,6 @@ from media_publisher.sources.airtable import (
     AirtableClient,
 )
 from media_publisher.sources.canva import CanvaError, parse_design_id, resolve_canva_url
-from media_publisher.sources.canva_share_preview import download_canva_share_preview
 from media_publisher.sources.google_drive import GoogleDriveClient
 from media_publisher.sources.tn_psd import composite_without_text, safe_cache_name
 
@@ -446,20 +445,15 @@ def main() -> int:
                     if not canva_url:
                         raise RuntimeError("no Canva link in TEXT_ doc")
                     temp_export = tmp_path / f"{safe_cache_name(title)}.jpg"
-                    source_type = "canva-share-preview"
-                    if canva_client is not None:
-                        try:
-                            design_id = canva_design_id(canva_url)
-                            canva_client.download_design_image(
-                                design_id,
-                                temp_export,
-                                export_format="jpg",
-                            )
-                            source_type = "canva-export"
-                        except CanvaError:
-                            download_canva_share_preview(canva_url, temp_export)
-                    else:
-                        download_canva_share_preview(canva_url, temp_export)
+                    if canva_client is None:
+                        raise RuntimeError("Canva client is not configured")
+                    design_id = canva_design_id(canva_url)
+                    canva_client.download_design_image(
+                        design_id,
+                        temp_export,
+                        export_format="jpg",
+                    )
+                    source_type = "canva-export"
                     with Image.open(temp_export) as image:
                         save_jpg(image, destination)
                     source_detail = canva_url

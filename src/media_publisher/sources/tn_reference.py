@@ -99,6 +99,22 @@ def _is_text_pixel(red: int, green: int, blue: int) -> bool:
     return blue >= 100 and green >= 60 and blue > red + 20 and luminance >= 70
 
 
+def _is_blue_label_background_pixel(red: int, green: int, blue: int) -> bool:
+    """Cyan/teal credit chips only — not gray panels or purple photo noise."""
+    return blue > red + 40 and blue > 120 and green >= red
+
+
+def _is_dark_label_background_pixel(red: int, green: int, blue: int) -> bool:
+    """Dark brown/black label plates behind light English text."""
+    luminance = (red + green + blue) / 3
+    if luminance < 12 or luminance > 95:
+        return False
+    if _is_text_pixel(red, green, blue):
+        return False
+    # Prefer warm/neutral dark plates; skip vivid greens/blues.
+    return blue <= red + 15 and green <= red + 25
+
+
 def _is_dark_ink_pixel(red: int, green: int, blue: int) -> bool:
     luminance = (red + green + blue) / 3
     if luminance >= DARK_INK_LUMINANCE_THRESHOLD:
@@ -322,7 +338,8 @@ def _text_bands(
     styled: list[tuple[int, int, int, int, str, str | None]] = []
     for _left, top, _right, bottom in bands:
         text_pixels: list[tuple[int, int, int]] = []
-        background_pixels: list[tuple[int, int, int]] = []
+        blue_background_pixels: list[tuple[int, int, int]] = []
+        dark_background_pixels: list[tuple[int, int, int]] = []
         min_x = width
         max_x = 0
         for y in range(top, bottom):
@@ -332,8 +349,10 @@ def _text_bands(
                     text_pixels.append((red, green, blue))
                     min_x = min(min_x, x)
                     max_x = max(max_x, x)
-                elif blue > red + 20 and blue > 90:
-                    background_pixels.append((red, green, blue))
+                elif _is_blue_label_background_pixel(red, green, blue):
+                    blue_background_pixels.append((red, green, blue))
+                elif _is_dark_label_background_pixel(red, green, blue):
+                    dark_background_pixels.append((red, green, blue))
 
         if min_x >= max_x:
             continue
@@ -343,9 +362,21 @@ def _text_bands(
         right = min(width, max_x + margin_x)
         text_color = _average_rgb(text_pixels)
         background_hex: str | None = None
-        if background_pixels:
-            background = _average_rgb(background_pixels)
-            background_hex = _hex_from_rgb(*background)
+        prefer_blue = bool(blue_background_pixels)
+        near_text: list[tuple[int, int, int]] = []
+        pad = max(12, int((max_x - min_x) * 0.08))
+        for y in range(top, bottom):
+            for x in range(max(0, min_x - pad), min(width, max_x + pad)):
+                red, green, blue = pixels[x, y][:3]
+                if prefer_blue and _is_blue_label_background_pixel(red, green, blue):
+                    near_text.append((red, green, blue))
+                elif not prefer_blue and _is_dark_label_background_pixel(
+                    red, green, blue
+                ):
+                    near_text.append((red, green, blue))
+        chosen = near_text or blue_background_pixels or dark_background_pixels
+        if chosen:
+            background_hex = _hex_from_rgb(*_average_rgb(chosen))
         styled.append(
             (
                 left,
@@ -1566,8 +1597,8 @@ def _select_bands_for_caption(
     if caption_line_count is None:
         return bands
 
-    body_bands = [band for band in bands if band[5] is None]
-    label_bands = [band for band in bands if band[5] is not None]
+    body_bands = [band for band in bands if not _is_blue_label_band(band)]
+    label_bands = [band for band in bands if _is_blue_label_band(band)]
     if label_bands:
         body_count = max(0, caption_line_count - 1)
         selected_body = (
@@ -1607,12 +1638,45 @@ def pdf_has_baked_placeholder_text(
     return template_score > reference_score + 40
 
 
+def _hex_to_rgb(color_hex: str) -> tuple[int, int, int] | None:
+    text = color_hex.strip().lstrip("#")
+    if len(text) != 6:
+        return None
+    try:
+        return (int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16))
+    except ValueError:
+        return None
+
+
+def _is_blue_label_band(band: tuple[int, int, int, int, str, str | None]) -> bool:
+    """Credit/label plates use blue-tint backgrounds; dark text plates stay body."""
+    background = band[5]
+    if not background:
+        return False
+    rgb = _hex_to_rgb(background)
+    if rgb is None:
+        return False
+    return _is_blue_label_background_pixel(*rgb)
+
+
+def _body_bands_are_left_aligned(
+    body_bands: list[tuple[int, int, int, int, str, str | None]],
+    width: int,
+) -> bool:
+    """True when English text hugs the left side rather than sitting centered."""
+    if not body_bands or width <= 0:
+        return False
+    avg_left = sum(band[0] for band in body_bands) / len(body_bands)
+    avg_center = sum((band[0] + band[2]) / 2 for band in body_bands) / len(body_bands)
+    return avg_left <= width * 0.12 and avg_center < width * 0.45
+
+
 def _layout_reference_line_styles(
     bands: list[tuple[int, int, int, int, str, str | None]],
     template_size: tuple[int, int],
 ) -> list[TnLineStyle]:
-    body_bands = [band for band in bands if band[5] is None]
-    label_bands = [band for band in bands if band[5] is not None]
+    body_bands = [band for band in bands if not _is_blue_label_band(band)]
+    label_bands = [band for band in bands if _is_blue_label_band(band)]
     if not body_bands:
         return []
 
@@ -1620,15 +1684,35 @@ def _layout_reference_line_styles(
     body_heights = [max(1, band[3] - band[1]) for band in body_bands]
     base_height = max(body_heights)
     body_font = max(24.0, base_height * 0.82 * REFERENCE_FONT_SCALE)
+    left_aligned = _body_bands_are_left_aligned(body_bands, width)
+    if left_aligned:
+        # Match the heavier English plates a bit more closely.
+        body_font *= 1.12
     line_box_height = max(1, int(round(body_font * 1.12)))
     line_gap = max(2, int(round(body_font * REFERENCE_BODY_LINE_GAP_FACTOR)))
 
     body_top = min(band[1] for band in body_bands)
     body_bottom = max(band[3] for band in body_bands)
     max_body_width = max(1, width - 2 * TEXT_EDGE_MARGIN_PX)
-    body_width = min(int(width * 0.88), max_body_width)
-    left = max(TEXT_EDGE_MARGIN_PX, (width - body_width) // 2)
-    right = min(width - TEXT_EDGE_MARGIN_PX, left + body_width)
+    if left_aligned:
+        # Text stays inside the hard edge margin; plates may still cover
+        # flush-left English artwork underneath.
+        left = TEXT_EDGE_MARGIN_PX
+        band_right = max(band[2] for band in body_bands)
+        right = min(
+            width - TEXT_EDGE_MARGIN_PX,
+            max(band_right, left + int(width * 0.85)),
+        )
+        alignment = "left"
+        # English plates (and the lighter gap plate between lines) extend well
+        # past the ink bands — over-cover so no original fringe remains.
+        plate_pad_y = max(40, int(round(body_font * 0.55)))
+    else:
+        body_width = min(int(width * 0.88), max_body_width)
+        left = max(TEXT_EDGE_MARGIN_PX, (width - body_width) // 2)
+        right = min(width - TEXT_EDGE_MARGIN_PX, left + body_width)
+        alignment = "center"
+        plate_pad_y = 0
 
     total_body_height = (
         len(body_bands) * line_box_height + max(0, len(body_bands) - 1) * line_gap
@@ -1638,20 +1722,70 @@ def _layout_reference_line_styles(
 
     styles: list[TnLineStyle] = []
     for index, band in enumerate(body_bands):
-        top = start_y + index * (line_box_height + line_gap)
-        bottom = min(height, top + line_box_height)
+        band_height = max(1, band[3] - band[1])
+        line_font = (
+            body_font
+            if left_aligned
+            else max(24.0, band_height * 0.82 * REFERENCE_FONT_SCALE)
+        )
+        line_box_h = max(1, int(round(line_font * 1.12)))
+        if left_aligned:
+            top = max(0, band[1] - plate_pad_y)
+            bottom = min(height, band[3] + plate_pad_y)
+            if index == 0:
+                # Nudge the lead plate slightly downward.
+                shift_y = max(22, int(round(body_font * 0.28)))
+                top = min(height - 1, top + shift_y)
+                bottom = min(height, bottom + shift_y)
+            elif index > 0:
+                # Keep trailing plates below the lead line; final touch-up joins them.
+                shift_y = max(36, int(round(body_font * 0.50)))
+                top = min(height - 1, top + shift_y)
+                bottom = min(height, bottom + shift_y)
+            # Cover original flush-left plates even though text is margin-inset.
+            line_left = min(band[0], left)
+            line_right = max(band[2], right) if index == 0 else right
+        else:
+            # Keep each line over its English band; size from that band's ink height.
+            band_center_y = (band[1] + band[3]) // 2
+            top = max(0, band_center_y - line_box_h // 2)
+            bottom = min(height, top + line_box_h)
+            line_left = left
+            line_right = right
+        backgrounds: tuple[str | None, ...] = ()
+        if left_aligned and band[5]:
+            backgrounds = (band[5],)
         styles.append(
             TnLineStyle(
                 placeholder_text="reference-line",
                 rendered_text="reference-line",
-                bbox=(left, top, right, bottom),
-                font_size_px=body_font,
+                bbox=(line_left, top, line_right, bottom),
+                font_size_px=line_font,
+                fixed_font_size_px=line_font,
                 color_hex=band[4],
                 layer_name="reference-thumbnail",
-                alignment="center",
-                faux_bold=False,
+                alignment=alignment,
+                faux_bold=True,
                 max_grow_factor=REFERENCE_MAX_GROW_FACTOR,
+                stacked_line_backgrounds=backgrounds,
             )
+        )
+
+    if left_aligned and len(styles) >= 2:
+        # Join plates: raise/taller line 2 so it meets (and slightly overlaps) line 1.
+        first = styles[0]
+        second = styles[1]
+        _left1, _top1, _right1, bottom1 = first.bbox
+        left2, top2, right2, bottom2 = second.bbox
+        taller = max(bottom2 - top2 + max(24, int(round(body_font * 0.38))), bottom2 - top2)
+        overlap = max(40, int(round(body_font * 0.48)))
+        new_top = max(0, bottom1 - overlap)
+        new_bottom = min(height, new_top + taller)
+        shared_bg = first.stacked_line_backgrounds or second.stacked_line_backgrounds
+        styles[1] = replace(
+            second,
+            bbox=(left2, new_top, right2, new_bottom),
+            stacked_line_backgrounds=shared_bg,
         )
 
     if not label_bands:
@@ -1945,6 +2079,38 @@ def cover_reference_text(
     if cover_bounds is None:
         return image.copy()
     return cover_text_region(image, cover_bounds, solid_fill=solid_fill)
+
+
+def cover_reference_text_plates(
+    image: Image.Image,
+    line_styles: list[TnLineStyle],
+    *,
+    pad_px: int = 2,
+) -> Image.Image:
+    """Replace original English text plates with solid sampled plate fills."""
+    result = image.copy()
+    draw = ImageDraw.Draw(result)
+    painted = False
+    for style in line_styles:
+        if not style.stacked_line_backgrounds:
+            continue
+        background = style.stacked_line_backgrounds[0]
+        if not background:
+            continue
+        left, top, right, bottom = style.bbox
+        draw.rectangle(
+            (
+                left,
+                max(0, top - pad_px),
+                right,
+                min(image.height, bottom + pad_px),
+            ),
+            fill=background,
+        )
+        painted = True
+    if not painted:
+        return cover_reference_text(image)
+    return result
 
 
 def load_reference_thumbnail(path: Path) -> Image.Image | None:

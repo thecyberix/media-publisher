@@ -852,11 +852,62 @@ def _draw_line(
     if alignment == "right":
         x = right - total_width
     elif alignment == "left":
-        x = left
+        x = max(left, TEXT_EDGE_MARGIN_PX)
     else:
         x = left + max(0, (box_width - total_width) // 2)
 
     text_left = x
+    reference_size = max(
+        12, int(round(max(segment.font_size_px for segment, _ in segment_fonts)))
+    )
+    background_hex = (
+        style.stacked_line_backgrounds[0] if style.stacked_line_backgrounds else None
+    )
+    if background_hex:
+        segments = tuple(segment for segment, _ in segment_fonts)
+        fonts = tuple(font for _, font in segment_fonts)
+        pad_x = max(4, int(reference_size * 0.08))
+        if alignment == "left":
+            pad_y_top = max(10, int(reference_size * 0.20))
+            pad_y_bottom = max(10, int(reference_size * 0.20))
+        else:
+            pad_y_top = max(2, int(reference_size * 0.08))
+            pad_y_bottom = max(2, int(reference_size * 0.06))
+        text_box_left, text_top, text_box_right, text_bottom = _segment_row_text_bbox(
+            draw,
+            segments,
+            fonts,
+            x,
+            y,
+        )
+        box_left, box_top, box_right, box_bottom = style.bbox
+        hug_text_plate = alignment == "left" and (style_index or 0) > 0
+        if hug_text_plate:
+            # Trailing lines: right edge hugs the text, left edge continues
+            # flush like the lead plate; use full style bbox height so plates touch.
+            pad_x = max(14, int(reference_size * 0.22))
+            pad_y_top = max(8, int(reference_size * 0.16))
+            pad_y_bottom = max(8, int(reference_size * 0.16))
+            bg_left = min(0, box_left)
+            bg_right = text_box_right + pad_x
+            bg_top = min(box_top, text_top - pad_y_top)
+            bg_bottom = max(box_bottom, text_bottom + pad_y_bottom)
+        elif alignment == "left":
+            # First line: cover flush-left English plate; text stays margin-inset.
+            bg_left = min(0, box_left, text_box_left - pad_x)
+            bg_right = max(box_right, text_box_right + pad_x)
+            bg_top = min(box_top, text_top - pad_y_top)
+            bg_bottom = max(box_bottom, text_bottom + pad_y_bottom)
+        else:
+            bg_left = text_box_left - pad_x
+            bg_right = text_box_right + pad_x
+            bg_top = text_top - pad_y_top
+            bg_bottom = text_bottom + pad_y_bottom
+        draw.rectangle(
+            (bg_left, bg_top, bg_right, bg_bottom),
+            fill=background_hex,
+        )
+
     for segment, font in segment_fonts:
         draw.text(
             (x, y),

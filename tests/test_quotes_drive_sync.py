@@ -105,7 +105,7 @@ class QuotesDriveSyncHelpersTests(unittest.TestCase):
             os.environ,
             {
                 "GENERATED_QUOTES_NOTIFY_EMAIL": (
-                    "badjorov@gmail.com, georgi.uzunov-ext@sadhguru.org"
+                    "quotes@example.com, ops@example.com"
                 ),
                 "NOTIFY_EMAIL": "should-not-appear@example.com",
             },
@@ -114,7 +114,7 @@ class QuotesDriveSyncHelpersTests(unittest.TestCase):
             recipients = generated_quotes_notify_recipients()
         self.assertEqual(
             recipients,
-            ["badjorov@gmail.com", "georgi.uzunov-ext@sadhguru.org"],
+            ["quotes@example.com", "ops@example.com"],
         )
 
         with patch.dict(os.environ, {"GENERATED_QUOTES_NOTIFY_EMAIL": ""}, clear=False):

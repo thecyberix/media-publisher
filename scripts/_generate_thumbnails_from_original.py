@@ -23,6 +23,7 @@ from media_publisher.sources.tn_publish import render_destination
 from media_publisher.sources.tn_reference import (
     cover_label_box_reference_text,
     cover_reference_text,
+    cover_reference_text_plates,
     cover_right_side_reference_text,
     cover_split_reference_text,
     cover_top_only_reference_text,
@@ -194,6 +195,10 @@ def main() -> int:
             template = cover_label_box_reference_text(reference)
         elif cover_mode == "split top/bottom":
             template = cover_split_reference_text(reference)
+        elif any(style.stacked_line_backgrounds for style in line_styles):
+            # Blur away English plates; final plate shapes are painted during render
+            # (line 1 full-width, later lines text-hugging).
+            template = cover_reference_text(reference)
         else:
             template = cover_reference_text(reference)
         print(

@@ -42,8 +42,6 @@ from media_publisher.sources.airtable import (
     AirtableClient,
 )
 from scripts.cache_pkgtn_thumbnails import canva_design_id
-from media_publisher.sources.canva import CanvaError
-from media_publisher.sources.canva_share_preview import download_canva_share_preview
 from media_publisher.sources.google_drive import GoogleDriveClient
 
 WORD_DOC_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -124,20 +122,15 @@ def main() -> int:
                         original_video_url=str(fields.get(FIELD_ORIGINAL_VIDEO) or ""),
                     )
                     temp_export = tmp_path / "preview.bin"
-                    source_type = "canva-share-preview"
-                    if canva_client is not None:
-                        try:
-                            canva_client.download_design_image(
-                                canva_design_id(canva_url),
-                                temp_export.with_suffix(".jpg"),
-                                export_format="jpg",
-                            )
-                            temp_export = temp_export.with_suffix(".jpg")
-                            source_type = "canva-export"
-                        except CanvaError:
-                            download_canva_share_preview(canva_url, temp_export)
-                    else:
-                        download_canva_share_preview(canva_url, temp_export)
+                    if canva_client is None:
+                        raise RuntimeError("Canva client is not configured")
+                    canva_client.download_design_image(
+                        canva_design_id(canva_url),
+                        temp_export.with_suffix(".jpg"),
+                        export_format="jpg",
+                    )
+                    temp_export = temp_export.with_suffix(".jpg")
+                    source_type = "canva-export"
                     with Image.open(temp_export) as image:
                         save_jpg(image, destination)
                 manifest_by_title[title] = {
