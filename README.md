@@ -39,14 +39,14 @@ See `docs/catalog-github-actions.md` for catalog workflow secrets and schedule. 
 
 ## GitHub Actions (scheduled publishing)
 
-Two workflows live under `.github/workflows/`:
+Workflows live under `.github/workflows/`:
 
 | Workflow | Purpose |
 |----------|---------|
 | `ci.yml` | Runs unit tests on push/PR |
 | `publish.yml` | Manual + external cron publishing (`workflow_dispatch`) |
 | `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync |
-| `catalog-weekly-work-report.yml` | Weekly translation/editing report email |
+| `reporting.yml` | Snapshots, weekly email, monthly KPIs, prune past events |
 
 ### Repository secrets
 
@@ -94,13 +94,13 @@ At startup, `load_settings()` reads environment variables (injected by GitHub Ac
 
 **Canva (shared):** Publishing and catalog ingest use the same `CANVA_CLIENT_ID` / `CANVA_TOKEN_JSON` → `credentials/canva-token.json`. Set `CANVA_TOKEN_SYNC_PAT` locally (and in GitHub Actions secrets) so any Canva token refresh updates `CANVA_TOKEN_JSON` automatically at the end of `media_publisher` / `catalog_parser` CLI runs.
 
-### Channel report (monthly views)
+### Reporting (snapshots, weekly work, monthly views, past events)
 
 | Workflow | Purpose |
 |----------|---------|
-| `channel-report.yml` | Monthly update of **Views Actual** in the Bulgarian Google Sheet tab |
+| `reporting.yml` | Follower snapshots, Monday work-report email, monthly **Views Actual**, prune past events |
 
-Scheduled for the **2nd of each month at 06:00 UTC** (updates the previous complete month). Manual run: **Actions → Channel report → Run workflow**.
+Scheduled daily at **06:00 UTC**: snapshots and prune past events every day; weekly email on Mondays; channel KPIs on the 2nd. Manual run: **Actions → Reporting → Run workflow** (task `auto`, or pick `snapshots` / `weekly-work` / `channel-report` / `prune-past-events`).
 
 Local commands:
 
@@ -116,7 +116,7 @@ Requires `GOOGLE_SERVICE_ACCOUNT_JSON`, YouTube OAuth token with `yt-analytics.r
 
 ### Manual publish run
 
-In GitHub: **Actions → Publish → Run workflow**. Choose `videos`, `quotes`, or `all`, and enable **private** for a safe test run.
+In GitHub: **Actions → Publish videos and quotes → Run workflow**. Choose `videos`, `quotes`, or `all`, and enable **private** for a safe test run.
 
 To trigger the same way as cron-job.org (API / script), see `docs/publish-github-actions.md`.
 
@@ -131,7 +131,7 @@ config/workflow_config.example.json
   ci.yml
   publish.yml
   catalog-daily-workflow.yml
-  catalog-weekly-work-report.yml
+  reporting.yml
 ```
 
 ## API credentials (local)

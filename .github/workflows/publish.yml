@@ -1,4 +1,4 @@
-name: Publish
+name: Publish videos and quotes
 
 # Primary schedule: external cron (cron-job.org) → workflow_dispatch.
 # Default publish mode is staggered: Instagram today, YouTube/Facebook tomorrow.

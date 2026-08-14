@@ -9,13 +9,32 @@ on:
         description: Plan actions without modifying Airtable or Drive
         type: boolean
         default: false
+      mode:
+        description: Full daily workflow, or ingest only (no translator assignment)
+        type: choice
+        options:
+          - full
+          - ingest
+        default: full
+      video_type:
+        description: Ingest only — catalog type
+        type: choice
+        options:
+          - Reel
+          - Short
+          - Video
+        default: Reel
+      count:
+        description: Ingest only — number of videos
+        type: string
+        default: "4"
 
 concurrency:
   group: catalog-workflow
   cancel-in-progress: false
 
 # Required so github.token can list/download prior workflow-state artifacts
-# (status_history + Airtable backups) for the weekly report chain.
+# (status_history + Airtable backups) for the Reporting weekly-work chain.
 permissions:
   actions: read
   contents: read
@@ -101,7 +120,9 @@ jobs:
           )"
 
       - name: Restore workflow state from previous run
-        if: steps.auth_check.outcome == 'success'
+        if: >-
+          steps.auth_check.outcome == 'success'
+          && inputs.mode != 'ingest'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,13 +158,59 @@ jobs:
           restore_state_file "backups/airtable-archive-titles.json" "output/backups/airtable-archive-titles.json"
 
       - name: Show Drive service account email
-        if: steps.auth_check.outcome == 'success'
+        if: >-
+          steps.auth_check.outcome == 'success'
+          && inputs.mode != 'ingest'
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python scripts/catalog/print_google_service_account_email.py
 
+      - name: Run unassigned ingest
+        if: >-
+          steps.auth_check.outcome == 'success'
+          && inputs.mode == 'ingest'
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
+          OUTPUT_DRIVE_FOLDER: ${{ vars.OUTPUT_DRIVE_FOLDER || secrets.OUTPUT_DRIVE_FOLDER }}
+          WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SMARTCAT_STORAGE_STATE: smartcat-state.json
+          SMARTCAT_AI_PREFILL: ${{ vars.SMARTCAT_AI_PREFILL || secrets.SMARTCAT_AI_PREFILL || 'true' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || secrets.ANTHROPIC_MODEL || '' }}
+          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || secrets.TRANSLATION_PROVIDER || 'anthropic' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || secrets.OPENAI_MODEL || '' }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL || '' }}
+          CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
+          CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+          CANVA_TOKEN_SYNC_PAT: ${{ secrets.CANVA_TOKEN_SYNC_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+        run: |
+          set -euo pipefail
+          COUNT="${{ inputs.count }}"
+          COUNT="${COUNT:-4}"
+          if ! [[ "$COUNT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "count must be a positive integer, got: $COUNT" >&2
+            exit 1
+          fi
+          TYPE=$(echo "${{ inputs.video_type }}" | tr '[:upper:]' '[:lower:]')
+          EXTRA_ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            EXTRA_ARGS="--dry-run"
+          fi
+          python -m catalog_parser ingest --unassigned --type "$TYPE" --count "$COUNT" $EXTRA_ARGS
+
       - name: Run workflow orchestrator
-        if: steps.auth_check.outcome == 'success'
+        if: >-
+          steps.auth_check.outcome == 'success'
+          && inputs.mode != 'ingest'
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
@@ -180,7 +247,10 @@ jobs:
 
       - name: Check HappyScribe watch library
         id: hs_watch
-        if: always() && steps.auth_check.outcome == 'success'
+        if: >-
+          always()
+          && steps.auth_check.outcome == 'success'
+          && inputs.mode != 'ingest'
         env:
           HAPPYSCRIBE_API_KEY: ${{ secrets.HAPPYSCRIBE_API_KEY }}
         run: |
@@ -214,7 +284,10 @@ jobs:
             --body "$(cat output/happyscribe-watch-alert.txt)"
 
       - name: Upload Airtable backup artifact
-        if: always() && steps.auth_check.outcome == 'success'
+        if: >-
+          always()
+          && steps.auth_check.outcome == 'success'
+          && inputs.mode != 'ingest'
         uses: actions/upload-artifact@v4
         with:
           name: airtable-backup-${{ github.run_number }}
@@ -223,7 +296,10 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload workflow state artifact
-        if: always() && steps.auth_check.outcome == 'success'
+        if: >-
+          always()
+          && steps.auth_check.outcome == 'success'
+          && inputs.mode != 'ingest'
         uses: actions/upload-artifact@v4
         with:
           name: workflow-state

@@ -59,7 +59,7 @@ If `pages_manage_posts` is missing, re-authorize a Page token for a user with th
 
 Events are removed when their start datetime (Europe/Sofia) is in the past:
 
-- **Daily** via [`prune-past-events.yml`](../.github/workflows/prune-past-events.yml) (21:00 UTC ≈ midnight Sofia in summer)
+- **Daily** via the [Reporting workflow](../.github/workflows/reporting.yml) at 06:00 UTC
 - on every `--publish-event` / **Publish event** run
 - manually: `python -m media_publisher --prune-past-events`
 

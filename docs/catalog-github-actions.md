@@ -118,8 +118,19 @@ Push to the branch cron-job uses in `"ref"` (`master` for this repo).
 
 **Actions → Daily catalog workflow → Run workflow**
 
-- Leave **dry_run** unchecked for a real run.
-- Check **dry_run** to print planned actions without writing to Airtable or Drive.
+- **mode `full`** (default) — editor assignment, mixing, ingest, and the rest of the daily orchestrator.
+  - Leave **dry_run** unchecked for a real run.
+  - Check **dry_run** to print planned actions without writing to Airtable or Drive.
+- **mode `ingest`** — create unassigned Airtable rows only (`7. Not Assigned`). Skips assignment, mixing, HappyScribe watch, and workflow-state artifacts.
+  - **video_type** — `Reel`, `Short`, or `Video`
+  - **count** — how many rows to ingest (default `4`)
+  - **dry_run** — preview eligible rows without writing to Airtable
+
+Local equivalent:
+
+```powershell
+python -m catalog_parser ingest --unassigned --type reel --count 4
+```
 
 ## Airtable backups and status history
 
@@ -390,7 +401,7 @@ OAuth `credentials.json` / `token.json` are for local development only; CI uses 
 
 ## Weekly translation & editing report
 
-The [weekly work report workflow](../.github/workflows/catalog-weekly-work-report.yml) emails a summary every **Monday at 09:00 UTC+3** (06:00 UTC).
+The [Reporting workflow](../.github/workflows/reporting.yml) emails a summary every **Monday at 09:00 UTC+3** (06:00 UTC), as part of the daily 06:00 UTC reporting run.
 
 The report covers the **previous calendar week** (Monday 00:00 – Sunday 23:59, UTC+3). It reads `output/workflow/status_history.json` accumulated by daily runs — **no Airtable API calls**.
 

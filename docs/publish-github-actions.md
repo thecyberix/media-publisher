@@ -11,7 +11,7 @@ Default mode depends on how the workflow is triggered:
 
 ## Manual run (GitHub UI)
 
-**Actions → Publish → Run workflow**
+**Actions → Publish videos and quotes → Run workflow**
 
 | Input | Use |
 |-------|-----|
@@ -47,7 +47,7 @@ Invoke-RestMethod `
   -ContentType "application/json"
 ```
 
-Expected: HTTP **204**. A new run appears under **Actions → Publish** within seconds.
+Expected: HTTP **204**. A new run appears under **Actions → Publish videos and quotes** within seconds.
 
 ### Local helper script
 

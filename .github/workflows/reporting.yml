@@ -1,0 +1,258 @@
+name: Reporting
+
+# Daily 06:00 UTC (09:00 UTC+3 in summer / 08:00 UTC+2 in winter):
+#   - every day: follower snapshots and prune past events
+#   - Mondays: email the weekly translation/editing report
+#   - 2nd of the month: update the channel KPI sheet for the previous month
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Which job(s) to run (auto = same as the daily schedule)
+        type: choice
+        options:
+          - auto
+          - snapshots
+          - weekly-work
+          - channel-report
+          - prune-past-events
+        default: auto
+      dry_run:
+        description: Preview only (channel report = no Sheets write; prune = no commit / Pages deploy)
+        type: boolean
+        default: false
+      all_months:
+        description: Channel report — backfill every month through the last complete month
+        type: boolean
+        default: false
+      month:
+        description: Channel report — optional single month to update (YYYY-MM)
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  actions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: reporting
+  cancel-in-progress: false
+
+env:
+  NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
+  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+  YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
+  YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+  META_APP_ID: ${{ secrets.META_APP_ID }}
+  META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+  META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+  META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
+  META_INSTAGRAM_ACCOUNT_ID: ${{ secrets.META_INSTAGRAM_ACCOUNT_ID }}
+  AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+  AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+  AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      events_changed: ${{ steps.prune_commit.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          extras: sheets
+
+      - name: Select report tasks
+        id: plan
+        run: |
+          set -euo pipefail
+          TASK="${{ github.event.inputs.task || 'auto' }}"
+          DOW=$(date -u +%u)
+          DOM=$(date -u +%d)
+          echo "UTC weekday=$DOW (1=Monday) day-of-month=$DOM task=$TASK"
+
+          RUN_SNAPSHOTS=false
+          RUN_WEEKLY=false
+          RUN_CHANNEL=false
+          RUN_PRUNE=false
+          case "$TASK" in
+            snapshots)
+              RUN_SNAPSHOTS=true
+              ;;
+            weekly-work)
+              RUN_WEEKLY=true
+              ;;
+            channel-report)
+              RUN_CHANNEL=true
+              ;;
+            prune-past-events)
+              RUN_PRUNE=true
+              ;;
+            *)
+              RUN_SNAPSHOTS=true
+              RUN_PRUNE=true
+              if [ "$DOW" = "1" ]; then
+                RUN_WEEKLY=true
+              fi
+              if [ "$DOM" = "02" ]; then
+                RUN_CHANNEL=true
+              fi
+              ;;
+          esac
+
+          echo "snapshots=$RUN_SNAPSHOTS weekly=$RUN_WEEKLY channel=$RUN_CHANNEL prune=$RUN_PRUNE"
+          echo "run_snapshots=$RUN_SNAPSHOTS" >> "$GITHUB_OUTPUT"
+          echo "run_weekly=$RUN_WEEKLY" >> "$GITHUB_OUTPUT"
+          echo "run_channel=$RUN_CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "run_prune=$RUN_PRUNE" >> "$GITHUB_OUTPUT"
+
+      - name: Capture follower snapshots
+        id: snapshots
+        if: steps.plan.outputs.run_snapshots == 'true'
+        run: python -m media_publisher --channel-report-snapshot
+
+      - name: Commit snapshot store
+        if: steps.plan.outputs.run_snapshots == 'true' && steps.snapshots.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/channel_report_snapshots.json
+          if git diff --staged --quiet; then
+            echo "No snapshot changes to commit."
+          else
+            git commit -m "Update channel report follower snapshots"
+            git push
+          fi
+
+      - name: Restore status history from latest daily workflow
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.run_weekly == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p output/workflow
+          latest_run=$(gh run list --workflow=catalog-daily-workflow.yml --status=success --limit 10 --json databaseId -q '.[0].databaseId' || true)
+          if [ -z "$latest_run" ]; then
+            echo "No successful daily workflow run found to restore from"
+            exit 0
+          fi
+          gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
+          # upload-artifact@v4 strips the common "output/" prefix; accept both layouts.
+          for candidate in \
+            /tmp/workflow-state-restore/workflow/status_history.json \
+            /tmp/workflow-state-restore/output/workflow/status_history.json
+          do
+            if [ -f "$candidate" ]; then
+              cp "$candidate" output/workflow/status_history.json
+              echo "Restored output/workflow/status_history.json from ${candidate}"
+              exit 0
+            fi
+          done
+          echo "No status_history.json in workflow-state artifact"
+
+      - name: Send weekly translation/editing report
+        id: weekly
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.run_weekly == 'true'
+        env:
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+        run: python scripts/catalog/send_weekly_work_report.py --send
+
+      - name: Send weekly report failure email
+        if: failure() && steps.weekly.outcome == 'failure'
+        env:
+          GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+          GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+        run: |
+          python scripts/catalog/send_notification_email.py \
+            --subject "catalog-parser: weekly work report failed" \
+            --body "$(cat <<'EOF'
+          The weekly translation/editing report workflow failed.
+
+          Repository: ${{ github.repository }}
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )"
+
+      - name: Update channel report
+        id: channel
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.run_channel == 'true'
+        run: |
+          EXTRA_ARGS="--update-channel-report"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            EXTRA_ARGS="--dry-run-channel-report"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.all_months }}" = "true" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --channel-report-all-months"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.month }}" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --channel-report-month ${{ inputs.month }}"
+          fi
+          python -m media_publisher $EXTRA_ARGS
+
+      - name: Prune past events
+        id: prune
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.run_prune == 'true'
+        env:
+          EVENT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && (github.event.inputs.task == 'prune-past-events') || false }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_DRY_RUN" = "true" ]; then
+            python -m media_publisher --prune-past-events --dry-run
+          else
+            python -m media_publisher --prune-past-events
+          fi
+
+      - name: Commit events site
+        id: prune_commit
+        if: >-
+          always()
+          && steps.plan.outcome == 'success'
+          && steps.plan.outputs.run_prune == 'true'
+          && steps.prune.outcome == 'success'
+          && !(github.event_name == 'workflow_dispatch' && inputs.dry_run && github.event.inputs.task == 'prune-past-events')
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add events/data/events.json events/index.html
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No past events to remove."
+          else
+            git commit -m "Prune past events from the public page"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Pages artifact
+        if: ${{ steps.prune_commit.outputs.changed == 'true' }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: events
+
+  deploy:
+    needs: report
+    if: ${{ needs.report.outputs.events_changed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
