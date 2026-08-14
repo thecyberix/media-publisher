@@ -25,6 +25,7 @@ from catalog_parser.drive_media import (
     resolve_drive_item,
 )
 from catalog_parser.parser import TYPE_VIDEO, parse_video_type
+from catalog_parser.save_soil import replace_save_soil_end_card_if_present
 
 WINDOWS_RESERVED_CHARS = '<>:"/\\|?*'
 VideoOrientation = Literal["horizontal", "vertical"]
@@ -564,6 +565,13 @@ def mix_folder_media_to_drive(
         output_path,
         ffmpeg_path=ffmpeg_path,
     )
+    replace_save_soil_end_card_if_present(
+        drive_service,
+        output_path,
+        work_dir=work_dir,
+        ffmpeg_path=ffmpeg_path,
+        video_type=video_type,
+    )
 
     verify_drive_output_folder_access(drive_service, output_parent_id)
     return upload_drive_file(
@@ -625,6 +633,7 @@ def upload_package_video_to_drive(
     work_dir: Path,
     dry_run: bool = False,
     video_type: str | None = None,
+    ffmpeg_path: str | None = None,
 ) -> DriveMediaFile:
     """Upload the selected package video as Combined Media (no audio mix).
 
@@ -652,6 +661,13 @@ def upload_package_video_to_drive(
     output_path = work_dir / _sanitize_local_filename(output_name)
     if output_path.resolve() != local_source.resolve():
         output_path.write_bytes(local_source.read_bytes())
+    replace_save_soil_end_card_if_present(
+        drive_service,
+        output_path,
+        work_dir=work_dir,
+        ffmpeg_path=ffmpeg_path,
+        video_type=video_type,
+    )
 
     verify_drive_output_folder_access(drive_service, output_parent_id)
     return upload_drive_file(

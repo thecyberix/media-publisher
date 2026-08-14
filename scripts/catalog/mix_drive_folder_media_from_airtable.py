@@ -165,6 +165,7 @@ def main() -> int:
             output_parent_id=output_parent_id,
             output_name=output_name,
             work_dir=args.work_dir,
+            ffmpeg_path=args.ffmpeg,
             dry_run=args.dry_run,
             video_type=video_type,
         )

@@ -189,8 +189,9 @@ These can live under **Settings → Secrets and variables → Actions → Variab
 |----------|-------------|
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
 | `OUTPUT_DRIVE_FOLDER` | Google Drive folder URL (or id) where combined media is uploaded, e.g. `https://drive.google.com/drive/folders/1sE-DZV2lrRJxEK7Fnjw7uU8y0KXg7imd`. |
+| `SAVE_SOIL_IMAGE_DRIVE_FOLDER` | Optional override for the translated SAVE SOIL end-card folder. Default: `https://drive.google.com/drive/folders/1IRF64Wpotz1OuO2dvSZNJjC167Qkq5-q` (`SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg`). |
 
-The workflow checks **Variables first**, then **Secrets** for these two names.
+The workflow checks **Variables first**, then **Secrets** for these names. `SAVE_SOIL_IMAGE_DRIVE_FOLDER` is optional; Combined Media generation uses the default folder when it is unset.
 
 ### Required when ingest runs (web session mode)
 
@@ -395,7 +396,7 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 2. Enable **Google Sheets API**, **Google Drive API**, and **Google Docs API**.
 3. Create a JSON key and store the entire file contents in `GOOGLE_SERVICE_ACCOUNT_JSON`.
 4. Share the catalog Google Sheet with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
-5. Share each Drive folder used by the workflow (video folders, output folder) with that email as **Editor** (upload/delete needed for combined media).
+5. Share each Drive folder used by the workflow (video folders, output folder, and the SAVE SOIL stills folder) with that email as **Editor** (upload/delete needed for combined media; Viewer is enough for the SAVE SOIL stills). The translated end cards are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in [this folder](https://drive.google.com/drive/folders/1IRF64Wpotz1OuO2dvSZNJjC167Qkq5-q).
 
 OAuth `credentials.json` / `token.json` are for local development only; CI uses the service account.
 

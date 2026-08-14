@@ -548,6 +548,56 @@ class DriveMixStructureTests(unittest.TestCase):
         output_path = combine_mock.call_args.args[2]
         self.assertTrue(str(output_path).endswith("output _ file.mp4"))
 
+    def test_mix_folder_media_to_drive_replaces_save_soil_end_card(self) -> None:
+        drive = MagicMock()
+        media = MagicMock()
+        media.video = DriveMediaFile(
+            id="video-id",
+            name="clip.mp4",
+            mime_type="video/mp4",
+            parent_id="pkg-folder",
+        )
+        media.audios = [
+            DriveMediaFile(
+                id="audio-id",
+                name="dialogue.wav",
+                mime_type="audio/wav",
+                parent_id="audio-folder",
+            )
+        ]
+
+        with patch(
+            "catalog_parser.drive_mix.find_video_and_audio_subfolder",
+            return_value=media,
+        ), patch(
+            "catalog_parser.drive_mix.download_drive_file",
+            side_effect=lambda _drive, _id, path: path,
+        ), patch(
+            "catalog_parser.drive_mix.combine_video_with_mixed_audios",
+        ), patch(
+            "catalog_parser.drive_mix.replace_save_soil_end_card_if_present",
+        ) as replace_mock, patch(
+            "catalog_parser.drive_mix.upload_drive_file",
+            return_value=MagicMock(
+                id="uploaded-id",
+                name="clip.mp4",
+                mime_type="video/mp4",
+                parent_id="output-folder",
+            ),
+        ):
+            mix_folder_media_to_drive(
+                drive,
+                pkg_folder_id="pkg-folder",
+                output_parent_id="output-folder",
+                output_name="clip.mp4",
+                work_dir=Path("tmp"),
+                dry_run=False,
+                video_type="Reel",
+            )
+
+        replace_mock.assert_called_once()
+        self.assertEqual(replace_mock.call_args.kwargs["video_type"], "Reel")
+
 
 if __name__ == "__main__":
     unittest.main()
