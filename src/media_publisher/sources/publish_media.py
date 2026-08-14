@@ -33,6 +33,7 @@ from media_publisher.sources.canva import (
     CanvaThumbnailTarget,
     catalog_video_name_from_job,
     find_cached_thumbnail_path,
+    is_canva_auth_error,
     parse_canva_resource,
     thumbnail_catalog_url_for_format,
     thumbnail_destination_path,
@@ -275,13 +276,17 @@ def canva_catalog_thumbnail_exists(
     try:
         client.find_design_in_folder(resource_id, title)
         return True
-    except CanvaError:
+    except CanvaError as exc:
+        if is_canva_auth_error(exc):
+            raise
         if published_folder is None:
             return False
         try:
             client.find_design_in_folder(published_folder.id, title)
             return True
-        except CanvaError:
+        except CanvaError as nested:
+            if is_canva_auth_error(nested):
+                raise
             return False
 
 
@@ -405,7 +410,9 @@ def resolve_canva_catalog_thumbnail(
     already_in_published = False
     try:
         design = client.find_design_in_folder(resource_id, title)
-    except CanvaError:
+    except CanvaError as exc:
+        if is_canva_auth_error(exc):
+            raise
         if published_folder is None:
             raise
         design = client.find_design_in_folder(published_folder.id, title)
@@ -504,6 +511,8 @@ def resolve_publish_thumbnail(
                 published_subfolder_name=published_subfolder_name,
             )
         except CanvaError as exc:
+            if is_canva_auth_error(exc):
+                raise
             attempts.append(f"canva catalog: {exc}")
         else:
             if canva_result is not None and canva_result.path is not None:

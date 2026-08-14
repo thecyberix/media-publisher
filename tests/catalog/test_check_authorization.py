@@ -146,6 +146,32 @@ class CheckAuthorizationTests(unittest.TestCase):
         self.assertEqual(exit_code, check_authorization.EXIT_OK)
         _smartcat_check.assert_not_called()
 
+    @patch.object(check_authorization, "check_smartcat_session")
+    @patch.object(check_authorization, "check_canva_authorization")
+    @patch.object(check_authorization, "_canva_is_configured", return_value=True)
+    def test_main_skip_canva_does_not_probe(
+        self,
+        _canva_configured: MagicMock,
+        canva_check: MagicMock,
+        _smartcat_check: MagicMock,
+    ) -> None:
+        missing_state = Path(tempfile.mkdtemp()) / "missing-smartcat-state.json"
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "check_authorization.py",
+                "--smartcat-storage-state",
+                str(missing_state),
+                "--skip-smartcat-if-missing",
+                "--skip-canva",
+            ],
+        ):
+            exit_code = check_authorization.main()
+
+        self.assertEqual(exit_code, check_authorization.EXIT_OK)
+        canva_check.assert_not_called()
+
     def test_cookie_get_projects_maps_url_errors(self) -> None:
         client = MagicMock()
         client.ui_base = "https://ea.smartcat.com"

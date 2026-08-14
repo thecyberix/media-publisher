@@ -242,7 +242,7 @@ def _classify_runtime_error(message: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Verify Smartcat and Canva credentials before catalog workflows run."
+        description="Verify Smartcat credentials before catalog workflows run."
     )
     parser.add_argument(
         "--smartcat-storage-state",
@@ -264,6 +264,14 @@ def main() -> int:
         "--skip-canva-if-missing",
         action="store_true",
         help="Skip Canva when client credentials or token file are not configured.",
+    )
+    parser.add_argument(
+        "--skip-canva",
+        action="store_true",
+        help=(
+            "Skip the Canva probe entirely. Catalog orchestration refreshes "
+            "and probes Canva at startup instead."
+        ),
     )
     parser.add_argument(
         "--probe-project-id",
@@ -296,7 +304,9 @@ def main() -> int:
         print(smartcat_storage_state, file=sys.stderr)
         exit_code = max(exit_code, EXIT_MISSING)
 
-    if _canva_is_configured(project_root=REPO_ROOT):
+    if args.skip_canva:
+        print("SKIP: Canva is checked and refreshed at catalog orchestration start")
+    elif _canva_is_configured(project_root=REPO_ROOT):
         client = build_canva_client_from_env(project_root=REPO_ROOT)
         assert client is not None
         try:

@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from media_publisher.models import PublishJob
+from media_publisher.sources.canva import CanvaError
 from media_publisher.sources.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_TITLE,
@@ -487,6 +488,53 @@ class PublishMediaResolutionTests(unittest.TestCase):
         self.assertIn("drive override: Google Drive client unavailable", message)
         self.assertIn("canva catalog: Canva client unavailable", message)
         self.assertIn("tn generation: Google Drive client unavailable", message)
+
+    def test_resolve_publish_thumbnail_reraises_canva_auth_error(self) -> None:
+        job = PublishJob(title="Translated", video_format="post")
+        canva = MagicMock()
+        canva.find_subfolder.return_value = None
+        canva.find_design_in_folder.side_effect = CanvaError(
+            "Canva token request failed with HTTP 400: invalid_grant"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(CanvaError):
+                resolve_publish_thumbnail(
+                    job,
+                    {"Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}]},
+                    title="Launch video",
+                    canva_client=canva,
+                    drive=MagicMock(),
+                    canva_download_dir=Path(tmpdir),
+                    long_catalog_url="https://www.canva.com/folder/FAHOgLx_jAw",
+                    short_catalog_url="https://www.canva.com/folder/FAHOgF-NT8Q",
+                    override_root_folder_id="root123",
+                    thumbnails_subfolder="Thumbnails",
+                    published_subfolder_name="Published",
+                    tn_settings=TnPublishSettings(
+                        original_dir=Path(tmpdir) / "original",
+                        cache_dir=Path(tmpdir) / "cache",
+                        output_dir=Path(tmpdir) / "rendered",
+                        english_override_file=Path(tmpdir) / "overrides.json",
+                    ),
+                )
+
+    def test_canva_catalog_thumbnail_exists_reraises_auth_error(self) -> None:
+        from media_publisher.sources.publish_media import canva_catalog_thumbnail_exists
+
+        client = MagicMock()
+        client.find_subfolder.return_value = None
+        client.find_design_in_folder.side_effect = CanvaError(
+            "Canva token request failed with HTTP 400: invalid_grant"
+        )
+        with self.assertRaises(CanvaError):
+            canva_catalog_thumbnail_exists(
+                client=client,
+                title="Launch video",
+                video_format="post",
+                long_catalog_url="https://www.canva.com/folder/FAHOgLx_jAw",
+                short_catalog_url="https://www.canva.com/folder/FAHOgF-NT8Q",
+                published_subfolder_name="Published",
+            )
 
     def test_resolve_canva_catalog_thumbnail_finds_design_in_published_subfolder(
         self,

@@ -136,7 +136,9 @@ Same as the catalog workflow where noted:
 | `CANVA_TOKEN_SYNC_PAT` | Persist refreshed Canva token back to repo secrets |
 | `AIRTABLE_*`, `HAPPYSCRIBE_*`, `YOUTUBE_*`, `META_*` | Catalog fetch and platform publish |
 
-The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render can run when Drive override and Canva are unavailable.
+Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Canva auth failures abort the run instead of falling through to TN generation.
+
+The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render can run when Drive override and Canva catalog lookup fail for non-auth reasons.
 
 ## Repository variables (email)
 

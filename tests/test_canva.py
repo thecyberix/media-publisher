@@ -412,6 +412,37 @@ class CanvaEnrichmentTests(unittest.TestCase):
                     download_dir=Path(tmpdir),
                 )
 
+    def test_ensure_ready_refreshes_expired_token_then_probes(self) -> None:
+        import time
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            token_path = Path(tmpdir) / "canva-token.json"
+            save_token(
+                token_path,
+                CanvaToken(
+                    access_token="old-access",
+                    refresh_token="refresh",
+                    expires_at=0,
+                ),
+            )
+            client = CanvaClient(
+                client_id="client-id",
+                client_secret="client-secret",
+                token_path=token_path,
+            )
+            refreshed = CanvaToken(
+                access_token="new-access",
+                refresh_token="new-refresh",
+                expires_at=time.time() + 3600,
+            )
+            with (
+                patch.object(client, "refresh_access_token", return_value=refreshed) as refresh_mock,
+                patch.object(client, "_probe_users_me") as probe_mock,
+            ):
+                self.assertEqual(client.ensure_ready(), "refreshed")
+            refresh_mock.assert_called_once_with("refresh")
+            probe_mock.assert_called_once_with("new-access")
+
 
 if __name__ == "__main__":
     unittest.main()

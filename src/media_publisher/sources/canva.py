@@ -127,6 +127,27 @@ class CanvaError(RuntimeError):
     pass
 
 
+def is_canva_auth_error(exc: BaseException) -> bool:
+    """True for token/client/auth failures (workflow should fail, not soft-fallback)."""
+    message = str(exc).casefold()
+    markers = (
+        "invalid_grant",
+        "token lineage",
+        "token exchange failed",
+        "token request failed",
+        "refresh token",
+        "access token expired",
+        "canva token file",
+        "missing access_token",
+        "missing refresh_token",
+        "canva_client_id is required",
+        "canva_client_secret is required",
+        "canva client is not configured",
+        "canva client required",
+    )
+    return any(marker in message for marker in markers)
+
+
 @dataclass(frozen=True)
 class CanvaToken:
     access_token: str
@@ -1090,8 +1111,51 @@ class CanvaClient:
             downloaded.append(self.download_file(url, destination))
         return downloaded
 
+    def _probe_users_me(self, access_token: str) -> None:
+        url = f"{self.api_base.rstrip('/')}/users/me"
+        request = urllib.request.Request(url, method="GET")
+        request.add_header("Authorization", f"Bearer {access_token}")
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                response.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            raise CanvaError(
+                f"Canva GET /users/me failed with HTTP {exc.code}: {detail}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise CanvaError(f"Canva GET /users/me failed: {exc.reason}") from exc
+
+    def ensure_ready(self) -> str:
+        """Refresh if needed, then probe Canva. Returns ``ok`` or ``refreshed``."""
+        token = load_token(self.token_path)
+        if not token.access_token:
+            raise CanvaError(
+                f"No Canva token found at {self.token_path}. "
+                "Run locally: python scripts/_canva_auth_interactive.py"
+            )
+        if not token.refresh_token:
+            raise CanvaError(
+                "Canva token file is missing refresh_token. "
+                "Run locally: python scripts/_canva_auth_interactive.py"
+            )
+
+        refreshed = False
+        if token.expires_at <= time.time() + 60:
+            token = self.refresh_access_token(token.refresh_token)
+            refreshed = True
+        try:
+            self._probe_users_me(token.access_token)
+        except CanvaError:
+            if refreshed:
+                raise
+            token = self.refresh_access_token(token.refresh_token)
+            refreshed = True
+            self._probe_users_me(token.access_token)
+        return "refreshed" if refreshed else "ok"
+
     def test_connection(self) -> CanvaToken:
-        self.ensure_access_token()
+        self.ensure_ready()
         return load_token(self.token_path)
 
 

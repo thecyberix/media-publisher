@@ -6,6 +6,7 @@ import sys
 from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Callable
 
 from media_publisher.config import load_settings, update_env_values
 from media_publisher.runtime_env import (
@@ -622,6 +623,39 @@ def canva_settings_complete(settings) -> bool:
         and settings.canva_client_secret
         and (PROJECT_ROOT / settings.canva_token).exists()
     )
+
+
+def ensure_canva_ready_for_run(
+    settings,
+    *,
+    skip: bool = False,
+    log: Callable[[str], None] | None = None,
+) -> int | None:
+    """Refresh Canva if needed and probe the API before publish work.
+
+    Returns an exit code when Canva auth fails, otherwise ``None``.
+    """
+    emit = log or print_console
+    if skip or canva_settings_missing(settings):
+        emit("Canva: skipped (not configured or --skip-thumbnails)")
+        return None
+
+    client = canva_client_from_settings(settings)
+    try:
+        status = client.ensure_ready()
+    except CanvaError as exc:
+        print(f"ERROR: Canva authorization failed: {exc}")
+        return 1
+    finally:
+        message = maybe_persist_canva_token(PROJECT_ROOT)
+        if message:
+            emit(message)
+
+    if status == "refreshed":
+        emit("Canva: token refreshed and API probe succeeded")
+    else:
+        emit("Canva: access token valid")
+    return None
 
 
 def meta_settings_complete(settings) -> bool:
@@ -1538,6 +1572,10 @@ def run_quotes_publish(settings, args) -> int:
     if platforms is not None:
         print_console(f"Limiting quote publish to: {', '.join(platforms)}")
 
+    canva_exit = ensure_canva_ready_for_run(settings, log=print_console)
+    if canva_exit is not None:
+        return canva_exit
+
     try:
         page_id, instagram_account_id, _ = resolve_meta_targets(settings)
         meta_client = meta_client_from_settings(settings)
@@ -1708,6 +1746,14 @@ def run_default_publish(settings, args) -> int:
     )
     if platforms is not None:
         print_console(f"Limiting video publish to: {', '.join(platforms)}")
+
+    canva_exit = ensure_canva_ready_for_run(
+        settings,
+        skip=bool(getattr(args, "skip_thumbnails", False)),
+        log=print_console,
+    )
+    if canva_exit is not None:
+        return canva_exit
 
     try:
         airtable = airtable_client_from_settings(settings)

@@ -261,12 +261,11 @@ python -m media_publisher --canva-auth-code <authorization-code>
 
 ### Authorization checks (Smartcat and Canva)
 
-Before each run, the **Check authorization** step validates configured credentials:
+Before each run, the **Check authorization** step validates **Smartcat** (`SMARTCAT_STORAGE_STATE_JSON`). Canva is not probed there: a no-refresh check cannot prove the refresh token still works.
 
-- **Smartcat** — `SMARTCAT_STORAGE_STATE_JSON` (Playwright session for sheet ingest)
-- **Canva** — `CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, and `CANVA_TOKEN_JSON` (token refresh via the same path as `python -m media_publisher --test-canva`)
+**Canva** (`CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, `CANVA_TOKEN_JSON`) is refreshed if needed and probed at catalog orchestration start. If that fails, the orchestrator exits before Airtable work.
 
-If either configured check fails:
+If the Smartcat check fails:
 
 1. An email is sent via Gmail SMTP with renewal instructions.
 2. Later workflow steps are skipped (single job; no duplicate Playwright install).
@@ -289,12 +288,12 @@ python scripts/_canva_auth_interactive.py
 
 When `CANVA_TOKEN_SYNC_PAT` is set, the script updates the `CANVA_TOKEN_JSON` GitHub secret automatically.
 
-Canva refresh tokens are **single-use**. The authorization check validates the token file (and probes the API when the access token is still valid) **without refreshing**. The catalog orchestrator refreshes at most once and syncs `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Orchestrator steps do not rematerialize `CANVA_TOKEN_JSON` from the job-scoped secret after Restore, because that stale value would overwrite a rotated on-disk token. Avoid overlapping Canva-using workflows (catalog + publish) that could refresh the same secret concurrently.
+Canva refresh tokens are **single-use**. The daily authorization check skips Canva. Catalog orchestration refreshes (if needed) and probes Canva once at startup, then syncs `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Later steps in the same job must keep the rotated on-disk token — they do not rematerialize `CANVA_TOKEN_JSON` from the job-scoped secret after Restore. Avoid overlapping Canva-using workflows (catalog + publish) that could refresh the same secret concurrently.
 
 Test locally:
 
 ```powershell
-python scripts/catalog/check_authorization.py --skip-smartcat-if-missing --skip-canva-if-missing
+python scripts/catalog/check_authorization.py --skip-smartcat-if-missing --skip-canva
 python scripts/catalog/verify_smartcat_session.py
 python -m media_publisher --test-canva
 python scripts/catalog/send_notification_email.py --subject "test" --body "test message"

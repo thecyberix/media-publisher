@@ -9,6 +9,7 @@ from catalog_parser.airtable import (
     FIELD_TYPE,
     WORKFLOW_STATUSES,
 )
+from catalog_parser.canva import CanvaError, ensure_canva_ready
 from catalog_parser.auth import get_docs_service, get_drive_service
 from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.drive_combine import DriveCombineError, verify_drive_output_folder_access
@@ -52,6 +53,18 @@ def run_workflow(
     use_console: bool = False,
 ) -> int:
     config = load_workflow_config(project_root)
+
+    try:
+        canva_status = ensure_canva_ready(project_root=project_root)
+    except CanvaError as exc:
+        print(f"ERROR: Canva authorization failed: {exc}")
+        return 1
+    if canva_status == "skipped":
+        print("Canva: skipped (client credentials not configured)")
+    elif canva_status == "refreshed":
+        print("Canva: token refreshed and API probe succeeded")
+    else:
+        print("Canva: access token valid")
 
     airtable = AirtableClient(
         token=_require_env("AIRTABLE_TOKEN"),

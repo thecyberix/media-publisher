@@ -93,7 +93,7 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
                 ),
             ]
         )
-        self.assertIn("2 video(s) need prepared thumbnail", subject)
+        self.assertIn("2 video(s) with original thumbnail", subject)
         self.assertIn("Stand Firmly", body)
         self.assertIn("Canva design: https://www.canva.com/design/ABC", body)
         self.assertIn(
@@ -112,7 +112,7 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
         assert found is not None
         self.assertEqual(found.id, "psd1")
 
-    def test_notify_emails_digest_for_missing_prepared(self) -> None:
+    def test_notify_emails_digest_for_original_thumbnail(self) -> None:
         previous = [
             {
                 "id": "rec1",
@@ -137,10 +137,6 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
             }
         ]
         with (
-            patch(
-                "catalog_parser.workflow.editing_done_thumbnails.prepared_thumbnail_is_missing",
-                return_value=True,
-            ),
             patch(
                 "catalog_parser.drive_thumbnail.resolve_canva_design_drive_url",
                 return_value="https://www.canva.com/design/XYZ",
@@ -171,7 +167,7 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
             "https://drive.google.com/file/d/tmpl/view",
         )
 
-    def test_collect_skips_when_prepared_exists(self) -> None:
+    def test_collect_includes_original_thumbnail_skips_without(self) -> None:
         records = [
             {
                 "id": "rec1",
@@ -181,18 +177,32 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
                     FIELD_TITLE: "Has thumb",
                     "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
                 },
-            }
+            },
+            {
+                "id": "rec2",
+                "fields": {
+                    FIELD_STATUS: STATUS_EDITING_DONE,
+                    FIELD_TYPE: TYPE_REEL,
+                    FIELD_TITLE: "No thumb",
+                },
+            },
         ]
-        with patch(
-            "catalog_parser.workflow.editing_done_thumbnails.prepared_thumbnail_is_missing",
-            return_value=False,
+        with (
+            patch(
+                "catalog_parser.drive_thumbnail.resolve_canva_design_drive_url",
+                return_value=None,
+            ),
+            patch(
+                "media_publisher.sources.tn_publish.resolve_tn_template_drive_url",
+                return_value=None,
+            ),
         ):
             candidates = collect_editing_done_missing_prepared_thumbnails(
                 records=records,
                 drive_service=object(),
                 project_root=Path("."),
             )
-        self.assertEqual(candidates, [])
+        self.assertEqual([item.record_id for item in candidates], ["rec1"])
 
 
 if __name__ == "__main__":

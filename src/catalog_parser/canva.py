@@ -44,6 +44,13 @@ class CanvaError(RuntimeError):
     pass
 
 
+def is_canva_auth_error(exc: BaseException) -> bool:
+    """True for token/client/auth failures (workflow should fail, not soft-fallback)."""
+    from media_publisher.sources.canva import is_canva_auth_error as _is_auth
+
+    return _is_auth(exc)
+
+
 @dataclass(frozen=True)
 class CanvaPendingAuth:
     code_verifier: str
@@ -561,6 +568,71 @@ class CanvaClient:
         if design_id is None:
             raise CanvaError(f"Could not parse Canva design id from {canva_url!r}")
         return self.export_design_image_url(design_id)
+
+    def _probe_users_me(self, access_token: str) -> None:
+        url = f"{self.api_base}/users/me"
+        request = urllib.request.Request(url, method="GET")
+        request.add_header("Authorization", f"Bearer {access_token}")
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                response.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            raise CanvaError(
+                f"Canva GET /users/me failed with HTTP {exc.code}: {detail}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise CanvaError(f"Canva GET /users/me failed: {exc.reason}") from exc
+
+    def ensure_ready(self) -> str:
+        """Refresh if needed, then probe Canva. Returns ``ok`` or ``refreshed``."""
+        token = self._load_token()
+        if token is None or not token.access_token:
+            raise CanvaError(
+                f"No Canva token found at {self.token_path}. "
+                "Run locally: python scripts/_canva_auth_interactive.py"
+            )
+        if not token.refresh_token:
+            raise CanvaError(
+                "Canva token file is missing refresh_token. "
+                "Run locally: python scripts/_canva_auth_interactive.py"
+            )
+
+        refreshed = False
+        if token.is_expired():
+            token = self._refresh_access_token(token.refresh_token)
+            self._save_token(token)
+            refreshed = True
+        try:
+            self._probe_users_me(token.access_token)
+        except CanvaError:
+            if refreshed:
+                raise
+            token = self._refresh_access_token(token.refresh_token)
+            self._save_token(token)
+            refreshed = True
+            self._probe_users_me(token.access_token)
+        return "refreshed" if refreshed else "ok"
+
+
+def ensure_canva_ready(*, project_root: Path) -> str:
+    """Refresh Canva if needed, probe the API, and persist a rotated token.
+
+    Returns ``skipped`` when client credentials are not configured.
+    """
+    from catalog_parser.runtime_env import maybe_persist_canva_token
+
+    client = build_canva_client_from_env(project_root=project_root)
+    if client is None:
+        return "skipped"
+
+    try:
+        status = client.ensure_ready()
+    finally:
+        message = maybe_persist_canva_token(project_root)
+        if message:
+            print(message)
+    return status
 
 
 def build_canva_client_from_env(

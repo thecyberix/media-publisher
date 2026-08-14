@@ -71,14 +71,9 @@ jobs:
           python scripts/catalog/check_authorization.py \
             --smartcat-storage-state smartcat-state.json \
             --skip-smartcat-if-missing \
-            --skip-canva-if-missing
+            --skip-canva
         env:
           SMARTCAT_UI_BASE: https://ea.smartcat.com
-          CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
-          CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
-          # Sync rotated refresh tokens immediately; job-scoped secrets stay stale.
-          CANVA_TOKEN_SYNC_PAT: ${{ secrets.CANVA_TOKEN_SYNC_PAT }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Send authorization failure email
         if: failure() && steps.auth_check.outcome == 'failure'
@@ -92,15 +87,13 @@ jobs:
             --body "$(cat <<'EOF'
           The scheduled GitHub Actions authorization check failed.
 
-          Smartcat ingest and Canva thumbnail export will not work until credentials are renewed.
+          Smartcat ingest will not work until the session is renewed.
 
           Smartcat:
             1. python -m catalog_parser --smartcat-login
             2. Copy the new smartcat-state.json into the GitHub secret SMARTCAT_STORAGE_STATE_JSON
 
-          Canva:
-            1. python scripts/_canva_auth_interactive.py
-            2. Confirm CANVA_TOKEN_JSON was updated (the script syncs it when CANVA_TOKEN_SYNC_PAT is set)
+          Canva is refreshed and probed at catalog orchestration start, not in this step.
 
           Repository: ${{ github.repository }}
           Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

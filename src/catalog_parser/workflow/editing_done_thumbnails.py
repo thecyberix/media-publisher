@@ -1,4 +1,4 @@
-"""Notify when videos enter Editing done and still need a prepared thumbnail."""
+"""Notify when videos with an original thumbnail enter Editing done."""
 from __future__ import annotations
 
 import os
@@ -18,7 +18,6 @@ from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
 from catalog_parser.workflow.publish_schedule import (
     append_template_links,
     has_original_video_thumbnail,
-    prepared_thumbnail_is_missing,
 )
 from catalog_parser.workflow.table_cache import DEFAULT_BACKUP_DIR, TableCache
 
@@ -89,11 +88,10 @@ def format_editing_done_missing_prepared_thumbnails_email(
     candidates: list[EditingDoneThumbCandidate],
 ) -> tuple[str, str]:
     count = len(candidates)
-    subject = f"Editing done — {count} video(s) need prepared thumbnail"
+    subject = f"Editing done — {count} video(s) with original thumbnail"
     lines = [
-        "These videos entered Editing done with an Original Video Thumbnail,",
-        "but no prepared thumbnail was found in the Canva catalog or Drive",
-        "Thumbnails folder.",
+        "These videos entered Editing done with an Original Video Thumbnail.",
+        "Prepare / confirm the Bulgarian thumbnail when ready.",
         "",
         f"Count: {count}",
         "",
@@ -125,7 +123,7 @@ def send_editing_done_missing_prepared_thumbnails_email(
 
     smtp_user = os.getenv("GMAIL_SMTP_USER", "").strip()
     smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD", "").strip()
-    notify_email = os.getenv("NOTIFY_EMAIL", "georgi.uzunov-ext@sadhguru.org").strip()
+    notify_email = os.getenv("NOTIFY_EMAIL", "").strip()
     if not smtp_user or not smtp_password or not notify_email:
         return False
 
@@ -148,6 +146,8 @@ def collect_editing_done_missing_prepared_thumbnails(
     log: Callable[[str], None] = print,
     docs_service: Any | None = None,
 ) -> list[EditingDoneThumbCandidate]:
+    """Collect newly Editing-done videos that have an Original Video Thumbnail."""
+    _ = (project_root, log)  # Kept for call-site compatibility.
     from catalog_parser.drive_thumbnail import resolve_canva_design_drive_url
     from media_publisher.sources.tn_publish import resolve_tn_template_drive_url
 
@@ -158,15 +158,6 @@ def collect_editing_done_missing_prepared_thumbnails(
         if not isinstance(fields, dict) or not isinstance(record_id, str):
             continue
         if not has_original_video_thumbnail(fields):
-            continue
-        missing = prepared_thumbnail_is_missing(
-            fields=fields,
-            drive_service=drive_service,
-            project_root=project_root,
-            log=log,
-            log_prefix="  editing-done prepared thumbnail:",
-        )
-        if missing is not True:
             continue
         candidates.append(
             EditingDoneThumbCandidate(
@@ -194,7 +185,7 @@ def notify_editing_done_missing_prepared_thumbnails(
     previous_records: list[dict[str, Any]] | None = None,
     docs_service: Any | None = None,
 ) -> EditingDoneThumbNotifyResult:
-    """Email a digest for newly Editing-done videos that still need prepared thumbs."""
+    """Email a digest for newly Editing-done videos that have an original thumbnail."""
     if previous_records is None:
         previous_path = project_root / DEFAULT_BACKUP_DIR / "airtable-previous.json"
         if not previous_path.is_file():
@@ -238,7 +229,7 @@ def notify_editing_done_missing_prepared_thumbnails(
             emailed=False,
             message=(
                 f"Checked {len(newly_done)} newly Editing-done video(s); "
-                "none missing prepared thumbnails"
+                "none have an Original Video Thumbnail"
             ),
         )
 
@@ -249,7 +240,7 @@ def notify_editing_done_missing_prepared_thumbnails(
             emailed=False,
             message=(
                 f"Would email {len(candidates)} Editing-done video(s) "
-                "missing prepared thumbnails (dry-run)"
+                "with Original Video Thumbnail (dry-run)"
             ),
         )
 
@@ -261,7 +252,7 @@ def notify_editing_done_missing_prepared_thumbnails(
             emailed=True,
             message=(
                 f"Emailed {len(candidates)} Editing-done video(s) "
-                "missing prepared thumbnails"
+                "with Original Video Thumbnail"
             ),
         )
     return EditingDoneThumbNotifyResult(
@@ -269,7 +260,7 @@ def notify_editing_done_missing_prepared_thumbnails(
         missing=len(candidates),
         emailed=False,
         message=(
-            f"Found {len(candidates)} Editing-done video(s) missing prepared thumbnails, "
+            f"Found {len(candidates)} Editing-done video(s) with Original Video Thumbnail, "
             "but email was not sent (check GMAIL_SMTP_* / NOTIFY_EMAIL)"
         ),
     )
