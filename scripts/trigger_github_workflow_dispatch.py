@@ -6,7 +6,7 @@ Environment:
   GITHUB_DISPATCH_TOKEN — fine-grained or classic PAT with Actions: Read and write
 
 Examples:
-  python scripts/trigger_github_workflow_dispatch.py publish.yml --private
+  python scripts/trigger_github_workflow_dispatch.py publish.yml --timing scheduled
   python scripts/trigger_github_workflow_dispatch.py publish.yml --mode videos
   python scripts/trigger_github_workflow_dispatch.py catalog-daily-workflow.yml --input dry_run=true
 """
@@ -94,14 +94,9 @@ def main() -> int:
         help="Publish workflow mode input (publish.yml only)",
     )
     parser.add_argument(
-        "--private",
-        action="store_true",
-        help="Set private=true for publish.yml (next-slot test, skip Instagram)",
-    )
-    parser.add_argument(
-        "--staggered",
-        action="store_true",
-        help="Set staggered=true for publish.yml (production cron behavior)",
+        "--timing",
+        choices=("standard", "immediate", "scheduled"),
+        help="Publish workflow timing (publish.yml only)",
     )
     parser.add_argument(
         "--input",
@@ -123,10 +118,8 @@ def main() -> int:
     inputs = parse_inputs(args.input)
     if args.mode is not None:
         inputs["mode"] = args.mode
-    if args.private:
-        inputs["private"] = "true"
-    if args.staggered:
-        inputs["staggered"] = "true"
+    if args.timing is not None:
+        inputs["timing"] = args.timing
 
     dispatch_workflow(
         args.workflow,

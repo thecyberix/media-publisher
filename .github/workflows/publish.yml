@@ -1,7 +1,7 @@
 name: Publish videos and quotes
 
 # Primary schedule: external cron (cron-job.org) → workflow_dispatch.
-# Default publish mode is staggered: Instagram today, YouTube/Facebook tomorrow.
+# Default timing is standard: Instagram today, YouTube/Facebook tomorrow.
 on:
   workflow_dispatch:
     inputs:
@@ -13,27 +13,26 @@ on:
           - videos
           - quotes
         default: all
-      private:
-        description: Revise mode (YT/FB at next publish slot)
+      youtube:
+        description: YouTube
         type: boolean
-        default: false
-      staggered:
-        description: Standard mode (IG now, YT/FB tomorrow)
+        default: true
+      facebook:
+        description: Facebook
         type: boolean
-        default: false
-      schedule:
-        description: Native schedule mode (YT/FB/IG due today)
+        default: true
+      instagram:
+        description: Instagram
         type: boolean
-        default: false
-      platform:
-        description: Limit quotes/videos to one platform (retry-safe)
+        default: true
+      timing:
+        description: "standard (IG today, YT/FB tomorrow); immediate (publish now); scheduled (next slot, skip IG)"
         type: choice
         options:
-          - all
-          - youtube
-          - facebook
-          - instagram
-        default: all
+          - standard
+          - immediate
+          - scheduled
+        default: standard
 
 env:
   AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
@@ -89,19 +88,28 @@ jobs:
 
       - name: Publish catalog videos
         env:
-          PUBLISH_STAGGERED: ${{ inputs.staggered }}
+          PUBLISH_STAGGERED: ${{ inputs.timing != 'immediate' }}
           PYTHONUNBUFFERED: "1"
         run: |
           EXTRA_ARGS=""
-          if [ "${{ inputs.schedule }}" = "true" ]; then
-            EXTRA_ARGS="--schedule"
-          elif [ "${{ inputs.private }}" = "true" ]; then
+          if [ "${{ inputs.timing }}" = "scheduled" ]; then
             EXTRA_ARGS="--private"
           fi
-          if [ "${{ inputs.platform }}" != "all" ]; then
-            EXTRA_ARGS="${EXTRA_ARGS} --platform ${{ inputs.platform }}"
+          PLATFORM_ARGS=""
+          if [ "${{ inputs.youtube }}" = "true" ]; then
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform youtube"
           fi
-          python -m media_publisher ${EXTRA_ARGS}
+          if [ "${{ inputs.facebook }}" = "true" ]; then
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform facebook"
+          fi
+          if [ "${{ inputs.instagram }}" = "true" ]; then
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform instagram"
+          fi
+          if [ -z "$PLATFORM_ARGS" ]; then
+            echo "Select at least one platform (YouTube, Facebook, Instagram)."
+            exit 1
+          fi
+          python -m media_publisher ${EXTRA_ARGS} ${PLATFORM_ARGS}
 
   quotes:
     if: >-
@@ -123,13 +131,24 @@ jobs:
 
       - name: Publish daily quotes
         env:
-          PUBLISH_STAGGERED: ${{ inputs.staggered }}
+          PUBLISH_STAGGERED: ${{ inputs.timing != 'immediate' }}
         run: |
           EXTRA_ARGS=""
-          if [ "${{ inputs.private }}" = "true" ]; then
+          if [ "${{ inputs.timing }}" = "scheduled" ]; then
             EXTRA_ARGS="--private"
           fi
-          if [ "${{ inputs.platform }}" != "all" ]; then
-            EXTRA_ARGS="${EXTRA_ARGS} --platform ${{ inputs.platform }}"
+          PLATFORM_ARGS=""
+          if [ "${{ inputs.youtube }}" = "true" ]; then
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform youtube"
           fi
-          python -m media_publisher --quotes ${EXTRA_ARGS}
+          if [ "${{ inputs.facebook }}" = "true" ]; then
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform facebook"
+          fi
+          if [ "${{ inputs.instagram }}" = "true" ]; then
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform instagram"
+          fi
+          if [ -z "$PLATFORM_ARGS" ]; then
+            echo "Select at least one platform (YouTube, Facebook, Instagram)."
+            exit 1
+          fi
+          python -m media_publisher --quotes ${EXTRA_ARGS} ${PLATFORM_ARGS}

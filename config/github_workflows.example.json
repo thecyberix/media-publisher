@@ -16,33 +16,31 @@
       "workflow": "publish.yml",
       "inputs": {
         "mode": "videos",
-        "private": "true"
+        "timing": "scheduled"
       }
     },
     "publish-private-all": {
-      "description": "Test videos + quotes publish in private/test mode",
+      "description": "Test videos + quotes publish (next slot, Instagram skipped)",
       "workflow": "publish.yml",
       "inputs": {
         "mode": "all",
-        "private": "true"
+        "timing": "scheduled"
       }
     },
     "publish-production-videos": {
-      "description": "Production catalog video publish (staggered Instagram/YouTube/Facebook)",
+      "description": "Production catalog video publish (standard timing)",
       "workflow": "publish.yml",
       "inputs": {
         "mode": "videos",
-        "private": "false",
-        "staggered": "true"
+        "timing": "standard"
       }
     },
     "publish-production-quotes": {
-      "description": "Production daily quotes publish",
+      "description": "Production daily quotes publish (standard timing)",
       "workflow": "publish.yml",
       "inputs": {
         "mode": "quotes",
-        "private": "false",
-        "staggered": "true"
+        "timing": "standard"
       }
     },
     "catalog-daily-dry-run": {

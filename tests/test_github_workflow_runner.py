@@ -30,13 +30,13 @@ class GitHubWorkflowConfigTests(unittest.TestCase):
             "presets": {
                 "publish-private-videos": {
                     "workflow": "publish.yml",
-                    "inputs": {"mode": "videos", "private": True},
+                    "inputs": {"mode": "videos", "timing": "scheduled"},
                 }
             }
         }
         preset = resolve_preset(config, "publish-private-videos")
         self.assertEqual(preset["workflow"], "publish.yml")
-        self.assertEqual(preset["inputs"], {"mode": "videos", "private": "true"})
+        self.assertEqual(preset["inputs"], {"mode": "videos", "timing": "scheduled"})
 
     def test_resolve_preset_unknown_raises(self) -> None:
         with self.assertRaises(KeyError):
@@ -59,7 +59,7 @@ class GitHubWorkflowConfigTests(unittest.TestCase):
         )
         config = load_workflow_config(example)
         preset = resolve_preset(config, "publish-private-videos")
-        self.assertEqual(preset["inputs"]["private"], "true")
+        self.assertEqual(preset["inputs"]["timing"], "scheduled")
         self.assertEqual(preset["workflow"], "publish.yml")
 
     def test_print_preset_list_includes_cron_reference(self) -> None:

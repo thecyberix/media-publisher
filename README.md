@@ -35,7 +35,7 @@ python -m catalog_parser --smartcat-login  # renew Smartcat browser session
 python -m catalog_parser --canva-auth      # Canva OAuth for ingest thumbnails
 ```
 
-See `docs/catalog-github-actions.md` for catalog workflow secrets and schedule. See `docs/publish-github-actions.md` for publish triggers (cron-job.org, private test).
+See `docs/catalog-github-actions.md` for catalog workflow secrets and schedule. See `docs/publish-github-actions.md` for publish triggers (cron-job.org, API).
 
 ## GitHub Actions (scheduled publishing)
 
@@ -116,7 +116,23 @@ Requires `GOOGLE_SERVICE_ACCOUNT_JSON`, YouTube OAuth token with `yt-analytics.r
 
 ### Manual publish run
 
-In GitHub: **Actions → Publish videos and quotes → Run workflow**. Choose `videos`, `quotes`, or `all`, and enable **private** for a safe test run.
+In GitHub: **Actions → Publish videos and quotes → Run workflow**.
+
+| Input | Default | Use |
+|-------|---------|-----|
+| **mode** | `all` | `all`, `videos`, or `quotes` |
+| **YouTube / Facebook / Instagram** | all on | Uncheck a platform to skip it (retry-safe) |
+| **timing** | `standard` | How to publish (see below) |
+
+**Timing modes**
+
+| Mode | Behavior |
+|------|----------|
+| **standard** (default) | Production cadence: Instagram today immediately; YouTube and Facebook scheduled for tomorrow so they can be reviewed. Same as the nightly cron jobs. |
+| **immediate** | Publish everything due today on the selected platforms right now. |
+| **scheduled** | Schedule YouTube and Facebook for the next publish slot (today’s hour if it has not passed, otherwise tomorrow). Instagram is skipped. Facebook goes live as `SCHEDULED` (public at that time), not as a private draft. |
+
+Long-form catalog rows with Type=Video still skip Instagram even when the Instagram checkbox is on.
 
 To trigger the same way as cron-job.org (API / script), see `docs/publish-github-actions.md`.
 

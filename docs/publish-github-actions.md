@@ -2,28 +2,33 @@
 
 The [publish workflow](../.github/workflows/publish.yml) runs catalog video and daily quote publishing. Like the catalog daily workflow, it is triggered via **`workflow_dispatch`** (manual UI, local script, or [cron-job.org](https://cron-job.org)).
 
-Default mode depends on how the workflow is triggered:
-
-| Trigger | `staggered` input | Behavior |
-|---------|-------------------|----------|
-| **GitHub UI** (manual) | off (default) | Publish **today’s** video/quote on all platforms immediately |
-| **cron-job.org** (automatic) | **on** (`"staggered": "true"`) | Unchanged: Instagram today; YouTube/Facebook tomorrow |
+Default **timing** is **standard** for both the GitHub UI and cron-job.org: Instagram today immediately; YouTube/Facebook tomorrow.
 
 ## Manual run (GitHub UI)
 
 **Actions → Publish videos and quotes → Run workflow**
 
-| Input | Use |
-|-------|-----|
-| **mode** | `all`, `videos`, or `quotes` |
-| **private** | Test mode: schedule YouTube/Facebook for the next publish slot (public when live); skip Instagram. Facebook is never kept as a private draft — scheduling means `SCHEDULED` → public at the set time. |
-| **staggered** | Leave **off** for manual today publish. Enable only when simulating production cron |
+| Input | Default | Use |
+|-------|---------|-----|
+| **mode** | `all` | `all`, `videos`, or `quotes` |
+| **YouTube / Facebook / Instagram** | all on | Uncheck a platform to skip it (retry-safe) |
+| **timing** | `standard` | How to publish (see below) |
+
+### Timing modes
+
+| Mode | Behavior |
+|------|----------|
+| **standard** (default) | Production cadence: Instagram today immediately; YouTube and Facebook scheduled for tomorrow so they can be reviewed. Same as the nightly cron jobs. |
+| **immediate** | Publish everything due today on the selected platforms right now. |
+| **scheduled** | Schedule YouTube and Facebook for the next publish slot (today’s hour if it has not passed, otherwise tomorrow). Instagram is skipped. Facebook goes live as `SCHEDULED` (public at that time), not as a private draft. |
+
+Long-form catalog rows with Type=Video still skip Instagram even when the Instagram checkbox is on.
 
 ## Trigger via API (same as cron-job.org)
 
 Use the same PAT as the catalog cron job (**Actions: Read and write** on this repo). Branch: **`master`**.
 
-### Private test run (PowerShell)
+### Scheduled test run (PowerShell)
 
 ```powershell
 $headers = @{
@@ -34,8 +39,8 @@ $headers = @{
 $body = @{
   ref = "master"
   inputs = @{
-    mode    = "all"
-    private = "true"
+    mode   = "all"
+    timing = "scheduled"
   }
 } | ConvertTo-Json
 
@@ -53,7 +58,7 @@ Expected: HTTP **204**. A new run appears under **Actions → Publish videos and
 
 ```powershell
 $env:GITHUB_DISPATCH_TOKEN = "YOUR_TOKEN"
-python scripts/trigger_github_workflow_dispatch.py publish.yml --private --mode all
+python scripts/trigger_github_workflow_dispatch.py publish.yml --timing scheduled --mode all
 ```
 
 ### Preset runner (dispatch + wait + failed logs)
@@ -85,8 +90,7 @@ Suggested schedule: `0 18 * * *`, time zone **Europe/Sofia**.
   "ref": "master",
   "inputs": {
     "mode": "videos",
-    "private": "false",
-    "staggered": "true"
+    "timing": "standard"
   }
 }
 ```
@@ -102,22 +106,23 @@ Suggested schedule: `0 8 * * *`, time zone **Europe/Sofia**.
   "ref": "master",
   "inputs": {
     "mode": "quotes",
-    "private": "false",
-    "staggered": "true"
+    "timing": "standard"
   }
 }
 ```
 
-### One-off private test from cron-job.org
+`timing` defaults to `standard` if omitted. YouTube, Facebook, and Instagram default to on.
 
-Use **Run now** on a throwaway cron job (or a dedicated “publish private test” job) with:
+### One-off scheduled test from cron-job.org
+
+Use **Run now** on a throwaway cron job (or a dedicated “publish scheduled test” job) with:
 
 ```json
 {
   "ref": "master",
   "inputs": {
     "mode": "all",
-    "private": "true"
+    "timing": "scheduled"
   }
 }
 ```
