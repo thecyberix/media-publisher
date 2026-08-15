@@ -352,6 +352,5 @@ def _html_section(
             "</a></p>",
             '<p class="cta">'
             f'<a href="{_html_escape(registration_link)}">Регистрация</a></p>',
-            '<p class="closing">💫 С любов, светлина и смях,<br>Доброволци</p>',
         ]
     )

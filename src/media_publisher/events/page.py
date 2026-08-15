@@ -377,7 +377,7 @@ _INDEX_TEMPLATE = """\
       flex-direction: column;
       flex: 0 1 22rem;
       width: min(100%, 22rem);
-      padding: 1.25rem 1rem 0;
+      padding: 1.25rem 1rem 1rem;
       border-top: 1px solid var(--rule);
     }}
     .event h2 {{
@@ -436,7 +436,7 @@ _INDEX_TEMPLATE = """\
       text-align: center;
       margin-top: auto;
       padding-top: 1.25rem;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0;
     }}
     .cta a {{
       display: inline-block;
@@ -451,9 +451,6 @@ _INDEX_TEMPLATE = """\
     }}
     .cta a:hover {{
       filter: brightness(1.05);
-    }}
-    .closing {{
-      margin: 0 0 1rem;
     }}
     a {{ color: var(--link); }}
     ul.benefits {{
