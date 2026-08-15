@@ -602,26 +602,30 @@ class EventFacebookImageTests(unittest.TestCase):
         drive.list_children.return_value = images
         return drive
 
+    def _choose(self, drive, **kwargs):
+        kwargs.setdefault("folder_id", "events-root")
+        return choose_facebook_image(drive, **kwargs)
+
     def test_rotation_cycles_through_images(self) -> None:
         drive = self._drive_with_images()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            first, mode1 = choose_facebook_image(
+            first, mode1 = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
             )
-            second, mode2 = choose_facebook_image(
+            second, mode2 = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
             )
-            third, _ = choose_facebook_image(
+            third, _ = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
             )
-            fourth, _ = choose_facebook_image(
+            fourth, _ = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -640,7 +644,7 @@ class EventFacebookImageTests(unittest.TestCase):
         drive = self._drive_with_images()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            selected, mode = choose_facebook_image(
+            selected, mode = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -649,7 +653,7 @@ class EventFacebookImageTests(unittest.TestCase):
             self.assertEqual(mode, "explicit")
             self.assertEqual(selected.id, "img3")
 
-            next_default, next_mode = choose_facebook_image(
+            next_default, next_mode = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -657,7 +661,7 @@ class EventFacebookImageTests(unittest.TestCase):
             self.assertEqual(next_mode, "rotation")
             self.assertEqual(next_default.id, "img1")
 
-            after_user_gap, _ = choose_facebook_image(
+            after_user_gap, _ = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -665,7 +669,7 @@ class EventFacebookImageTests(unittest.TestCase):
             self.assertEqual(after_user_gap.id, "img2")
 
             # Cycle complete after img3 (user), img1, img2 — next wraps to img1.
-            wrapped, _ = choose_facebook_image(
+            wrapped, _ = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -676,7 +680,7 @@ class EventFacebookImageTests(unittest.TestCase):
         drive = self._drive_with_images()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            by_name, mode_name = choose_facebook_image(
+            by_name, mode_name = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -685,7 +689,7 @@ class EventFacebookImageTests(unittest.TestCase):
             self.assertEqual(mode_name, "explicit")
             self.assertEqual(by_name.id, "img2")
 
-            by_number, mode_number = choose_facebook_image(
+            by_number, mode_number = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -719,7 +723,7 @@ class EventFacebookImageTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            selected, mode = choose_facebook_image(
+            selected, mode = self._choose(
                 drive,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 events_root=root,
@@ -733,7 +737,7 @@ class EventFacebookImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with self.assertRaisesRegex(Exception, "not in the"):
-                choose_facebook_image(
+                self._choose(
                     drive,
                     event_type=EVENT_TYPE_SURYA_KRIYA,
                     events_root=root,
@@ -758,6 +762,7 @@ class EventFacebookImageTests(unittest.TestCase):
                 events_root=events_root,
                 event_type=EVENT_TYPE_SURYA_KRIYA,
                 drive_client=drive,
+                folder_id="events-root",
             )
             self.assertTrue(selected.local_path.is_file())
             self.assertEqual(selected.drive_file.id, "img1")

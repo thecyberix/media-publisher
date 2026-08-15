@@ -14,6 +14,10 @@ from media_publisher.quotes_render_pipeline import (
     QuotesRenderPipelineError,
     render_monthly_quotes,
 )
+from media_publisher.sources.drive_layout import (
+    drive_folder_url as quotes_drive_folder_link,
+    resolve_quotes_folder_id,
+)
 from media_publisher.sources.google_drive import (
     GoogleDriveClient,
     GoogleDriveError,
@@ -25,10 +29,6 @@ from media_publisher.sources.google_sheets import GoogleSheetsClient, GoogleShee
 from media_publisher.sources.quotes_config import QuotesSourcesConfig
 from media_publisher.sources.quotes_sheet import DailyQuoteText, QuotesSheetError, load_monthly_quote_texts
 
-GENERATED_QUOTES_DRIVE_ROOT_ID = "1lRx8fyrABIQbm13X8MS-dAvd5-3txRoE"
-GENERATED_QUOTES_DRIVE_FOLDER_URL = (
-    f"https://drive.google.com/drive/folders/{GENERATED_QUOTES_DRIVE_ROOT_ID}"
-)
 GENERATED_MONTH_FOLDER_PATTERN = "{month:02d} {month_abbr} {year}"
 SYNC_STATE_RELATIVE_PATH = Path("downloads/quotes/generated-sync-state.json")
 DEFAULT_VARIANT = "fbyt"
@@ -123,17 +123,22 @@ def generated_quotes_notify_recipients() -> list[str]:
 def format_generated_quotes_email(
     changes: list[GeneratedQuoteChange],
     *,
-    drive_folder_url: str = GENERATED_QUOTES_DRIVE_FOLDER_URL,
+    drive_folder_url: str = "",
 ) -> tuple[str, str]:
     added = [item for item in changes if item.action == "added"]
     updated = [item for item in changes if item.action == "updated"]
     subject = (
         f"Generated quotes updated ({len(added)} added, {len(updated)} updated)"
     )
+    folder_line = (
+        drive_folder_url
+        or os.getenv("DRIVE_URL", "").strip()
+        or "https://drive.google.com/drive/folders/"
+    )
     lines = [
         "Generated quote images were added or updated in Drive.",
         "",
-        f"Folder: {drive_folder_url}",
+        f"Folder: {folder_line}",
         f"Added: {len(added)}",
         f"Updated: {len(updated)}",
         "",
@@ -161,6 +166,7 @@ def send_generated_quotes_notification_email(
     changes: list[GeneratedQuoteChange],
     *,
     to_addresses: list[str] | None = None,
+    drive_folder_url: str = "",
 ) -> bool:
     """Email quote Drive add/update summary to GENERATED_QUOTES_NOTIFY_EMAIL recipients."""
     if not changes:
@@ -181,7 +187,9 @@ def send_generated_quotes_notification_email(
     if not smtp_user or not smtp_password:
         return False
 
-    subject, body = format_generated_quotes_email(changes)
+    subject, body = format_generated_quotes_email(
+        changes, drive_folder_url=drive_folder_url
+    )
     for to_address in recipients:
         send_email(
             smtp_user=smtp_user,
@@ -232,6 +240,7 @@ def sync_generated_quotes_for_month(
     project_root: Path,
     font_path: Path | None = None,
     print_line: Callable[[str], None] | None = None,
+    quotes_root_id: str | None = None,
 ) -> tuple[list[GeneratedQuoteChange], list[str]]:
     log = print_line or (lambda _message: None)
     warnings: list[str] = []
@@ -320,7 +329,7 @@ def sync_generated_quotes_for_month(
         month=month,
     )
     output_month = drive_client.ensure_folder(
-        GENERATED_QUOTES_DRIVE_ROOT_ID,
+        quotes_root_id or resolve_quotes_folder_id(drive_client),
         output_month_name,
     )
 
@@ -380,6 +389,9 @@ def sync_generated_quotes_for_months(
     all_changes: list[GeneratedQuoteChange] = []
     all_warnings: list[str] = []
 
+    quotes_root_id = resolve_quotes_folder_id(drive_client)
+    quotes_folder_link = quotes_drive_folder_link(quotes_root_id)
+
     for year, month in current_and_next_months(reference_date):
         log(f"Syncing generated quotes for {year:04d}-{month:02d} ...")
         changes, warnings = sync_generated_quotes_for_month(
@@ -392,6 +404,7 @@ def sync_generated_quotes_for_months(
             project_root=project_root,
             font_path=font_path,
             print_line=print_line,
+            quotes_root_id=quotes_root_id,
         )
         all_changes.extend(changes)
         all_warnings.extend(warnings)
@@ -401,7 +414,9 @@ def sync_generated_quotes_for_months(
     if send_email and all_changes:
         recipients = generated_quotes_notify_recipients()
         try:
-            sent = send_generated_quotes_notification_email(all_changes)
+            sent = send_generated_quotes_notification_email(
+                all_changes, drive_folder_url=quotes_folder_link
+            )
         except Exception as exc:  # noqa: BLE001 - email must not fail the sync
             all_warnings.append(f"Failed to send generated-quotes email: {exc}")
         else:

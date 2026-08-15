@@ -23,11 +23,7 @@ from media_publisher.sources.google_drive import GoogleDriveClient
 from media_publisher.sources.source_thumbnail import aspects_match
 
 REVIEW_FILENAME_SUFFIX = ".review"
-DEFAULT_REVIEW_FOLDER_ID = "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN"
 DEFAULT_APPROVED_SUBFOLDER = "Approved"
-DEFAULT_REVIEW_FOLDER_URL = (
-    "https://drive.google.com/drive/u/1/folders/1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN"
-)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -202,13 +198,13 @@ def thumbnail_matches_reference_aspect(
 def format_review_email(
     items: list[ReviewQueueItem],
     *,
-    review_folder_url: str = DEFAULT_REVIEW_FOLDER_URL,
+    review_folder_url: str = "",
 ) -> tuple[str, str]:
     subject = f"Thumbnail review requested ({len(items)} video(s))"
     lines = [
         "The following catalog videos need Original Video Thumbnail review.",
         "",
-        f"Review folder: {review_folder_url}",
+        f"Review folder: {review_folder_url or os.getenv('DRIVE_URL', '').strip() or 'Thumbnails for approval'}",
         "",
         "Move approved thumbnails into the Approved subfolder.",
         "",
@@ -223,7 +219,7 @@ def format_review_email(
 def send_review_notification_email(
     items: list[ReviewQueueItem],
     *,
-    review_folder_url: str = DEFAULT_REVIEW_FOLDER_URL,
+    review_folder_url: str = "",
 ) -> bool:
     if not items:
         return False

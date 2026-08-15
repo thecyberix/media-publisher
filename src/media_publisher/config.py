@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from media_publisher.runtime_env import materialize_credentials
+from media_publisher.sources.airtable import apply_airtable_url_env
 from media_publisher.sources.happyscribe import DEFAULT_PUBLISHED_FOLDER_ID
 
 
@@ -17,9 +18,7 @@ class Settings:
     airtable_view: str | None = None
     happyscribe_api_key: str | None = None
     happyscribe_api_base: str = "https://www.happyscribe.com/api/v1"
-    happyscribe_organization_id: str | None = None
-    happyscribe_folder_id: str | None = None
-    happyscribe_library_url: str | None = None
+    happyscribe_url: str | None = None
     happyscribe_published_folder_id: str | None = DEFAULT_PUBLISHED_FOLDER_ID
     happyscribe_download_dir: str = "downloads/happyscribe"
     happyscribe_ffmpeg: str | None = None
@@ -34,16 +33,15 @@ class Settings:
     canva_redirect_uri: str = "http://127.0.0.1:8765/callback"
     canva_api_base: str = "https://api.canva.com/rest/v1"
     canva_download_dir: str = "downloads/canva"
-    canva_long_video_thumbnails_url: str = "https://www.canva.com/folder/FAHOgLx_jAw"
-    canva_short_video_thumbnails_url: str = "https://www.canva.com/folder/FAHOgF-NT8Q"
+    canva_url: str = "https://www.canva.com/folder/FAHSXg0enw4"
     canva_quotes_design_id: str | None = None
     canva_quotes_folder_id: str = ""
-    quotes_publish_timezone: str = "Europe/Sofia"
     quotes_publish_hour: int = 8
     quotes_sources_config: str = "config/quotes_sources.json"
+    translated_quotes_url: str = ""
     quotes_work_dir: str = "downloads/quotes"
     publish_timezone: str = "Europe/Sofia"
-    publish_hour: int = 18
+    videos_publish_hour: int = 18
     youtube_client_secrets: str = "credentials/youtube-client.json"
     youtube_token: str = "credentials/youtube-token.json"
     youtube_channel_handle: str = "SadhguruBulgarian"
@@ -51,13 +49,12 @@ class Settings:
     youtube_short_cover_intro_seconds: float = 5.0
     youtube_playlist_title: str = "Съзнателна Планета"
     youtube_playlist_id: str | None = None
-    youtube_daily_playlist_title: str = "Днес"
     youtube_daily_playlist_id: str | None = None
     youtube_daily_playlist_slots: str = "data/youtube_daily_playlist_slots.json"
     channel_report_mapping: str = "config/channel_report_bulgarian.json"
     channel_report_snapshots: str = "data/channel_report_snapshots.json"
     google_sheets_service_account: str = "credentials/google-sheets-service-account.json"
-    publish_override_drive_folder_id: str = "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ"
+    drive_url: str = ""
     publish_override_thumbnails_subfolder: str = "Thumbnails"
     publish_override_videos_subfolder: str = "Videos"
     canva_published_subfolder_name: str = "Published"
@@ -65,12 +62,9 @@ class Settings:
     tn_cache_dir: str = "downloads/tn-cache"
     tn_render_output_dir: str = "downloads/tn-rendered"
     tn_english_override_file: str = "downloads/tn-english-overrides.json"
-    thumbnail_review_drive_folder_id: str = "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN"
     thumbnail_review_approved_subfolder: str = "Approved"
     publish_media_download_dir: str = "downloads/publish-media"
     meta_access_token: str | None = None
-    meta_page_id: str | None = None
-    meta_instagram_account_id: str | None = None
     meta_page_username: str = "SadhguruBulgarian"
     meta_instagram_username: str = "sadhguru.bulgarian"
     meta_app_id: str | None = None
@@ -79,15 +73,14 @@ class Settings:
 
 
 def load_env_file(path: Path) -> None:
-    if not path.exists():
-        return
-
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+    if path.exists():
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+    apply_airtable_url_env()
 
 
 def update_env_values(path: Path, updates: dict[str, str]) -> None:
@@ -140,9 +133,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "HAPPYSCRIBE_API_BASE", "https://www.happyscribe.com/api/v1"
         ).strip()
         or "https://www.happyscribe.com/api/v1",
-        happyscribe_organization_id=optional("HAPPYSCRIBE_ORGANIZATION_ID"),
-        happyscribe_folder_id=optional("HAPPYSCRIBE_FOLDER_ID"),
-        happyscribe_library_url=optional("HAPPYSCRIBE_LIBRARY_URL"),
+        happyscribe_url=optional("HAPPYSCRIBE_URL"),
         happyscribe_published_folder_id=(
             optional("HAPPYSCRIBE_PUBLISHED_FOLDER_ID") or DEFAULT_PUBLISHED_FOLDER_ID
         ),
@@ -175,30 +166,24 @@ def load_settings(project_root: Path | None = None) -> Settings:
         or "https://api.canva.com/rest/v1",
         canva_download_dir=os.getenv("CANVA_DOWNLOAD_DIR", "downloads/canva").strip()
         or "downloads/canva",
-        canva_long_video_thumbnails_url=os.getenv(
-            "CANVA_LONG_VIDEO_THUMBNAILS_URL",
-            "https://www.canva.com/folder/FAHOgLx_jAw",
+        canva_url=os.getenv(
+            "CANVA_URL",
+            "https://www.canva.com/folder/FAHSXg0enw4",
         ).strip()
-        or "https://www.canva.com/folder/FAHOgLx_jAw",
-        canva_short_video_thumbnails_url=os.getenv(
-            "CANVA_SHORT_VIDEO_THUMBNAILS_URL",
-            "https://www.canva.com/folder/FAHOgF-NT8Q",
-        ).strip()
-        or "https://www.canva.com/folder/FAHOgF-NT8Q",
+        or "https://www.canva.com/folder/FAHSXg0enw4",
         canva_quotes_design_id=optional("CANVA_QUOTES_DESIGN_ID"),
         canva_quotes_folder_id=(os.getenv("CANVA_QUOTES_FOLDER_ID") or "").strip(),
-        quotes_publish_timezone=os.getenv("QUOTES_PUBLISH_TIMEZONE", "Europe/Sofia").strip()
-        or "Europe/Sofia",
         quotes_publish_hour=int(os.getenv("QUOTES_PUBLISH_HOUR", "8").strip() or "8"),
         quotes_sources_config=os.getenv(
             "QUOTES_SOURCES_CONFIG", "config/quotes_sources.json"
         ).strip()
         or "config/quotes_sources.json",
+        translated_quotes_url=os.getenv("TRANSLATED_QUOTES_URL", "").strip(),
         quotes_work_dir=os.getenv("QUOTES_WORK_DIR", "downloads/quotes").strip()
         or "downloads/quotes",
         publish_timezone=os.getenv("PUBLISH_TIMEZONE", "Europe/Sofia").strip()
         or "Europe/Sofia",
-        publish_hour=int(os.getenv("PUBLISH_HOUR", "18").strip() or "18"),
+        videos_publish_hour=int(os.getenv("VIDEOS_PUBLISH_HOUR", "18").strip() or "18"),
         youtube_client_secrets=os.getenv(
             "YOUTUBE_CLIENT_SECRETS", "credentials/youtube-client.json"
         ).strip()
@@ -220,10 +205,6 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "Съзнателна Планета",
         youtube_playlist_id=optional("YOUTUBE_PLAYLIST_ID"),
-        youtube_daily_playlist_title=os.getenv(
-            "YOUTUBE_DAILY_PLAYLIST_TITLE", "Днес"
-        ).strip()
-        or "Днес",
         youtube_daily_playlist_id=optional("YOUTUBE_DAILY_PLAYLIST_ID"),
         youtube_daily_playlist_slots=os.getenv(
             "YOUTUBE_DAILY_PLAYLIST_SLOTS",
@@ -243,11 +224,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "credentials/google-sheets-service-account.json",
         ).strip()
         or "credentials/google-sheets-service-account.json",
-        publish_override_drive_folder_id=os.getenv(
-            "PUBLISH_OVERRIDE_DRIVE_FOLDER_ID",
-            "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ",
-        ).strip()
-        or "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ",
+        drive_url=os.getenv("DRIVE_URL", "").strip(),
         publish_override_thumbnails_subfolder=os.getenv(
             "PUBLISH_OVERRIDE_THUMBNAILS_SUBFOLDER",
             "Thumbnails",
@@ -280,11 +257,6 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "downloads/tn-english-overrides.json",
         ).strip()
         or "downloads/tn-english-overrides.json",
-        thumbnail_review_drive_folder_id=os.getenv(
-            "THUMBNAIL_REVIEW_DRIVE_FOLDER_ID",
-            "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN",
-        ).strip()
-        or "1lSr2x3xguVbqjBbOQN2bOR3Vbn-xhCIN",
         thumbnail_review_approved_subfolder=os.getenv(
             "THUMBNAIL_REVIEW_APPROVED_SUBFOLDER",
             "Approved",
@@ -296,8 +268,6 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "downloads/publish-media",
         meta_access_token=optional("META_ACCESS_TOKEN"),
-        meta_page_id=optional("META_PAGE_ID"),
-        meta_instagram_account_id=optional("META_INSTAGRAM_ACCOUNT_ID"),
         meta_page_username=os.getenv("META_PAGE_USERNAME", "SadhguruBulgarian").strip()
         or "SadhguruBulgarian",
         meta_instagram_username=os.getenv(

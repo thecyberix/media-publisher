@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import unittest
 from datetime import date, datetime, timezone
 from unittest.mock import patch
@@ -8,6 +9,9 @@ from zoneinfo import ZoneInfo
 from media_publisher.models import PlatformScheduleTask
 from media_publisher.sources.airtable import (
     AirtableClient,
+    AirtableError,
+    apply_airtable_url_env,
+    parse_airtable_url,
     AirtableRecord,
     DEFAULT_PUBLISH_HOUR,
     DEFAULT_PUBLISH_TIMEZONE,
@@ -425,6 +429,36 @@ class AirtableClientTests(unittest.TestCase):
 
         self.assertEqual(len(updated), 11)
         self.assertEqual(request_mock.call_count, 2)
+
+
+class AirtableUrlTests(unittest.TestCase):
+    def test_parse_airtable_url_extracts_base_and_table(self) -> None:
+        base_id, table_id = parse_airtable_url(
+            "https://airtable.com/appbIH4wzW6ZRUnF5/tblji1RaFztkeDn04/viw2Xz3EENcDEmarw"
+        )
+        self.assertEqual(base_id, "appbIH4wzW6ZRUnF5")
+        self.assertEqual(table_id, "tblji1RaFztkeDn04")
+
+    def test_parse_airtable_url_rejects_invalid(self) -> None:
+        with self.assertRaises(AirtableError):
+            parse_airtable_url("https://airtable.com/shrNotATable")
+
+    def test_apply_airtable_url_env_sets_base_and_table(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AIRTABLE_URL": (
+                    "https://airtable.com/appbIH4wzW6ZRUnF5/"
+                    "tblji1RaFztkeDn04/viw2Xz3EENcDEmarw"
+                ),
+                "AIRTABLE_BASE_ID": "",
+                "AIRTABLE_TABLE_NAME": "",
+            },
+            clear=False,
+        ):
+            apply_airtable_url_env()
+            self.assertEqual(os.environ["AIRTABLE_BASE_ID"], "appbIH4wzW6ZRUnF5")
+            self.assertEqual(os.environ["AIRTABLE_TABLE_NAME"], "tblji1RaFztkeDn04")
 
 
 if __name__ == "__main__":

@@ -61,14 +61,10 @@ def main(argv: list[str]) -> int:
         print(f"smartcat: {smartcat}")
         print(f"srt from url: {srt_name_from_smartcat_url(smartcat)}")
 
+    location = resolve_library_location(library_url=settings.happyscribe_url)
     hs = HappyScribeClient(
         settings.happyscribe_api_key or "",
-        organization_id=settings.happyscribe_organization_id,
-    )
-    location = resolve_library_location(
-        library_url=settings.happyscribe_library_url,
-        organization_id=settings.happyscribe_organization_id,
-        folder_id=settings.happyscribe_folder_id,
+        organization_id=location.organization_id,
     )
     extra_folders = (
         [settings.happyscribe_published_folder_id]

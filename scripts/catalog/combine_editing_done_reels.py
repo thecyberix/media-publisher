@@ -32,7 +32,7 @@ from catalog_parser.drive_mix import (
     mix_folder_media_to_drive,
 )
 from catalog_parser.parser import TYPE_REEL
-from catalog_parser.workflow.config import load_workflow_config
+from catalog_parser.workflow.config import combined_media_output_folder_id, load_workflow_config
 
 
 def _require_env(name: str) -> str:
@@ -51,9 +51,7 @@ def main() -> int:
         table_name=_require_env("AIRTABLE_TABLE_NAME"),
     )
     drive = get_drive_service_noninteractive()
-    output_parent_id = extract_drive_folder_id(config.output_drive_folder)
-    if output_parent_id is None:
-        raise RuntimeError(f"Could not parse output Drive folder: {config.output_drive_folder!r}")
+    output_parent_id = combined_media_output_folder_id(config, drive)
 
     filter_formula = (
         f"AND({{{FIELD_STATUS}}} = {_json_quote(STATUS_EDITING_DONE)}, "

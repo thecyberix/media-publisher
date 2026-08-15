@@ -18,7 +18,8 @@ class PersonProfile:
 
 @dataclass(frozen=True)
 class WorkflowConfig:
-    output_drive_folder: str
+    drive_url: str
+    catalog_id: str
     translators: list[PersonProfile]
     editors: list[PersonProfile]
     timing_editors: list[PersonProfile]
@@ -74,20 +75,37 @@ def _load_profiles_json(project_root: Path) -> dict:
     return {}
 
 
+def load_catalog_id(project_root: Path, *, file_data: dict | None = None) -> str:
+    from catalog_parser.parser import extract_sheet_id
+
+    data = file_data
+    if data is None:
+        config_path = project_root / "workflow_config.json"
+        data = {}
+        if config_path.exists():
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+    raw = str(data.get("catalog_id", "")).strip()
+    if not raw:
+        raise RuntimeError("workflow_config.json catalog_id is required")
+    return extract_sheet_id(raw)
+
+
 def load_workflow_config(project_root: Path) -> WorkflowConfig:
     config_path = project_root / "workflow_config.json"
     file_data: dict = {}
     if config_path.exists():
         file_data = json.loads(config_path.read_text(encoding="utf-8"))
 
-    output_drive_folder = (
-        os.getenv("OUTPUT_DRIVE_FOLDER", "").strip()
-        or str(file_data.get("output_drive_folder", "")).strip()
+    drive_url = (
+        os.getenv("DRIVE_URL", "").strip()
+        or str(file_data.get("drive_url", "")).strip()
     )
-    if not output_drive_folder:
+    if not drive_url:
         raise RuntimeError(
-            "OUTPUT_DRIVE_FOLDER env var or workflow_config.json output_drive_folder is required"
+            "DRIVE_URL env var or workflow_config.json drive_url is required"
         )
+
+    catalog_id = load_catalog_id(project_root, file_data=file_data)
 
     profiles = _load_profiles_json(project_root)
     translators_data = profiles.get("translators", [])
@@ -129,7 +147,8 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
         work_dir = project_root / work_dir
 
     return WorkflowConfig(
-        output_drive_folder=output_drive_folder,
+        drive_url=drive_url,
+        catalog_id=catalog_id,
         translators=translators,
         editors=editors,
         timing_editors=timing_editors,
@@ -143,3 +162,9 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
             or file_data.get("max_video_seconds", 15 * 60)
         ),
     )
+
+
+def combined_media_output_folder_id(config: WorkflowConfig, drive_service) -> str:
+    from media_publisher.sources.drive_layout import resolve_combined_media_files_id
+
+    return resolve_combined_media_files_id(drive_service, drive_url=config.drive_url)

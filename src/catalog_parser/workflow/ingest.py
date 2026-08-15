@@ -21,7 +21,6 @@ from catalog_parser.auth import get_docs_service, get_drive_service, get_sheets_
 from catalog_parser.parser import (
     DEFAULT_VIDEO_TYPE,
     TYPE_VIDEO,
-    extract_sheet_id,
     filter_by_pkg_tn,
     parse_catalog,
     parse_video_type,
@@ -37,6 +36,7 @@ from catalog_parser.__main__ import (
 from catalog_parser.canva import build_canva_client_from_env
 from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE
 from catalog_parser.smartcat_web import DEFAULT_STORAGE_STATE, SmartcatWebClient
+from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.workflow.table_cache import TableCache
 
 
@@ -116,14 +116,7 @@ def ingest_batch(
     require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
 ) -> list[str]:
-    sheet_id = os.getenv("SHEET_ID", "").strip()
-    if not sheet_id:
-        raise RuntimeError("SHEET_ID is required for ingestion")
-
-    sheet_name = os.getenv("SHEET_NAME") or None
-    sheet_range = os.getenv("SHEET_RANGE") or None
-    if sheet_range == "":
-        sheet_range = None
+    catalog_id = load_catalog_id(PROJECT_ROOT)
 
     emit = log or print
     video_type = parse_video_type(desired_type or (os.getenv("VIDEO_TYPE") or DEFAULT_VIDEO_TYPE))
@@ -140,9 +133,7 @@ def ingest_batch(
     )
     candidates = parse_catalog(
         service,
-        extract_sheet_id(sheet_id),
-        sheet_name=sheet_name,
-        sheet_range=sheet_range,
+        catalog_id,
         limit=0,
         min_duration=min_duration,
         max_duration=max_duration,
@@ -231,9 +222,7 @@ def ingest_batch(
     if not eligible and video_type == TYPE_VIDEO:
         candidates = parse_catalog(
             service,
-            extract_sheet_id(sheet_id),
-            sheet_name=sheet_name,
-            sheet_range=sheet_range,
+            catalog_id,
             limit=0,
             min_duration=min_duration,
             max_duration=type_max_duration,
@@ -287,15 +276,23 @@ def ingest_batch(
         if not path.is_file():
             continue
         from media_publisher.config import load_settings
+        from media_publisher.sources.drive_layout import (
+            drive_folder_url,
+            resolve_thumbnails_for_approval_id,
+        )
         from media_publisher.sources.thumbnail_review import (
             ReviewQueueItem,
             upload_review_thumbnail,
         )
 
         settings = load_settings(PROJECT_ROOT)
+        review_folder_id = resolve_thumbnails_for_approval_id(
+            drive_service,
+            drive_url=settings.drive_url,
+        )
         upload_review_thumbnail(
             drive_service,
-            review_folder_id=settings.thumbnail_review_drive_folder_id,
+            review_folder_id=review_folder_id,
             local_path=path,
             title=str(title),
         )
@@ -311,14 +308,11 @@ def ingest_batch(
         path.unlink(missing_ok=True)
 
     if review_items:
-        from media_publisher.sources.thumbnail_review import (
-            DEFAULT_REVIEW_FOLDER_URL,
-            send_review_notification_email,
-        )
+        from media_publisher.sources.thumbnail_review import send_review_notification_email
 
         if send_review_notification_email(
             review_items,
-            review_folder_url=DEFAULT_REVIEW_FOLDER_URL,
+            review_folder_url=drive_folder_url(review_folder_id),
         ):
             emit(f"Thumbnail review email sent ({len(review_items)} video(s)).")
         else:

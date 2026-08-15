@@ -9,11 +9,7 @@ EVENT_TYPE_SURYA_KRIYA = "surya_kriya"
 EVENT_TYPE_BHUTA_SHUDDHI = "bhuta_shuddhi"
 EVENT_TYPE_YOGASANA = "yogasana"
 
-# Google Drive root with one subfolder of Facebook images per programme.
-EVENT_IMAGES_DRIVE_FOLDER_ID = "1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6"
-EVENT_IMAGES_DRIVE_FOLDER_URL = (
-    f"https://drive.google.com/drive/folders/{EVENT_IMAGES_DRIVE_FOLDER_ID}"
-)
+# Programme images and the Hatha WhatsApp template live in the "Events" child of DRIVE_URL.
 
 SURYA_KRIYA_LEARN_MORE_URL = "https://youtu.be/QFd8S1EHvU8"
 SURYA_KRIYA_LEARN_MORE_LABEL = "Суря крия - Запалете Слънцето във вас! | Садгуру"

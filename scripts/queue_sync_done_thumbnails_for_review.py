@@ -30,6 +30,10 @@ from media_publisher.sources.airtable import (
     catalog_title,
     has_original_video_thumbnail,
 )
+from media_publisher.sources.drive_layout import (
+    drive_folder_url,
+    resolve_thumbnails_for_approval_id,
+)
 from media_publisher.sources.google_drive import GoogleDriveClient
 from media_publisher.sources.source_thumbnail import (
     SourceThumbnailError,
@@ -37,7 +41,6 @@ from media_publisher.sources.source_thumbnail import (
     original_thumbnail_destination,
 )
 from media_publisher.sources.thumbnail_review import (
-    DEFAULT_REVIEW_FOLDER_URL,
     ReviewQueueItem,
     process_approved_review_thumbnails,
     review_drive_filename,
@@ -139,7 +142,11 @@ def main() -> int:
     export_dir = PROJECT_ROOT / "downloads" / "thumbnail-review-queue"
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    review_folder_id = settings.thumbnail_review_drive_folder_id
+    review_folder_id = resolve_thumbnails_for_approval_id(
+        drive,
+        drive_url=settings.drive_url,
+    )
+    review_url = drive_folder_url(review_folder_id)
     approved_subfolder = settings.thumbnail_review_approved_subfolder
 
     records = airtable.list_records()
@@ -234,7 +241,7 @@ def main() -> int:
     mode = "APPLY" if args.apply else "DRY-RUN"
     status_label = ", ".join(status_keys)
     print(f"=== Queue {status_label} thumbnails for review ({mode}) ===")
-    print(f"Review folder: {DEFAULT_REVIEW_FOLDER_URL}\n")
+    print(f"Review folder: {review_url}\n")
 
     if approved_results:
         print(f"--- Approved review thumbnails ({len(approved_results)}) ---")
@@ -285,7 +292,7 @@ def main() -> int:
 
     if review_uploaded_items and send_review_notification_email(
         review_uploaded_items,
-        review_folder_url=DEFAULT_REVIEW_FOLDER_URL,
+        review_folder_url=review_url,
     ):
         print(f"EMAIL review notification sent ({len(review_uploaded_items)} video(s))")
     elif review_uploaded_items:

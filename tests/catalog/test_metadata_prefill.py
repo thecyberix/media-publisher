@@ -24,6 +24,14 @@ class MetadataPrefillTests(unittest.TestCase):
         self.assertTrue(result.skipped)
         self.assertNotIn("bgTitle", record)
 
+    def test_skips_when_translation_provider_is_none(self) -> None:
+        record = {"ytTitle": "Hello", "ytDescription": "World"}
+        env = {"SMARTCAT_AI_PREFILL": "true", "TRANSLATION_PROVIDER": "none"}
+        with patch.dict(os.environ, env, clear=False):
+            result = translate_record_metadata_if_needed(record)
+        self.assertTrue(result.skipped)
+        self.assertNotIn("bgTitle", record)
+
     def test_skips_when_no_english(self) -> None:
         record: dict = {"ctTitle": ""}
         with patch.dict(os.environ, {"SMARTCAT_AI_PREFILL": "true"}, clear=False):

@@ -24,6 +24,7 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
             self.assertTrue(result.skipped)
             self.assertEqual(result.processed, 0)
 
+    @patch("media_publisher.sources.drive_layout.resolve_thumbnails_for_approval_id", return_value="folder-id")
     @patch("media_publisher.sources.thumbnail_review.process_approved_review_thumbnails")
     @patch("media_publisher.sources.google_drive.GoogleDriveClient.from_service_account")
     @patch("media_publisher.sources.airtable.AirtableClient")
@@ -34,6 +35,7 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
         airtable_client,
         from_service_account,
         process_approved,
+        _resolve_review_folder,
     ) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -46,7 +48,7 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
                 airtable_base_id="base",
                 airtable_table_name="table",
                 google_sheets_service_account="credentials/google-sheets-service-account.json",
-                thumbnail_review_drive_folder_id="folder-id",
+                drive_url="https://drive.google.com/drive/folders/parent",
                 thumbnail_review_approved_subfolder="Approved",
             )
             process_approved.return_value = [

@@ -29,6 +29,7 @@ from catalog_parser.translation.rag_translate import (
     chat_config_from_env,
     requires_all_caps,
     translate_cue_texts,
+    translation_provider_disabled,
 )
 from catalog_parser.translation.srt import Cue, parse_srt, write_srt
 
@@ -86,6 +87,8 @@ def resolve_record_type(record: dict[str, Any]) -> str | None:
 
 
 def ai_prefill_enabled() -> bool:
+    if translation_provider_disabled():
+        return False
     return os.getenv("SMARTCAT_AI_PREFILL", "").strip().lower() in {"1", "true", "yes"}
 
 

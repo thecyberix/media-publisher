@@ -51,15 +51,11 @@ def main() -> int:
         fields=[FIELD_TITLE, FIELD_STATUS, FIELD_TRANSLATION_RESOURCES, FIELD_TYPE],
     )
 
+    location = resolve_library_location(library_url=settings.happyscribe_url)
     hs = HappyScribeClient(
         api_key=settings.happyscribe_api_key or "",
         api_base=settings.happyscribe_api_base,
-        organization_id=settings.happyscribe_organization_id,
-    )
-    location = resolve_library_location(
-        library_url=settings.happyscribe_library_url,
-        organization_id=settings.happyscribe_organization_id,
-        folder_id=settings.happyscribe_folder_id,
+        organization_id=location.organization_id,
     )
     extra_folders = (
         [settings.happyscribe_published_folder_id]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -101,6 +103,31 @@ def _field_text(value: Any) -> str | None:
 
 class AirtableError(RuntimeError):
     pass
+
+
+AIRTABLE_SHARE_URL_RE = re.compile(
+    r"airtable\.com/(?P<base_id>app[a-zA-Z0-9]+)/(?P<table_id>tbl[a-zA-Z0-9]+)",
+    re.IGNORECASE,
+)
+
+
+def parse_airtable_url(url: str) -> tuple[str, str]:
+    match = AIRTABLE_SHARE_URL_RE.search((url or "").strip())
+    if not match:
+        raise AirtableError(
+            "Invalid AIRTABLE_URL. Expected https://airtable.com/app.../tbl... "
+            "(optional /viw... is ignored)."
+        )
+    return match.group("base_id"), match.group("table_id")
+
+
+def apply_airtable_url_env() -> None:
+    url = os.getenv("AIRTABLE_URL", "").strip()
+    if not url:
+        return
+    base_id, table_id = parse_airtable_url(url)
+    os.environ["AIRTABLE_BASE_ID"] = base_id
+    os.environ["AIRTABLE_TABLE_NAME"] = table_id
 
 
 def catalog_title(fields: dict[str, Any]) -> str:
@@ -604,9 +631,9 @@ class AirtableClient:
         if not self.token:
             raise AirtableError("AIRTABLE_TOKEN is required")
         if not self.base_id:
-            raise AirtableError("AIRTABLE_BASE_ID is required")
+            raise AirtableError("AIRTABLE_URL is required (missing base id)")
         if not self.table_name:
-            raise AirtableError("AIRTABLE_TABLE_NAME is required")
+            raise AirtableError("AIRTABLE_URL is required (missing table id)")
 
     def _table_url(self) -> str:
         encoded_table = urllib.parse.quote(self.table_name, safe="")

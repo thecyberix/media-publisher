@@ -60,8 +60,9 @@ def _format_canva_http_error(method: str, path: str, code: int, detail: str) -> 
         f"{message} Re-authorize Canva with scopes: {' '.join(DEFAULT_SCOPES)} "
         "(run `python -m media_publisher --canva-auth`)."
     )
-CANVA_LONG_VIDEO_THUMBNAILS_URL = "https://www.canva.com/folder/FAHOgLx_jAw"
-CANVA_SHORT_VIDEO_THUMBNAILS_URL = "https://www.canva.com/folder/FAHOgF-NT8Q"
+DEFAULT_CANVA_URL = "https://www.canva.com/folder/FAHSXg0enw4"
+CANVA_LONG_VIDEOS_FOLDER_NAME = "Long videos"
+CANVA_SHORT_VIDEOS_FOLDER_NAME = "Short videos"
 CANVA_QUOTES_FOLDER_URL = "https://www.canva.com/folder/FAF9ECD0M-k"
 ORIGINAL_VIDEO_NAME_KEY = "Title"
 EXPORT_POLL_INTERVAL_SECONDS = 2.0
@@ -259,15 +260,69 @@ def titles_match(expected: str, actual: str | None) -> bool:
     return expected.casefold().strip() == actual.casefold().strip()
 
 
+def canva_folder_url(folder_id: str) -> str:
+    return f"https://www.canva.com/folder/{folder_id}"
+
+
+def resolve_canva_catalog_folder_urls(
+    client: CanvaClient,
+    parent_url: str,
+) -> tuple[str, str]:
+    """Return (Long videos URL, Short videos URL) under CANVA_URL."""
+    cached = getattr(client, "_catalog_folder_urls", None)
+    if isinstance(cached, tuple) and len(cached) == 2:
+        return cached
+
+    text = (parent_url or "").strip()
+    if not text:
+        raise CanvaError("CANVA_URL is required (parent Canva folder URL)")
+    resource_type, parent_id = parse_canva_resource(text)
+    if resource_type != "folder":
+        raise CanvaError("CANVA_URL must be a Canva folder URL")
+
+    long_folder = client.find_subfolder(parent_id, CANVA_LONG_VIDEOS_FOLDER_NAME)
+    short_folder = client.find_subfolder(parent_id, CANVA_SHORT_VIDEOS_FOLDER_NAME)
+    missing: list[str] = []
+    if long_folder is None:
+        missing.append(CANVA_LONG_VIDEOS_FOLDER_NAME)
+    if short_folder is None:
+        missing.append(CANVA_SHORT_VIDEOS_FOLDER_NAME)
+    if missing or long_folder is None or short_folder is None:
+        raise CanvaError(
+            "Canva folder "
+            f"{text!r} is missing subfolder(s): {', '.join(missing)}"
+        )
+
+    urls = (
+        canva_folder_url(long_folder.id),
+        canva_folder_url(short_folder.id),
+    )
+    client._catalog_folder_urls = urls
+    return urls
+
+
+def canva_catalog_urls_from_client(
+    client: CanvaClient | None,
+    parent_url: str,
+) -> tuple[str, str]:
+    if client is None:
+        return "", ""
+    return resolve_canva_catalog_folder_urls(client, parent_url)
+
+
 def thumbnail_catalog_url_for_format(
     video_format: VideoFormat,
     *,
-    long_url: str | None = None,
-    short_url: str | None = None,
+    long_url: str,
+    short_url: str,
 ) -> str:
     if video_format == "short_form":
-        return short_url or CANVA_SHORT_VIDEO_THUMBNAILS_URL
-    return long_url or CANVA_LONG_VIDEO_THUMBNAILS_URL
+        if not short_url.strip():
+            raise CanvaError("Short videos Canva folder is not resolved")
+        return short_url
+    if not long_url.strip():
+        raise CanvaError("Long videos Canva folder is not resolved")
+    return long_url
 
 
 def catalog_video_name_from_job(job: PublishJob) -> str:
@@ -1422,8 +1477,8 @@ def ensure_catalog_thumbnail_from_canva(
     *,
     client: CanvaClient,
     download_dir: Path,
-    long_catalog_url: str | None = None,
-    short_catalog_url: str | None = None,
+    long_catalog_url: str,
+    short_catalog_url: str,
 ) -> PublishJob:
     """Download a catalog thumbnail PNG from Canva and attach it to the publish job."""
     lookup_name = catalog_video_name_from_job(job)

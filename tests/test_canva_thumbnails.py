@@ -3,24 +3,24 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from media_publisher.models import PublishJob
 from media_publisher.sources.canva import (
-    CANVA_LONG_VIDEO_THUMBNAILS_URL,
-    CANVA_SHORT_VIDEO_THUMBNAILS_URL,
     DEFAULT_SCOPES,
     ORIGINAL_VIDEO_NAME_KEY,
     CanvaClient,
     CanvaDesignPageInfo,
     CanvaDesignSummary,
     CanvaError,
+    CanvaFolderSummary,
     CanvaThumbnailTarget,
     CanvaToken,
     catalog_video_name_from_job,
     find_cached_thumbnail_path,
     ensure_catalog_thumbnail_from_canva,
     parse_canva_resource,
+    resolve_canva_catalog_folder_urls,
     resolve_thumbnail_target,
     save_token,
     thumbnail_catalog_url_for_format,
@@ -28,16 +28,45 @@ from media_publisher.sources.canva import (
     titles_match,
 )
 
+LONG_FOLDER_URL = "https://www.canva.com/folder/FAHLongFolder"
+SHORT_FOLDER_URL = "https://www.canva.com/folder/FAHShortFolder"
+PARENT_FOLDER_URL = "https://www.canva.com/folder/FAHSXg0enw4"
+
 
 class CanvaThumbnailHelperTests(unittest.TestCase):
     def test_thumbnail_catalog_url_for_format(self) -> None:
         self.assertEqual(
-            thumbnail_catalog_url_for_format("post"),
-            CANVA_LONG_VIDEO_THUMBNAILS_URL,
+            thumbnail_catalog_url_for_format(
+                "post",
+                long_url=LONG_FOLDER_URL,
+                short_url=SHORT_FOLDER_URL,
+            ),
+            LONG_FOLDER_URL,
         )
         self.assertEqual(
-            thumbnail_catalog_url_for_format("short_form"),
-            CANVA_SHORT_VIDEO_THUMBNAILS_URL,
+            thumbnail_catalog_url_for_format(
+                "short_form",
+                long_url=LONG_FOLDER_URL,
+                short_url=SHORT_FOLDER_URL,
+            ),
+            SHORT_FOLDER_URL,
+        )
+
+    def test_resolve_canva_catalog_folder_urls(self) -> None:
+        client = Mock()
+        client.find_subfolder.side_effect = [
+            CanvaFolderSummary(id="FAHLongFolder", name="Long videos"),
+            CanvaFolderSummary(id="FAHShortFolder", name="Short videos"),
+        ]
+        long_url, short_url = resolve_canva_catalog_folder_urls(
+            client,
+            PARENT_FOLDER_URL,
+        )
+        self.assertEqual(long_url, LONG_FOLDER_URL)
+        self.assertEqual(short_url, SHORT_FOLDER_URL)
+        self.assertEqual(
+            [call.args[1] for call in client.find_subfolder.call_args_list],
+            ["Long videos", "Short videos"],
         )
 
     def test_catalog_video_name_from_job_uses_original_video_name(self) -> None:
@@ -96,7 +125,7 @@ class CanvaThumbnailHelperTests(unittest.TestCase):
             return_value="https://www.canva.com/folder/FAHOgLx_jAw",
         ):
             resource_type, resource_id = parse_canva_resource(
-                CANVA_LONG_VIDEO_THUMBNAILS_URL
+                "https://canva.link/example-long"
             )
         self.assertEqual(resource_type, "folder")
         self.assertEqual(resource_id, "FAHOgLx_jAw")
@@ -133,7 +162,7 @@ class CanvaThumbnailClientTests(unittest.TestCase):
                 ),
             ):
                 target = client.resolve_thumbnail_target(
-                    CANVA_LONG_VIDEO_THUMBNAILS_URL,
+                    LONG_FOLDER_URL,
                     "Launch video",
                 )
         self.assertEqual(target, CanvaThumbnailTarget(design_id="DAG123", page_number=2))
@@ -157,7 +186,7 @@ class CanvaThumbnailClientTests(unittest.TestCase):
                 ),
             ):
                 target = client.resolve_thumbnail_target(
-                    CANVA_SHORT_VIDEO_THUMBNAILS_URL,
+                    SHORT_FOLDER_URL,
                     "Launch video",
                 )
         self.assertEqual(target, CanvaThumbnailTarget(design_id="DAG999"))
@@ -187,7 +216,7 @@ class CanvaThumbnailClientTests(unittest.TestCase):
             ):
                 target = resolve_thumbnail_target(
                     client,
-                    CANVA_LONG_VIDEO_THUMBNAILS_URL,
+                    LONG_FOLDER_URL,
                     "Launch video",
                 )
         self.assertEqual(target, CanvaThumbnailTarget(design_id="DAG555"))
@@ -213,7 +242,7 @@ class CanvaThumbnailClientTests(unittest.TestCase):
                 with self.assertRaises(CanvaError) as ctx:
                     resolve_thumbnail_target(
                         client,
-                        CANVA_LONG_VIDEO_THUMBNAILS_URL,
+                        LONG_FOLDER_URL,
                         "Launch video",
                     )
         self.assertIn("design:meta:read", str(ctx.exception))
@@ -235,6 +264,8 @@ class CanvaThumbnailClientTests(unittest.TestCase):
                     job,
                     client=client,
                     download_dir=download_dir,
+                    long_catalog_url=LONG_FOLDER_URL,
+                    short_catalog_url=SHORT_FOLDER_URL,
                 )
             resolve_mock.assert_not_called()
             self.assertEqual(enriched.thumbnail_path, str(cached))
@@ -265,9 +296,11 @@ class CanvaThumbnailClientTests(unittest.TestCase):
                     job,
                     client=client,
                     download_dir=download_dir,
+                    long_catalog_url=LONG_FOLDER_URL,
+                    short_catalog_url=SHORT_FOLDER_URL,
                 )
             resolve_mock.assert_called_once_with(
-                CANVA_SHORT_VIDEO_THUMBNAILS_URL,
+                SHORT_FOLDER_URL,
                 "Launch video",
             )
             download_mock.assert_called_once()

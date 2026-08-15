@@ -171,22 +171,19 @@ jobs:
           && inputs.mode == 'ingest'
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-          AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
-          OUTPUT_DRIVE_FOLDER: ${{ vars.OUTPUT_DRIVE_FOLDER || secrets.OUTPUT_DRIVE_FOLDER }}
+          AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
+          DRIVE_URL: ${{ vars.DRIVE_URL }}
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
           SMARTCAT_AI_PREFILL: ${{ vars.SMARTCAT_AI_PREFILL || secrets.SMARTCAT_AI_PREFILL || 'true' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || secrets.ANTHROPIC_MODEL || '' }}
-          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || secrets.TRANSLATION_PROVIDER || 'anthropic' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || secrets.OPENAI_MODEL || '' }}
-          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL || '' }}
+          TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
+          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || 'anthropic' }}
+          TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
+          TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL || '' }}
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+          CANVA_URL: ${{ vars.CANVA_URL }}
           CANVA_TOKEN_SYNC_PAT: ${{ secrets.CANVA_TOKEN_SYNC_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
@@ -213,23 +210,20 @@ jobs:
           && inputs.mode != 'ingest'
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
-          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-          AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
-          OUTPUT_DRIVE_FOLDER: ${{ vars.OUTPUT_DRIVE_FOLDER || secrets.OUTPUT_DRIVE_FOLDER }}
+          AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
+          DRIVE_URL: ${{ vars.DRIVE_URL }}
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           SAVE_SOIL_IMAGE_DRIVE_FOLDER: ${{ vars.SAVE_SOIL_IMAGE_DRIVE_FOLDER || secrets.SAVE_SOIL_IMAGE_DRIVE_FOLDER }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
           SMARTCAT_AI_PREFILL: ${{ vars.SMARTCAT_AI_PREFILL || secrets.SMARTCAT_AI_PREFILL || 'true' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || secrets.ANTHROPIC_MODEL || '' }}
-          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || secrets.TRANSLATION_PROVIDER || 'anthropic' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || secrets.OPENAI_MODEL || '' }}
-          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL || '' }}
+          TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
+          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || 'anthropic' }}
+          TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
+          TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL || '' }}
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+          CANVA_URL: ${{ vars.CANVA_URL }}
           # Do not rematerialize CANVA_TOKEN_JSON here: the Restore step already
           # wrote credentials/canva-token.json, and re-injecting the job-scoped
           # (possibly stale) secret after a refresh revokes Canva's single-use

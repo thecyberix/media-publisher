@@ -18,8 +18,9 @@ from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ing
 from catalog_parser.auth import get_docs_service, get_drive_service, get_sheets_service
 from catalog_parser.drive_docs import enrich_records_with_yt_titles
 from catalog_parser.eligibility import explain_catalog_eligibility
-from catalog_parser.parser import extract_sheet_id, parse_catalog, type_duration_bounds
+from catalog_parser.parser import parse_catalog, type_duration_bounds
 from catalog_parser.smartcat_web import DEFAULT_STORAGE_STATE, SmartcatWebClient, SmartcatWebSession
+from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.workflow.table_cache import TableCache
 
 
@@ -67,18 +68,13 @@ def main() -> int:
     positions = [int(item.strip()) for item in args.positions.split(",") if item.strip()]
 
     load_env_file(PROJECT_ROOT / ".env")
-    sheet_id = os.getenv("SHEET_ID", "").strip()
-    if not sheet_id:
-        print("Missing SHEET_ID", file=sys.stderr)
-        return 1
+    catalog_id = load_catalog_id(PROJECT_ROOT)
 
     min_duration, max_duration = type_duration_bounds(args.video_type)
     sheets = get_sheets_service(DEFAULT_CREDENTIALS, DEFAULT_TOKEN, use_console=False)
     candidates = parse_catalog(
         sheets,
-        extract_sheet_id(sheet_id),
-        sheet_name=os.getenv("SHEET_NAME") or None,
-        sheet_range=os.getenv("SHEET_RANGE") or None,
+        catalog_id,
         limit=0,
         min_duration=min_duration,
         max_duration=max_duration,

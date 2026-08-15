@@ -59,9 +59,9 @@ def main() -> int:
         help=f"Exact match for Airtable field {FIELD_TITLE!r} to find the record.",
     )
     parser.add_argument(
-        "--output-drive-folder",
-        default=os.getenv("OUTPUT_DRIVE_FOLDER", "").strip() or None,
-        help="Target Drive folder link or id (or set OUTPUT_DRIVE_FOLDER).",
+        "--combined-media-files",
+        default=None,
+        help="Target Drive folder link or id. Default: Combined Media Files under DRIVE_URL.",
     )
     parser.add_argument(
         "--work-dir",
@@ -133,14 +133,18 @@ def main() -> int:
     print(f"Title: {title}")
     output_name = _sanitize_mp4_name(title)
 
-    output_drive_folder = args.output_drive_folder
-    if not output_drive_folder:
-        raise RuntimeError("Provide --output-drive-folder or set OUTPUT_DRIVE_FOLDER")
-    output_parent_id = extract_drive_folder_id(output_drive_folder)
-    if output_parent_id is None:
-        raise RuntimeError(f"Could not parse output Drive folder id from {output_drive_folder!r}")
-
     drive = get_drive_service_noninteractive()
+    output_drive_folder = args.combined_media_files
+    if output_drive_folder:
+        output_parent_id = extract_drive_folder_id(output_drive_folder)
+        if output_parent_id is None:
+            raise RuntimeError(
+                f"Could not parse output Drive folder id from {output_drive_folder!r}"
+            )
+    else:
+        from media_publisher.sources.drive_layout import resolve_combined_media_files_id
+
+        output_parent_id = resolve_combined_media_files_id(drive)
     record_type = fields.get(FIELD_TYPE)
     video_type = record_type if isinstance(record_type, str) and record_type.strip() else None
     check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)

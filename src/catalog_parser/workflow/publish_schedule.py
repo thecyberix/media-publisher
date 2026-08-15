@@ -53,7 +53,7 @@ def _publish_settings() -> tuple[str, int]:
     timezone = os.getenv("PUBLISH_TIMEZONE", DEFAULT_PUBLISH_TIMEZONE).strip()
     if not timezone:
         timezone = DEFAULT_PUBLISH_TIMEZONE
-    hour_raw = os.getenv("PUBLISH_HOUR", str(DEFAULT_PUBLISH_HOUR)).strip()
+    hour_raw = os.getenv("VIDEOS_PUBLISH_HOUR", str(DEFAULT_PUBLISH_HOUR)).strip()
     try:
         publish_hour = int(hour_raw or str(DEFAULT_PUBLISH_HOUR))
     except ValueError:
@@ -246,33 +246,22 @@ def prepared_thumbnail_is_missing(
     from media_publisher.sources.google_drive import GoogleDriveClient
     from media_publisher.sources.publish_media import has_prepared_publish_thumbnail
 
-    override_root_folder_id = (
-        os.getenv(
-            "PUBLISH_OVERRIDE_DRIVE_FOLDER_ID",
-            "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ",
-        ).strip()
-        or "1nz_DZJaS-pkjvbin-lJPiYLyTft9kCzZ"
-    )
+    override_root_folder_id = ""
+    if os.getenv("DRIVE_URL", "").strip():
+        from media_publisher.sources.drive_layout import resolve_overrides_folder_id
+
+        try:
+            override_root_folder_id = resolve_overrides_folder_id(
+                GoogleDriveClient(drive_service),
+            )
+        except Exception as exc:
+            print(f"WARN: could not resolve Overrides Drive folder: {exc}")
     thumbnails_subfolder = (
         os.getenv("PUBLISH_OVERRIDE_THUMBNAILS_SUBFOLDER", "Thumbnails").strip()
         or "Thumbnails"
     )
     published_subfolder_name = (
         os.getenv("CANVA_PUBLISHED_SUBFOLDER_NAME", "Published").strip() or "Published"
-    )
-    long_catalog_url = (
-        os.getenv(
-            "CANVA_LONG_VIDEO_THUMBNAILS_URL",
-            "https://www.canva.com/folder/FAHOgLx_jAw",
-        ).strip()
-        or "https://www.canva.com/folder/FAHOgLx_jAw"
-    )
-    short_catalog_url = (
-        os.getenv(
-            "CANVA_SHORT_VIDEO_THUMBNAILS_URL",
-            "https://www.canva.com/folder/FAHOgF-NT8Q",
-        ).strip()
-        or "https://www.canva.com/folder/FAHOgF-NT8Q"
     )
     drive = GoogleDriveClient(drive_service)
     canva_client = _optional_canva_client(root)
@@ -285,6 +274,16 @@ def prepared_thumbnail_is_missing(
         return None
 
     try:
+        from media_publisher.sources.canva import (
+            DEFAULT_CANVA_URL,
+            canva_catalog_urls_from_client,
+        )
+
+        parent_url = os.getenv("CANVA_URL", DEFAULT_CANVA_URL).strip() or DEFAULT_CANVA_URL
+        long_catalog_url, short_catalog_url = canva_catalog_urls_from_client(
+            canva_client,
+            parent_url,
+        )
         prepared = has_prepared_publish_thumbnail(
             title=title,
             video_format=video_format,

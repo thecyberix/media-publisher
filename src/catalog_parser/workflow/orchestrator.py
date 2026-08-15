@@ -11,10 +11,9 @@ from catalog_parser.airtable import (
 )
 from catalog_parser.canva import CanvaError, ensure_canva_ready
 from catalog_parser.auth import get_docs_service, get_drive_service
-from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.drive_combine import DriveCombineError, verify_drive_output_folder_access
 from catalog_parser.workflow.actions import ActionResult, execute_action
-from catalog_parser.workflow.config import load_workflow_config
+from catalog_parser.workflow.config import combined_media_output_folder_id, load_workflow_config
 from catalog_parser.workflow.rules import (
     WorkflowActionType,
     is_workflow_type,
@@ -166,17 +165,14 @@ def run_workflow(
             action.action_type == WorkflowActionType.COMBINE_MEDIA
             for action in planned_actions
         ):
-            output_parent_id = extract_drive_folder_id(config.output_drive_folder)
-            if output_parent_id is None:
-                print(
-                    "ERROR: Could not parse output Drive folder id from "
-                    f"{config.output_drive_folder!r}"
-                )
-                return 1
             try:
+                output_parent_id = combined_media_output_folder_id(config, drive_service)
                 verify_drive_output_folder_access(drive_service, output_parent_id)
             except DriveCombineError as exc:
                 print(f"ERROR: {exc}")
+                return 1
+            except Exception as exc:
+                print(f"ERROR: Could not resolve Combined Media Files folder: {exc}")
                 return 1
 
         print(f"Planned {len(planned_actions)} action(s){' (dry-run)' if dry_run else ''}:")

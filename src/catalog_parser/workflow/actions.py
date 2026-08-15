@@ -22,7 +22,7 @@ from catalog_parser.drive_mix import (
     format_mix_media_check,
     mix_folder_media_to_drive,
 )
-from catalog_parser.workflow.config import WorkflowConfig
+from catalog_parser.workflow.config import WorkflowConfig, combined_media_output_folder_id
 from catalog_parser.workflow.ingest import ingest_batch_for_translator
 from catalog_parser.workflow.rules import (
     WorkflowAction,
@@ -121,15 +121,22 @@ def _combine_media(
         return ActionResult(action=action, success=False, message=f"Missing {FIELD_TITLE}")
 
     pkg_folder_id = extract_drive_folder_id(drive_link)
-    output_parent_id = extract_drive_folder_id(config.output_drive_folder)
-    if pkg_folder_id is None or output_parent_id is None:
+    drive = get_drive_service_noninteractive()
+    try:
+        output_parent_id = combined_media_output_folder_id(config, drive)
+    except Exception as exc:
+        return ActionResult(
+            action=action,
+            success=False,
+            message=f"Could not resolve Combined Media Files folder: {exc}",
+        )
+    if pkg_folder_id is None:
         return ActionResult(action=action, success=False, message="Could not parse Drive folder id")
 
     output_name = title if title.casefold().endswith(".mp4") else f"{title}.mp4"
     record_type = fields.get(FIELD_TYPE)
     video_type = record_type if isinstance(record_type, str) and record_type.strip() else None
     if dry_run:
-        drive = get_drive_service_noninteractive()
         check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)
         if not check.ok:
             return ActionResult(
@@ -143,7 +150,6 @@ def _combine_media(
             message=f"Would combine media -> {output_name}; {format_mix_media_check(check)}",
         )
 
-    drive = get_drive_service_noninteractive()
     work_dir = config.work_dir / action.record_id
     created = mix_folder_media_to_drive(
         drive,

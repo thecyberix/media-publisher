@@ -32,13 +32,13 @@ from catalog_parser.parser import (
     DEFAULT_LIMIT,
     DEFAULT_VIDEO_TYPE,
     VIDEO_TYPES,
-    extract_sheet_id,
     filter_by_pkg_tn,
     parse_catalog,
     parse_video_type,
     tn_is_marked,
     type_duration_bounds,
 )
+from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.runtime_env import materialize_credentials, maybe_persist_canva_token
 from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE, SmartcatError
 from catalog_parser.smartcat_api import SmartcatApiClient
@@ -504,15 +504,16 @@ def resolve_feature_enabled(
 
 
 def load_env_file(path: Path) -> None:
-    if not path.exists():
-        return
+    from media_publisher.sources.airtable import apply_airtable_url_env
 
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+    apply_airtable_url_env()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -594,19 +595,6 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser = subparsers.add_parser(
         "ingest",
         help="Ingest new catalog rows from Google Sheets into Airtable.",
-    )
-    ingest_parser.add_argument(
-        "--sheet-id",
-        help="Google Sheet ID or full spreadsheet URL.",
-    )
-    ingest_parser.add_argument(
-        "--sheet-name",
-        help="Tab name to read (defaults to the first tab).",
-    )
-    ingest_parser.add_argument(
-        "--range",
-        dest="sheet_range",
-        help="Optional A1 range, e.g. 'Products!A1:Z1000'.",
     )
     ingest_parser.add_argument(
         "--output",
@@ -760,8 +748,7 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
     airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
     if not airtable_token or not airtable_base_id or not airtable_table_name:
         parser.error(
-            "Unassigned ingest requires AIRTABLE_TOKEN, AIRTABLE_BASE_ID, and "
-            "AIRTABLE_TABLE_NAME in .env"
+            "Unassigned ingest requires AIRTABLE_TOKEN and AIRTABLE_URL in .env"
         )
 
     video_type = parse_video_type(
@@ -815,16 +802,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     if args.unassigned:
         return run_unassigned_ingest(args, parser)
 
-    sheet_id = args.sheet_id or os.getenv("SHEET_ID")
-    if not sheet_id:
-        parser.error("Provide --sheet-id or set SHEET_ID in .env")
-
-    sheet_name = args.sheet_name or os.getenv("SHEET_NAME") or None
-    sheet_range = args.sheet_range or os.getenv("SHEET_RANGE") or None
-    if sheet_range == "":
-        sheet_range = None
-
-    sheet_id = extract_sheet_id(sheet_id)
+    catalog_id = load_catalog_id(PROJECT_ROOT)
 
     limit = args.limit
     if limit is None:
@@ -879,9 +857,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
 
     records = parse_catalog(
         service,
-        sheet_id,
-        sheet_name=sheet_name,
-        sheet_range=sheet_range,
+        catalog_id,
         limit=parse_limit,
         min_duration=min_duration,
         max_duration=max_duration,
@@ -1060,8 +1036,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
         if not airtable_token or not airtable_base_id or not airtable_table_name:
             parser.error(
-                "Airtable sync requires AIRTABLE_TOKEN, AIRTABLE_BASE_ID, and "
-                "AIRTABLE_TABLE_NAME in .env"
+                "Airtable sync requires AIRTABLE_TOKEN and AIRTABLE_URL in .env"
             )
         airtable_client = AirtableClient(
             token=airtable_token,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,7 @@ from catalog_parser.smartcat import (
 from catalog_parser.smartcat_export import SmartcatDocumentContext
 from catalog_parser.smartcat_write import write_target_texts_from_cues
 from catalog_parser.translation.prefill import (
+    ai_prefill_enabled,
     normalize_srt_casing,
     prefill_document_from_english,
     sentence_case_cue_text,
@@ -20,6 +22,16 @@ from catalog_parser.translation.srt import Cue
 
 
 class GateTests(unittest.TestCase):
+    def test_ai_prefill_disabled_when_provider_is_none(self) -> None:
+        env = {"SMARTCAT_AI_PREFILL": "true", "TRANSLATION_PROVIDER": "none"}
+        with patch.dict(os.environ, env, clear=False):
+            self.assertFalse(ai_prefill_enabled())
+
+    def test_ai_prefill_enabled_when_prefill_on_and_provider_set(self) -> None:
+        env = {"SMARTCAT_AI_PREFILL": "true", "TRANSLATION_PROVIDER": "anthropic"}
+        with patch.dict(os.environ, env, clear=False):
+            self.assertTrue(ai_prefill_enabled())
+
     def test_needs_translation_vs_fully_done(self) -> None:
         empty = {
             "workflowStages": [

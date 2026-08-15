@@ -10,6 +10,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from media_publisher.config import load_settings
 from media_publisher.sources.airtable import AirtableClient
+from media_publisher.sources.drive_layout import resolve_thumbnails_for_approval_id
 from media_publisher.sources.google_drive import GoogleDriveClient
 from media_publisher.sources.thumbnail_review import process_approved_review_thumbnails
 
@@ -25,13 +26,17 @@ def main() -> int:
     drive = GoogleDriveClient.from_service_account(
         PROJECT_ROOT / settings.google_sheets_service_account
     )
+    review_folder_id = resolve_thumbnails_for_approval_id(
+        drive,
+        drive_url=settings.drive_url,
+    )
 
     records = airtable.list_records()
     results = process_approved_review_thumbnails(
         airtable,
         drive,
         records,
-        review_folder_id=settings.thumbnail_review_drive_folder_id,
+        review_folder_id=review_folder_id,
         approved_subfolder=settings.thumbnail_review_approved_subfolder,
         apply=True,
         project_root=PROJECT_ROOT,

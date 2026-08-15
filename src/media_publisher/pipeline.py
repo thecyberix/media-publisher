@@ -109,11 +109,10 @@ class PublishPipelineSettings:
     use_web_export: bool = False
     happyscribe_published_folder_id: str | None = None
     youtube_short_cover_intro_seconds: float = 5.0
-    youtube_daily_playlist_title: str = "Днес"
     youtube_daily_playlist_id: str | None = None
     youtube_daily_playlist_slots_path: Path | None = None
     skip_thumbnails: bool = False
-    publish_override_drive_folder_id: str = ""
+    drive_url: str = ""
     publish_override_thumbnails_subfolder: str = "Thumbnails"
     publish_override_videos_subfolder: str = "Videos"
     canva_published_subfolder_name: str = "Published"
@@ -159,7 +158,6 @@ def publish_platform_task(
             playlist_id=settings.youtube_playlist_id,
             playlist_title=settings.youtube_playlist_title,
             daily_playlist_id=settings.youtube_daily_playlist_id,
-            daily_playlist_title=settings.youtube_daily_playlist_title,
             daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
             **settings.template_urls,
         )
@@ -210,7 +208,6 @@ def run_publish_pipeline(
             token_path=settings.youtube_token,
             expected_channel_handle=settings.youtube_channel_handle,
             daily_playlist_id=settings.youtube_daily_playlist_id,
-            daily_playlist_title=settings.youtube_daily_playlist_title,
             daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
         )
         if synced_slots:
@@ -330,6 +327,18 @@ def run_publish_pipeline(
             except GoogleDriveError as exc:
                 print_line(f"  Drive client unavailable: {exc}")
 
+        override_root_folder_id = ""
+        if drive_client is not None:
+            from media_publisher.sources.drive_layout import resolve_overrides_folder_id
+
+            try:
+                override_root_folder_id = resolve_overrides_folder_id(
+                    drive_client,
+                    drive_url=settings.drive_url,
+                )
+            except GoogleDriveError as exc:
+                print_line(f"  Drive Overrides folder unavailable: {exc}")
+
         media_download_dir = settings.publish_media_download_dir or (
             settings.canva_download_dir.parent / "publish-media"
         )
@@ -350,7 +359,7 @@ def run_publish_pipeline(
                     canva_download_dir=settings.canva_download_dir,
                     long_catalog_url=settings.canva_long_video_thumbnails_url,
                     short_catalog_url=settings.canva_short_video_thumbnails_url,
-                    override_root_folder_id=settings.publish_override_drive_folder_id,
+                    override_root_folder_id=override_root_folder_id,
                     thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
                     published_subfolder_name=settings.canva_published_subfolder_name,
                     tn_settings=settings.tn_publish_settings
@@ -386,11 +395,11 @@ def run_publish_pipeline(
                     )
                 continue
 
-        if drive_client is not None and settings.publish_override_drive_folder_id:
+        if drive_client is not None and override_root_folder_id:
             video_override = resolve_publish_video(
                 title=str(lookup_title),
                 drive=drive_client,
-                override_root_folder_id=settings.publish_override_drive_folder_id,
+                override_root_folder_id=override_root_folder_id,
                 videos_subfolder=settings.publish_override_videos_subfolder,
                 download_dir=media_download_dir,
             )

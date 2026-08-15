@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -8,6 +10,43 @@ from typing import Any
 
 class QuotesConfigError(RuntimeError):
     pass
+
+
+SPREADSHEET_ID_PATTERN = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
+
+
+def extract_spreadsheet_id(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        raise QuotesConfigError(
+            "TRANSLATED_QUOTES_URL is required (Google Sheet URL or spreadsheet id)"
+        )
+    match = SPREADSHEET_ID_PATTERN.search(text)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"[a-zA-Z0-9-_]+", text):
+        return text
+    raise QuotesConfigError(
+        "Invalid TRANSLATED_QUOTES_URL. Expected "
+        "https://docs.google.com/spreadsheets/d/<id>/..."
+    )
+
+
+def translated_quotes_url_from_env() -> str:
+    return os.getenv("TRANSLATED_QUOTES_URL", "").strip()
+
+
+def apply_translated_quotes_url(payload: dict[str, Any]) -> dict[str, Any]:
+    url = translated_quotes_url_from_env()
+    if not url:
+        return payload
+    sheet_id = extract_spreadsheet_id(url)
+    updated = dict(payload)
+    sheet = dict(updated.get("quotes_sheet") or {})
+    sheet["spreadsheet_id"] = sheet_id
+    sheet["spreadsheet_url"] = url
+    updated["quotes_sheet"] = sheet
+    return updated
 
 
 @dataclass(frozen=True)
@@ -19,7 +58,9 @@ class QuotesSourcesConfig:
     def spreadsheet_id(self) -> str:
         value = self.payload.get("quotes_sheet", {}).get("spreadsheet_id")
         if not isinstance(value, str) or not value.strip():
-            raise QuotesConfigError("quotes_sheet.spreadsheet_id is required")
+            raise QuotesConfigError(
+                "TRANSLATED_QUOTES_URL is required (Google Sheet URL or spreadsheet id)"
+            )
         return value.strip()
 
     @property
@@ -98,4 +139,5 @@ def load_quotes_sources_config(path: Path) -> QuotesSourcesConfig:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise QuotesConfigError(f"Invalid quotes sources config: {path}")
+    payload = apply_translated_quotes_url(payload)
     return QuotesSourcesConfig(path=path.resolve(), payload=payload)

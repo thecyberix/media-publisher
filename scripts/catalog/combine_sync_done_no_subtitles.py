@@ -106,12 +106,9 @@ def main() -> int:
         table_name=_require_env("AIRTABLE_TABLE_NAME"),
     )
     drive = get_drive_service_noninteractive()
-    output_drive_folder = _require_env("OUTPUT_DRIVE_FOLDER")
-    output_parent_id = extract_drive_folder_id(output_drive_folder)
-    if output_parent_id is None:
-        raise RuntimeError(
-            f"Could not parse output Drive folder: {output_drive_folder!r}"
-        )
+    from media_publisher.sources.drive_layout import resolve_combined_media_files_id
+
+    output_parent_id = resolve_combined_media_files_id(drive)
 
     records = airtable.list_records(filter_formula=_filter_formula())
     targets: list[tuple[str, str, str, str | None]] = []

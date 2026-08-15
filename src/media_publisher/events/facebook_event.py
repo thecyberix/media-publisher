@@ -8,13 +8,13 @@ from typing import Any
 
 from media_publisher.events.page import load_events
 from media_publisher.events.templates import (
-    EVENT_IMAGES_DRIVE_FOLDER_ID,
     EVENT_TYPE_SURYA_KRIYA,
     RenderedEvent,
     get_program,
     normalize_event_type,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
+from media_publisher.sources.drive_layout import resolve_events_folder_id
 from media_publisher.sources.google_drive import (
     FOLDER_MIME_TYPE,
     DriveFile,
@@ -150,9 +150,11 @@ def list_programme_images(
     drive_client: GoogleDriveClient,
     *,
     event_type: str,
-    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+    folder_id: str = "",
 ) -> list[DriveFile]:
     program = get_program(event_type)
+    if not folder_id.strip():
+        folder_id = resolve_events_folder_id(drive_client)
     try:
         subfolder = drive_client.find_child_folder(folder_id, program.facebook_image_folder)
     except GoogleDriveError as exc:
@@ -230,7 +232,7 @@ def choose_facebook_image(
     event_type: str,
     events_root: Path,
     image_id: str | None = None,
-    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+    folder_id: str = "",
     persist_rotation: bool = True,
 ) -> tuple[DriveFile, str]:
     """Pick a programme image by explicit Drive id/name or round-robin rotation.
@@ -285,7 +287,7 @@ def resolve_facebook_image_from_drive(
     events_root: Path,
     event_type: str = EVENT_TYPE_SURYA_KRIYA,
     drive_client: GoogleDriveClient,
-    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+    folder_id: str = "",
     image_id: str | None = None,
     persist_rotation: bool = True,
 ) -> SelectedEventImage:

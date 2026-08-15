@@ -149,16 +149,44 @@ def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
+def _first_env(*names: str, default: str = "") -> str:
+    for name in names:
+        value = _env(name)
+        if value:
+            return value
+    return default
+
+
+def translation_provider_disabled() -> bool:
+    return _env("TRANSLATION_PROVIDER").casefold() in {
+        "none",
+        "off",
+        "disabled",
+        "false",
+        "0",
+        "no",
+    }
+
+
 def chat_config_from_env() -> ChatConfig:
     """
     Resolve chat provider from env.
 
-    Preference:
-    1. TRANSLATION_PROVIDER=anthropic|openai (explicit)
-    2. ANTHROPIC_API_KEY set → Anthropic
-    3. OPENAI_API_KEY set → OpenAI-compatible
+    Shared names (preferred): TRANSLATION_PROVIDER, TRANSLATION_API_KEY,
+    TRANSLATION_MODEL, TRANSLATION_BASE_URL.
+
+    Provider-prefixed names still work as fallbacks. Official Anthropic and
+    OpenAI hosts are defaults — TRANSLATION_BASE_URL is only for a proxy or
+    OpenAI-compatible gateway.
+
+    TRANSLATION_PROVIDER=none disables AI translation (see ai_prefill_enabled).
     """
     provider_raw = _env("TRANSLATION_PROVIDER").casefold()
+    if translation_provider_disabled():
+        raise RuntimeError(
+            "TRANSLATION_PROVIDER=none disables AI translation"
+        )
+    common_key = _env("TRANSLATION_API_KEY")
     anthropic_key = _env("ANTHROPIC_API_KEY")
     openai_key = _env("OPENAI_API_KEY")
 
@@ -166,37 +194,51 @@ def chat_config_from_env() -> ChatConfig:
         provider: Provider = "anthropic"
     elif provider_raw in {"openai", "open-ai"}:
         provider = "openai"
-    elif anthropic_key:
+    elif anthropic_key and not openai_key and not common_key:
         provider = "anthropic"
-    elif openai_key:
+    elif openai_key and not anthropic_key and not common_key:
         provider = "openai"
+    elif common_key or anthropic_key or openai_key:
+        provider = "anthropic"
     else:
         raise RuntimeError(
-            "Set ANTHROPIC_API_KEY (preferred for Claude) or OPENAI_API_KEY "
-            "for translation"
+            "Set TRANSLATION_API_KEY and TRANSLATION_PROVIDER "
+            "(anthropic or openai) for translation"
         )
 
     if provider == "anthropic":
-        if not anthropic_key:
-            raise RuntimeError("ANTHROPIC_API_KEY is required for Anthropic translation")
+        api_key = common_key or anthropic_key
+        if not api_key:
+            raise RuntimeError(
+                "TRANSLATION_API_KEY is required for Anthropic translation"
+            )
         base_url = (
-            _env("ANTHROPIC_BASE_URL", DEFAULT_ANTHROPIC_BASE_URL)
+            _first_env("TRANSLATION_BASE_URL", "ANTHROPIC_BASE_URL")
             or DEFAULT_ANTHROPIC_BASE_URL
         )
-        model = _env("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
+        model = (
+            _first_env("TRANSLATION_MODEL", "ANTHROPIC_MODEL")
+            or DEFAULT_ANTHROPIC_MODEL
+        )
         return ChatConfig(
-            api_key=anthropic_key,
+            api_key=api_key,
             provider="anthropic",
             base_url=base_url.rstrip("/"),
             model=model,
         )
 
-    if not openai_key:
-        raise RuntimeError("OPENAI_API_KEY is required for OpenAI-compatible translation")
-    base_url = _env("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL) or DEFAULT_OPENAI_BASE_URL
-    model = _env("OPENAI_MODEL", DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+    api_key = common_key or openai_key
+    if not api_key:
+        raise RuntimeError(
+            "TRANSLATION_API_KEY is required for OpenAI-compatible translation"
+        )
+    base_url = (
+        _first_env("TRANSLATION_BASE_URL", "OPENAI_BASE_URL")
+        or DEFAULT_OPENAI_BASE_URL
+    )
+    model = _first_env("TRANSLATION_MODEL", "OPENAI_MODEL") or DEFAULT_OPENAI_MODEL
     return ChatConfig(
-        api_key=openai_key,
+        api_key=api_key,
         provider="openai",
         base_url=base_url.rstrip("/"),
         model=model,

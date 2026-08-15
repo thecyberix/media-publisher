@@ -46,8 +46,6 @@
     }
   },
   "quotes_sheet": {
-    "spreadsheet_id": "13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec",
-    "spreadsheet_url": "https://docs.google.com/spreadsheets/d/13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec/edit",
     "sheet_title_pattern": "{month_abbr} {year}",
     "text_bg_column": "Translation",
     "text_en_column": "English",

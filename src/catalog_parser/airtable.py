@@ -295,9 +295,9 @@ class AirtableClient:
         if not self.token:
             raise AirtableError("AIRTABLE_TOKEN is required")
         if not self.base_id:
-            raise AirtableError("AIRTABLE_BASE_ID is required")
+            raise AirtableError("AIRTABLE_URL is required (missing base id)")
         if not self.table_name:
-            raise AirtableError("AIRTABLE_TABLE_NAME is required")
+            raise AirtableError("AIRTABLE_URL is required (missing table id)")
 
     def _table_url(
         self,

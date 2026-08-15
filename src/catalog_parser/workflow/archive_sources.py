@@ -63,7 +63,10 @@ def _pick_catalog_table(
     preferred_table_name: str,
 ) -> dict[str, Any] | None:
     for table in tables:
-        if table.get("name") == preferred_table_name:
+        if (
+            table.get("name") == preferred_table_name
+            or table.get("id") == preferred_table_name
+        ):
             return table
 
     for table in tables:

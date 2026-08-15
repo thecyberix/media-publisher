@@ -113,7 +113,7 @@ def main() -> int:
     )
     page_username = normalize_facebook_page_username(settings.meta_page_username)
     page_info = client.resolve_page_by_username(page_username)
-    page_id = settings.meta_page_id or page_info.page_id
+    page_id = page_info.page_id
     print(f"Page: {page_info.name} ({page_id})")
 
     targets: list[tuple[str, str]] = []  # (video_id, label)

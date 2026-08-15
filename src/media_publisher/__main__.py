@@ -89,6 +89,7 @@ from media_publisher.sources.canva import (
     DEFAULT_SCOPES,
     CanvaClient,
     CanvaError,
+    canva_catalog_urls_from_client,
     download_images_from_canva_url,
     ensure_catalog_thumbnail_from_canva,
     format_access_token_scopes,
@@ -535,20 +536,19 @@ def airtable_client_from_settings(settings) -> AirtableClient:
     )
 
 
+def happyscribe_library_from_settings(settings):
+    return resolve_library_location(library_url=settings.happyscribe_url)
+
+
 def happyscribe_client_from_settings(settings) -> HappyScribeClient:
+    organization_id = None
+    if settings.happyscribe_url:
+        organization_id = happyscribe_library_from_settings(settings).organization_id
     return HappyScribeClient(
         api_key=settings.happyscribe_api_key or "",
         api_base=settings.happyscribe_api_base,
-        organization_id=settings.happyscribe_organization_id,
+        organization_id=organization_id,
         ffmpeg_path=settings.happyscribe_ffmpeg,
-    )
-
-
-def happyscribe_library_from_settings(settings):
-    return resolve_library_location(
-        library_url=settings.happyscribe_library_url,
-        organization_id=settings.happyscribe_organization_id,
-        folder_id=settings.happyscribe_folder_id,
     )
 
 
@@ -586,13 +586,8 @@ def happyscribe_web_settings_missing(settings) -> list[str]:
 
 def happyscribe_library_settings_missing(settings) -> list[str]:
     missing = happyscribe_settings_missing(settings)
-    if not (
-        settings.happyscribe_library_url
-        or (settings.happyscribe_organization_id and settings.happyscribe_folder_id)
-    ):
-        missing.append(
-            "HAPPYSCRIBE_LIBRARY_URL or (HAPPYSCRIBE_ORGANIZATION_ID + HAPPYSCRIBE_FOLDER_ID)"
-        )
+    if not settings.happyscribe_url:
+        missing.append("HAPPYSCRIBE_URL")
     return missing
 
 
@@ -674,12 +669,7 @@ def resolve_facebook_page_id(settings) -> tuple[str, MetaPageInfo]:
     """Resolve the Facebook Page without requiring a linked Instagram account."""
     client = meta_client_from_settings(settings)
     page_info = client.resolve_page_by_username(settings.meta_page_username)
-    if settings.meta_page_id and settings.meta_page_id != page_info.page_id:
-        raise MetaError(
-            f"META_PAGE_ID {settings.meta_page_id!r} does not match "
-            f"Facebook page {settings.meta_page_username!r}"
-        )
-    return settings.meta_page_id or page_info.page_id, page_info
+    return page_info.page_id, page_info
 
 
 def run_check_event_meta(settings) -> int:
@@ -892,31 +882,14 @@ def resolve_meta_targets(settings) -> tuple[str, str, MetaPageInfo]:
     page_info = client.resolve_page_by_username(settings.meta_page_username)
     client.verify_instagram_username(page_info, settings.meta_instagram_username)
 
-    if settings.meta_page_id and settings.meta_page_id != page_info.page_id:
-        raise MetaError(
-            f"META_PAGE_ID {settings.meta_page_id!r} does not match "
-            f"Facebook page {settings.meta_page_username!r}"
-        )
-
-    page_id = settings.meta_page_id or page_info.page_id
-    instagram_account_id = settings.meta_instagram_account_id or page_info.instagram_account_id
+    instagram_account_id = page_info.instagram_account_id
     if not instagram_account_id:
         raise MetaError(
             "No Instagram business account is linked to the Facebook page. "
             f"Connect {meta_instagram_url(settings)} in Meta Business Suite."
         )
 
-    if (
-        settings.meta_instagram_account_id
-        and page_info.instagram_account_id
-        and settings.meta_instagram_account_id != page_info.instagram_account_id
-    ):
-        raise MetaError(
-            f"META_INSTAGRAM_ACCOUNT_ID {settings.meta_instagram_account_id!r} does not match "
-            f"the account linked to {settings.meta_page_username!r}"
-        )
-
-    return page_id, instagram_account_id, page_info
+    return page_info.page_id, instagram_account_id, page_info
 
 
 def canva_download_dir_from_settings(settings) -> Path:
@@ -946,7 +919,7 @@ def template_urls_from_settings(settings) -> dict[str, str]:
 def publish_schedule_settings(settings):
     return {
         "publish_timezone": settings.publish_timezone,
-        "publish_hour": settings.publish_hour,
+        "publish_hour": settings.videos_publish_hour,
     }
 
 
@@ -981,11 +954,27 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
         except GoogleDriveError:
             drive_client = None
 
+    override_root_folder_id = ""
+    if drive_client is not None:
+        from media_publisher.sources.drive_layout import resolve_overrides_folder_id
+
+        try:
+            override_root_folder_id = resolve_overrides_folder_id(
+                drive_client,
+                drive_url=settings.drive_url,
+            )
+        except GoogleDriveError:
+            override_root_folder_id = ""
+
     if not getattr(settings, "skip_thumbnails", False):
         canva_client = None
         if not canva_settings_missing(settings):
             canva_client = canva_client_from_settings(settings)
         try:
+            long_catalog_url, short_catalog_url = canva_catalog_urls_from_client(
+                canva_client,
+                settings.canva_url,
+            )
             thumbnail_result = resolve_publish_thumbnail(
                 task.job,
                 dict(record.fields),
@@ -993,9 +982,9 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
                 canva_client=canva_client,
                 drive=drive_client,
                 canva_download_dir=canva_download_dir_from_settings(settings),
-                long_catalog_url=settings.canva_long_video_thumbnails_url,
-                short_catalog_url=settings.canva_short_video_thumbnails_url,
-                override_root_folder_id=settings.publish_override_drive_folder_id,
+                long_catalog_url=long_catalog_url,
+                short_catalog_url=short_catalog_url,
+                override_root_folder_id=override_root_folder_id,
                 thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
                 published_subfolder_name=settings.canva_published_subfolder_name,
                 tn_settings=TnPublishSettings(
@@ -1014,11 +1003,11 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
         except (CanvaError, TnPublishError) as exc:
             raise AirtableError(f"Thumbnail lookup failed: {exc}") from exc
 
-    if drive_client is not None and settings.publish_override_drive_folder_id:
+    if drive_client is not None and override_root_folder_id:
         video_override = resolve_publish_video(
             title=lookup_title,
             drive=drive_client,
-            override_root_folder_id=settings.publish_override_drive_folder_id,
+            override_root_folder_id=override_root_folder_id,
             videos_subfolder=settings.publish_override_videos_subfolder,
             download_dir=PROJECT_ROOT / settings.publish_media_download_dir,
         )
@@ -1428,7 +1417,7 @@ def build_quotes_pipeline_settings(
         project_root=PROJECT_ROOT,
         quotes_sources_config=PROJECT_ROOT / settings.quotes_sources_config,
         google_service_account=PROJECT_ROOT / settings.google_sheets_service_account,
-        publish_timezone=settings.quotes_publish_timezone,
+        publish_timezone=settings.publish_timezone,
         publish_hour=settings.quotes_publish_hour,
         template_urls=template_urls_from_settings(settings),
         meta_page_id=meta_page_id,
@@ -1440,7 +1429,6 @@ def build_quotes_pipeline_settings(
         youtube_channel_handle=settings.youtube_channel_handle,
         youtube_playlist_title=settings.youtube_playlist_title,
         youtube_playlist_id=settings.youtube_playlist_id,
-        youtube_daily_playlist_title=settings.youtube_daily_playlist_title,
         youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
         youtube_daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
         ffmpeg_path=settings.happyscribe_ffmpeg,
@@ -1539,6 +1527,8 @@ def validate_quotes_pipeline_settings(settings) -> list[str]:
         )
     if not (PROJECT_ROOT / settings.quotes_sources_config).exists():
         missing.append(f"Quotes sources config ({settings.quotes_sources_config})")
+    if not settings.translated_quotes_url:
+        missing.append("TRANSLATED_QUOTES_URL")
     return missing
 
 
@@ -1558,7 +1548,7 @@ def run_quotes_publish(settings, args) -> int:
     platforms = resolve_selected_platforms(args)
     publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
-        publish_timezone=settings.quotes_publish_timezone,
+        publish_timezone=settings.publish_timezone,
         publish_hour=settings.quotes_publish_hour,
     )
     print_publish_run_mode(
@@ -1566,7 +1556,7 @@ def run_quotes_publish(settings, args) -> int:
         reference_date=reference_date,
         private_test=private_test,
         content_label="quote posts",
-        publish_timezone=settings.quotes_publish_timezone,
+        publish_timezone=settings.publish_timezone,
         publish_hour=settings.quotes_publish_hour,
     )
     if platforms is not None:
@@ -1595,7 +1585,7 @@ def run_quotes_publish(settings, args) -> int:
             PROJECT_ROOT / settings.quotes_sources_config
         )
         sync_reference = reference_date or datetime.now(
-            get_timezone(settings.quotes_publish_timezone)
+            get_timezone(settings.publish_timezone)
         ).date()
 
         sync_result = sync_generated_quotes_for_months(
@@ -1654,15 +1644,19 @@ def build_publish_pipeline_settings(
     canva_client = None
     if not skip_thumbnails and not canva_settings_missing(settings):
         canva_client = canva_client_from_settings(settings)
+    long_catalog_url, short_catalog_url = canva_catalog_urls_from_client(
+        canva_client,
+        settings.canva_url,
+    )
 
     return PublishPipelineSettings(
         project_root=PROJECT_ROOT,
         publish_timezone=settings.publish_timezone,
-        publish_hour=settings.publish_hour,
+        publish_hour=settings.videos_publish_hour,
         canva_download_dir=canva_download_dir_from_settings(settings),
         canva_client=canva_client,
-        canva_long_video_thumbnails_url=settings.canva_long_video_thumbnails_url,
-        canva_short_video_thumbnails_url=settings.canva_short_video_thumbnails_url,
+        canva_long_video_thumbnails_url=long_catalog_url,
+        canva_short_video_thumbnails_url=short_catalog_url,
         skip_thumbnails=skip_thumbnails,
         happyscribe_download_dir=happyscribe_download_dir_from_settings(settings),
         happyscribe_browser_state=happyscribe_browser_state_path(settings),
@@ -1677,7 +1671,6 @@ def build_publish_pipeline_settings(
         youtube_channel_handle=settings.youtube_channel_handle,
         youtube_playlist_title=settings.youtube_playlist_title,
         youtube_playlist_id=settings.youtube_playlist_id,
-        youtube_daily_playlist_title=settings.youtube_daily_playlist_title,
         youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
         youtube_daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
         template_urls=template_urls_from_settings(settings),
@@ -1691,7 +1684,7 @@ def build_publish_pipeline_settings(
         regenerate_videos=regenerate_videos,
         use_web_export=use_web_export,
         happyscribe_published_folder_id=settings.happyscribe_published_folder_id,
-        publish_override_drive_folder_id=settings.publish_override_drive_folder_id,
+        drive_url=settings.drive_url,
         publish_override_thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
         publish_override_videos_subfolder=settings.publish_override_videos_subfolder,
         canva_published_subfolder_name=settings.canva_published_subfolder_name,
@@ -1710,10 +1703,8 @@ def validate_publish_pipeline_settings(settings, tasks) -> list[str]:
     missing: list[str] = []
     if not settings.airtable_token:
         missing.append("AIRTABLE_TOKEN")
-    if not settings.airtable_base_id:
-        missing.append("AIRTABLE_BASE_ID")
-    if not settings.airtable_table_name:
-        missing.append("AIRTABLE_TABLE_NAME")
+    if not settings.airtable_base_id or not settings.airtable_table_name:
+        missing.append("AIRTABLE_URL")
     if not tasks:
         return missing
     missing.extend(happyscribe_library_settings_missing(settings))
@@ -1731,7 +1722,7 @@ def run_default_publish(settings, args) -> int:
     publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
         publish_timezone=settings.publish_timezone,
-        publish_hour=settings.publish_hour,
+        publish_hour=settings.videos_publish_hour,
     )
     regenerate_videos = bool(getattr(args, "regenerate_videos", False))
     use_web_export = bool(getattr(args, "happyscribe_web_export", False))
@@ -1742,7 +1733,7 @@ def run_default_publish(settings, args) -> int:
         reference_date=reference_date,
         private_test=private_test,
         publish_timezone=settings.publish_timezone,
-        publish_hour=settings.publish_hour,
+        publish_hour=settings.videos_publish_hour,
     )
     if platforms is not None:
         print_console(f"Limiting video publish to: {', '.join(platforms)}")
@@ -1846,10 +1837,10 @@ def main() -> int:
         missing = []
         if not settings.airtable_token:
             missing.append("AIRTABLE_TOKEN")
-        if not settings.airtable_base_id:
-            missing.append("AIRTABLE_BASE_ID")
-        if not settings.airtable_table_name:
-            missing.append("AIRTABLE_TABLE_NAME")
+        if not settings.airtable_base_id or not settings.airtable_table_name:
+            missing.append("AIRTABLE_URL")
+        if not settings.drive_url:
+            missing.append("DRIVE_URL")
         if missing:
             print("Missing required settings:", ", ".join(missing))
             return 1
@@ -1868,22 +1859,14 @@ def main() -> int:
         print(f"  Meta: {'yes' if settings.meta_access_token else 'no'}")
         print(f"    Facebook: {meta_facebook_url(settings)}")
         print(f"    Instagram: {meta_instagram_url(settings)}")
-        if settings.meta_access_token:
-            print(f"    Page ID: {'set' if settings.meta_page_id else 'resolve via username'}")
-            print(
-                "    Instagram account ID: "
-                f"{'set' if settings.meta_instagram_account_id else 'resolve via page link'}"
-            )
         return 0
 
     if args.test_airtable:
         missing = []
         if not settings.airtable_token:
             missing.append("AIRTABLE_TOKEN")
-        if not settings.airtable_base_id:
-            missing.append("AIRTABLE_BASE_ID")
-        if not settings.airtable_table_name:
-            missing.append("AIRTABLE_TABLE_NAME")
+        if not settings.airtable_base_id or not settings.airtable_table_name:
+            missing.append("AIRTABLE_URL")
         if missing:
             print("Missing required settings:", ", ".join(missing))
             return 1
@@ -2292,9 +2275,9 @@ def main() -> int:
         except MetaError as exc:
             print(f"Meta resolve failed: {exc}")
             return 1
-        print("Add these to your .env (optional — usernames are resolved automatically):")
-        print(f"META_PAGE_ID={page_id}")
-        print(f"META_INSTAGRAM_ACCOUNT_ID={instagram_account_id}")
+        print("Resolved Meta targets from configured usernames:")
+        print(f"Facebook page ID: {page_id}")
+        print(f"Instagram account ID: {instagram_account_id}")
         print()
         print(f"Facebook: {page_info.name} ({meta_facebook_url(settings)})")
         print(
@@ -2339,10 +2322,6 @@ def main() -> int:
             )
             env_path = PROJECT_ROOT / ".env"
             updates = {"META_ACCESS_TOKEN": credentials.access_token}
-            if credentials.page_id:
-                updates["META_PAGE_ID"] = credentials.page_id
-            if credentials.instagram_account_id:
-                updates["META_INSTAGRAM_ACCOUNT_ID"] = credentials.instagram_account_id
             update_env_values(env_path, updates)
         except MetaError as exc:
             print(f"Meta token setup failed: {exc}")
@@ -2371,10 +2350,8 @@ def main() -> int:
         missing = []
         if not settings.airtable_token:
             missing.append("AIRTABLE_TOKEN")
-        if not settings.airtable_base_id:
-            missing.append("AIRTABLE_BASE_ID")
-        if not settings.airtable_table_name:
-            missing.append("AIRTABLE_TABLE_NAME")
+        if not settings.airtable_base_id or not settings.airtable_table_name:
+            missing.append("AIRTABLE_URL")
         if missing:
             print("Missing required settings:", ", ".join(missing))
             return 1
@@ -2439,7 +2416,6 @@ def main() -> int:
                 playlist_id=settings.youtube_playlist_id,
                 playlist_title=settings.youtube_playlist_title,
                 daily_playlist_id=settings.youtube_daily_playlist_id,
-                daily_playlist_title=settings.youtube_daily_playlist_title,
                 daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
                 **template_urls_from_settings(settings),
             )

@@ -35,9 +35,7 @@ from catalog_parser.drive_docs import (
 from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
 from googleapiclient.errors import HttpError
 
-DEFAULT_TARGET_FOLDER = (
-    "https://drive.google.com/drive/folders/1sE-DZV2lrRJxEK7Fnjw7uU8y0KXg7imd"
-)
+DEFAULT_TARGET_FOLDER = ""
 OUTPUT_PATH = PROJECT_ROOT / "_tmp_migrate_combined_media_report.json"
 
 
@@ -90,23 +88,28 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--target-folder",
-        default=os.getenv("OUTPUT_DRIVE_FOLDER", DEFAULT_TARGET_FOLDER),
-        help="Destination Drive folder URL or id.",
+        default="",
+        help="Destination Drive folder URL or id. Default: Combined Media Files under DRIVE_URL.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Plan only; do not copy or update.")
     args = parser.parse_args()
 
     load_env_file(PROJECT_ROOT / ".env")
-    target_folder_id = extract_drive_folder_id(args.target_folder)
-    if target_folder_id is None:
-        raise RuntimeError(f"Could not parse target folder id from {args.target_folder!r}")
+    drive = get_drive_service_noninteractive()
+    if args.target_folder:
+        target_folder_id = extract_drive_folder_id(args.target_folder)
+        if target_folder_id is None:
+            raise RuntimeError(f"Could not parse target folder id from {args.target_folder!r}")
+    else:
+        from media_publisher.sources.drive_layout import resolve_combined_media_files_id
+
+        target_folder_id = resolve_combined_media_files_id(drive)
 
     airtable = AirtableClient(
         token=_require_env("AIRTABLE_TOKEN"),
         base_id=_require_env("AIRTABLE_BASE_ID"),
         table_name=_require_env("AIRTABLE_TABLE_NAME"),
     )
-    drive = get_drive_service_noninteractive()
 
     formula = (
         "AND({Status} = "

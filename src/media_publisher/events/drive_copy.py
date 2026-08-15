@@ -5,7 +5,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from media_publisher.events.templates import (
-    EVENT_IMAGES_DRIVE_FOLDER_ID,
     EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
     EVENT_TYPE_YOGASANA,
@@ -14,6 +13,7 @@ from media_publisher.events.templates import (
     get_program,
     normalize_event_type,
 )
+from media_publisher.sources.drive_layout import resolve_events_folder_id
 from media_publisher.sources.google_drive import (
     DOCX_MIME_TYPE,
     FOLDER_MIME_TYPE,
@@ -68,8 +68,10 @@ def event_template_cache_path(project_root: Path) -> Path:
 
 def find_event_template_file(
     drive_client: GoogleDriveClient,
-    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+    folder_id: str = "",
 ) -> DriveFile:
+    if not folder_id.strip():
+        folder_id = resolve_events_folder_id(drive_client)
     try:
         children = drive_client.list_children(folder_id)
     except GoogleDriveError as exc:
@@ -107,7 +109,7 @@ def load_program_from_drive(
     event_type: str,
     *,
     project_root: Path,
-    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+    folder_id: str = "",
 ) -> ProgramTemplate:
     base = get_program(event_type)
     copies = load_program_copies_from_drive(
@@ -127,7 +129,7 @@ def load_program_copies_from_drive(
     drive_client: GoogleDriveClient,
     *,
     project_root: Path,
-    folder_id: str = EVENT_IMAGES_DRIVE_FOLDER_ID,
+    folder_id: str = "",
 ) -> dict[str, ParsedProgramCopy]:
     template = find_event_template_file(drive_client, folder_id)
     destination = event_template_cache_path(project_root)

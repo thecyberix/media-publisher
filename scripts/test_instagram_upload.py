@@ -17,12 +17,15 @@ from media_publisher.__main__ import (
     template_urls_from_settings,
 )
 from media_publisher.config import load_settings
-from media_publisher.models import PublishJob
 from media_publisher.post_templates import prepare_publish_job
 from media_publisher.publishers.instagram import InstagramPublishError
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.sources.airtable import AirtableClient, record_to_publish_job
-from media_publisher.sources.canva import CanvaError, ensure_catalog_thumbnail_from_canva
+from media_publisher.sources.canva import (
+    CanvaError,
+    canva_catalog_urls_from_client,
+    ensure_catalog_thumbnail_from_canva,
+)
 from media_publisher.video_duration import (
     InstagramVideoPrepError,
     reencode_instagram_upload_video,
@@ -79,12 +82,16 @@ def main() -> int:
     if not canva_settings_missing(settings):
         try:
             canva = canva_client_from_settings(settings)
+            long_catalog_url, short_catalog_url = canva_catalog_urls_from_client(
+                canva,
+                settings.canva_url,
+            )
             job = ensure_catalog_thumbnail_from_canva(
                 job,
                 client=canva,
                 download_dir=canva_download_dir_from_settings(settings),
-                long_catalog_url=settings.canva_long_video_thumbnails_url,
-                short_catalog_url=settings.canva_short_video_thumbnails_url,
+                long_catalog_url=long_catalog_url,
+                short_catalog_url=short_catalog_url,
             )
             print(f"Thumbnail: {job.thumbnail_path}", flush=True)
         except CanvaError as exc:

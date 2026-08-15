@@ -80,7 +80,6 @@ def publish_local_quote_to_youtube(
     playlist_id: str | None = None,
     playlist_title: str | None = None,
     daily_playlist_id: str | None = None,
-    daily_playlist_title: str | None = None,
     daily_playlist_slots_path: Path | None = None,
     private: bool = False,
 ) -> str:
@@ -116,7 +115,6 @@ def publish_local_quote_to_youtube(
         playlist_id=playlist_id,
         playlist_title=playlist_title or DEFAULT_YOUTUBE_PLAYLIST_TITLE,
         daily_playlist_id=daily_playlist_id,
-        daily_playlist_title=daily_playlist_title,
         daily_playlist_slots_path=daily_playlist_slots_path,
         **(template_urls or {}),
     )
@@ -141,7 +139,6 @@ def publish_local_quote(
     youtube_playlist_id: str | None = None,
     youtube_playlist_title: str | None = None,
     youtube_daily_playlist_id: str | None = None,
-    youtube_daily_playlist_title: str | None = None,
     youtube_daily_playlist_slots_path: Path | None = None,
     ffmpeg_path: str | None = None,
     template_urls: dict[str, str] | None = None,
@@ -164,7 +161,6 @@ def publish_local_quote(
             playlist_id=youtube_playlist_id,
             playlist_title=youtube_playlist_title,
             daily_playlist_id=youtube_daily_playlist_id,
-            daily_playlist_title=youtube_daily_playlist_title,
             daily_playlist_slots_path=youtube_daily_playlist_slots_path,
             private=private,
         )

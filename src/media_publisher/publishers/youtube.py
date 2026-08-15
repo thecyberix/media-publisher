@@ -35,7 +35,6 @@ DEFAULT_SCOPES = (
 )
 DEFAULT_CHANNEL_HANDLE = "SadhguruBulgarian"
 DEFAULT_YOUTUBE_PLAYLIST_TITLE = "Съзнателна Планета"
-DEFAULT_YOUTUBE_DAILY_PLAYLIST_TITLE = "Днес"
 DEFAULT_DAILY_PLAYLIST_SLOTS_PATH = "data/youtube_daily_playlist_slots.json"
 DAILY_PLAYLIST_SLOTS = ("quote", "reel", "lau")
 DailyPlaylistSlot = Literal["quote", "reel", "lau"]
@@ -1463,7 +1462,6 @@ def publish_to_youtube(
     playlist_id: str | None = None,
     playlist_title: str | None = DEFAULT_YOUTUBE_PLAYLIST_TITLE,
     daily_playlist_id: str | None = None,
-    daily_playlist_title: str | None = None,
     daily_playlist_slots_path: Path | None = None,
 ) -> str:
     """Upload a video to YouTube and return the published video ID."""
@@ -1553,9 +1551,9 @@ def publish_to_youtube(
         )
         client.add_video_to_playlist(video_id, resolved_playlist_id)
 
-    if daily_playlist_id or daily_playlist_title:
+    if daily_playlist_id:
         resolved_daily_id = client.resolve_playlist_id(
-            daily_playlist_title or DEFAULT_YOUTUBE_DAILY_PLAYLIST_TITLE,
+            "",
             playlist_id=daily_playlist_id,
         )
         slots_path = daily_playlist_slots_path or Path(DEFAULT_DAILY_PLAYLIST_SLOTS_PATH)
@@ -1588,11 +1586,10 @@ def flush_configured_daily_playlist(
     token_path: Path,
     expected_channel_handle: str | None = DEFAULT_CHANNEL_HANDLE,
     daily_playlist_id: str | None = None,
-    daily_playlist_title: str | None = None,
     daily_playlist_slots_path: Path | None = None,
 ) -> list[str]:
-    """Promote any due pending Днес slots. No-op when none are pending."""
-    if not (daily_playlist_id or daily_playlist_title):
+    """Promote any due pending daily-playlist slots. No-op when none are pending."""
+    if not daily_playlist_id:
         return []
     slots_path = daily_playlist_slots_path or Path(DEFAULT_DAILY_PLAYLIST_SLOTS_PATH)
     if not load_daily_playlist_pending(slots_path):
@@ -1603,7 +1600,7 @@ def flush_configured_daily_playlist(
         expected_channel_handle=expected_channel_handle,
     )
     resolved_daily_id = client.resolve_playlist_id(
-        daily_playlist_title or DEFAULT_YOUTUBE_DAILY_PLAYLIST_TITLE,
+        "",
         playlist_id=daily_playlist_id,
     )
     return client.flush_pending_daily_playlist_slots(

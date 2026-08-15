@@ -55,6 +55,12 @@ def process_approved_review_thumbnails_in_workflow(
         settings.airtable_table_name,
     )
     drive = GoogleDriveClient.from_service_account(service_account_path)
+    from media_publisher.sources.drive_layout import resolve_thumbnails_for_approval_id
+
+    review_folder_id = resolve_thumbnails_for_approval_id(
+        drive,
+        drive_url=getattr(settings, "drive_url", "") or "",
+    )
     adapted_records = [
         SimpleNamespace(id=record["id"], fields=record.get("fields", {}))
         for record in records
@@ -64,7 +70,7 @@ def process_approved_review_thumbnails_in_workflow(
         airtable,
         drive,
         adapted_records,
-        review_folder_id=settings.thumbnail_review_drive_folder_id,
+        review_folder_id=review_folder_id,
         approved_subfolder=settings.thumbnail_review_approved_subfolder,
         apply=not dry_run,
         project_root=project_root,

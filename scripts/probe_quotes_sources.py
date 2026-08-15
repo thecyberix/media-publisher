@@ -37,10 +37,10 @@ def probe_canva() -> None:
 
 
 def probe_sheets(*, year: int = 2026, month: int = 7) -> None:
-    config_path = PROJECT_ROOT / "config" / "quotes_sources.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    sheet = config["quotes_sheet"]
-    spreadsheet_id = sheet["spreadsheet_id"]
+    from media_publisher.sources.quotes_config import load_quotes_sources_config
+
+    config = load_quotes_sources_config(PROJECT_ROOT / "config" / "quotes_sources.json")
+    spreadsheet_id = config.spreadsheet_id
 
     sa_path = PROJECT_ROOT / "credentials" / "google-sheets-service-account.json"
     client = GoogleSheetsClient.from_service_account(sa_path)

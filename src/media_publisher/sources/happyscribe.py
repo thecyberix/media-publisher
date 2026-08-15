@@ -167,19 +167,11 @@ def parse_library_url(url: str) -> HappyScribeLibraryLocation:
 def resolve_library_location(
     *,
     library_url: str | None = None,
-    organization_id: str | None = None,
-    folder_id: str | None = None,
 ) -> HappyScribeLibraryLocation:
-    if library_url:
+    if library_url and library_url.strip():
         return parse_library_url(library_url)
-    if organization_id and folder_id:
-        return HappyScribeLibraryLocation(
-            organization_id=organization_id.strip(),
-            folder_id=folder_id.strip(),
-        )
     raise HappyScribeError(
-        "HappyScribe library location is required. Set HAPPYSCRIBE_LIBRARY_URL or "
-        "both HAPPYSCRIBE_ORGANIZATION_ID and HAPPYSCRIBE_FOLDER_ID."
+        "HappyScribe library location is required. Set HAPPYSCRIBE_URL."
     )
 
 

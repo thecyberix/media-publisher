@@ -250,39 +250,25 @@ def get_first_sheet_title(service: Resource, sheet_id: str) -> str:
     return sheets[0]["properties"]["title"]
 
 
-def resolve_range(
-    service: Resource,
-    sheet_id: str,
-    sheet_name: str | None,
-    sheet_range: str | None,
-) -> str:
-    if sheet_range:
-        return sheet_range
-    if sheet_name:
-        return _quote_sheet_name(sheet_name)
-    return _quote_sheet_name(get_first_sheet_title(service, sheet_id))
+def resolve_range(service: Resource, catalog_id: str) -> str:
+    return _quote_sheet_name(get_first_sheet_title(service, catalog_id))
 
 
-def fetch_catalog_values(
-    service: Resource,
-    sheet_id: str,
-    sheet_name: str | None = None,
-    sheet_range: str | None = None,
-) -> list[list[Any]]:
-    range_notation = resolve_range(service, sheet_id, sheet_name, sheet_range)
+def fetch_catalog_values(service: Resource, catalog_id: str) -> list[list[Any]]:
+    range_notation = resolve_range(service, catalog_id)
     try:
         response = (
             service.spreadsheets()
             .values()
-            .get(spreadsheetId=sheet_id, range=range_notation)
+            .get(spreadsheetId=catalog_id, range=range_notation)
             .execute()
         )
     except HttpError as exc:
         if exc.resp.status in {403, 404}:
             raise ValueError(
-                f"Could not read spreadsheet {sheet_id!r} (range {range_notation!r}). "
-                "Check that SHEET_ID is correct and that your signed-in Google account "
-                "can open the sheet in the browser."
+                f"Could not read catalog spreadsheet {catalog_id!r} "
+                f"(range {range_notation!r}). Check workflow_config.json catalog_id "
+                "and that the Google account can open the sheet."
             ) from exc
         raise
     return response.get("values", [])
@@ -290,15 +276,13 @@ def fetch_catalog_values(
 
 def parse_catalog(
     service: Resource,
-    sheet_id: str,
-    sheet_name: str | None = None,
-    sheet_range: str | None = None,
+    catalog_id: str,
     limit: int = DEFAULT_LIMIT,
     min_duration: int = DEFAULT_MIN_DURATION,
     max_duration: int = DEFAULT_MAX_DURATION,
     video_type: str = DEFAULT_VIDEO_TYPE,
 ) -> list[dict[str, Any]]:
-    values = fetch_catalog_values(service, sheet_id, sheet_name, sheet_range)
+    values = fetch_catalog_values(service, catalog_id)
     if not values:
         return []
 

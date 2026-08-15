@@ -316,7 +316,6 @@ class PublishPipelineTests(unittest.TestCase):
             "youtube_channel_handle": "SadhguruBulgarian",
             "youtube_playlist_title": "Съзнателна Планета",
             "youtube_playlist_id": None,
-            "youtube_daily_playlist_title": "Днес",
             "youtube_daily_playlist_id": None,
             "template_urls": {},
             "meta_page_id": "page",

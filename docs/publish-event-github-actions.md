@@ -28,10 +28,10 @@ Same Meta secrets as the publish pipeline:
 - `META_ACCESS_TOKEN`
 - `META_APP_ID`
 - `META_APP_SECRET`
-- `META_PAGE_ID` (optional if username resolution works)
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — loads the Hatha message template and Facebook images from Drive
+- `DRIVE_URL` — parent Drive folder; events use the `Events` subfolder
 
-Programme copy (quote, body, benefits, YouTube link) is read from the Hatha WhatsApp template in [this Drive folder](https://drive.google.com/drive/folders/1ENCdaCLVYdCgXSq0X3Fg5pj2f2L3hlI6) (`NEW Hatha WA Message Template ENG.docx`). Bulgarian cells are used, including the YouTube hyperlink on the video title.
+Programme copy (quote, body, benefits, YouTube link) is read from the Hatha WhatsApp template in the `Events` folder under `DRIVE_URL` (`NEW Hatha WA Message Template ENG.docx`). Bulgarian cells are used, including the YouTube hyperlink on the video title.
 
 Facebook images live in the same folder:
 

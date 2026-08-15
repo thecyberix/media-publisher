@@ -546,11 +546,55 @@ class RagTranslateTests(unittest.TestCase):
         self.assertEqual(kwargs["json"]["messages"][0]["role"], "user")
         self.assertTrue(str(fake_session.post.call_args.args[0]).endswith("/v1/messages"))
 
+    def test_chat_config_none_provider_raises(self) -> None:
+        env = {
+            "TRANSLATION_PROVIDER": "none",
+            "TRANSLATION_API_KEY": "shared-key",
+            "ANTHROPIC_API_KEY": "ant-key",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "disables AI translation"):
+                chat_config_from_env()
+
+    def test_chat_config_uses_shared_translation_env(self) -> None:
+        env = {
+            "TRANSLATION_PROVIDER": "anthropic",
+            "TRANSLATION_API_KEY": "shared-key",
+            "TRANSLATION_MODEL": "claude-sonnet-4-6",
+            "TRANSLATION_BASE_URL": "",
+            "ANTHROPIC_API_KEY": "",
+            "OPENAI_API_KEY": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            config = chat_config_from_env()
+        self.assertEqual(config.provider, "anthropic")
+        self.assertEqual(config.api_key, "shared-key")
+        self.assertEqual(config.model, "claude-sonnet-4-6")
+        self.assertEqual(config.base_url, "https://api.anthropic.com")
+
+    def test_chat_config_openai_defaults_without_custom_base_url(self) -> None:
+        env = {
+            "TRANSLATION_PROVIDER": "openai",
+            "TRANSLATION_API_KEY": "sk-test",
+            "TRANSLATION_MODEL": "",
+            "TRANSLATION_BASE_URL": "",
+            "ANTHROPIC_API_KEY": "",
+            "OPENAI_API_KEY": "",
+            "OPENAI_MODEL": "",
+            "OPENAI_BASE_URL": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            config = chat_config_from_env()
+        self.assertEqual(config.provider, "openai")
+        self.assertEqual(config.model, "gpt-4o-mini")
+        self.assertEqual(config.base_url, "https://api.openai.com/v1")
+
     def test_chat_config_prefers_anthropic_when_key_set(self) -> None:
         env = {
             "ANTHROPIC_API_KEY": "ant-test",
             "OPENAI_API_KEY": "openai-test",
             "ANTHROPIC_MODEL": "claude-sonnet-4-6",
+            "TRANSLATION_API_KEY": "",
         }
         with patch.dict(os.environ, env, clear=False):
             os.environ.pop("TRANSLATION_PROVIDER", None)

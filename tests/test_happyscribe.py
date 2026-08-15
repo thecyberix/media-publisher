@@ -35,22 +35,16 @@ class HappyScribeLibraryTests(unittest.TestCase):
         self.assertEqual(location.organization_id, "3310225")
         self.assertEqual(location.folder_id, "23100499")
 
-    def test_resolve_library_location_from_ids(self) -> None:
+    def test_resolve_library_location_from_url(self) -> None:
         location = resolve_library_location(
-            organization_id="3310225",
-            folder_id="23100499",
+            library_url="https://www.happyscribe.com/v2/3310225/library/23100499",
         )
         self.assertEqual(location.organization_id, "3310225")
         self.assertEqual(location.folder_id, "23100499")
 
-    def test_resolve_library_location_prefers_url(self) -> None:
-        location = resolve_library_location(
-            library_url="https://www.happyscribe.com/v2/3310225/library/23100499",
-            organization_id="999",
-            folder_id="888",
-        )
-        self.assertEqual(location.organization_id, "3310225")
-        self.assertEqual(location.folder_id, "23100499")
+    def test_resolve_library_location_requires_url(self) -> None:
+        with self.assertRaises(HappyScribeError):
+            resolve_library_location(library_url="")
 
     def test_video_destination_path_strips_srt_suffix(self) -> None:
         path = video_destination_path(Path("downloads"), "Sample(bg).srt")

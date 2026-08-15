@@ -55,13 +55,9 @@ Set these under **Settings → Secrets and variables → Actions → Secrets**:
 | Secret | Purpose |
 |--------|---------|
 | `AIRTABLE_TOKEN` | Airtable personal access token |
-| `AIRTABLE_BASE_ID` | `appbIH4wzW6ZRUnF5` (Translator's Paradise base) |
-| `AIRTABLE_TABLE_NAME` | `Translator's Paradise` |
+| `TRANSLATION_API_KEY` | Anthropic or OpenAI key (matches `TRANSLATION_PROVIDER`) |
 | `AIRTABLE_VIEW` | Optional — leave unset for publishing/audits (uses full table) |
 | `HAPPYSCRIBE_API_KEY` | HappyScribe API key |
-| `HAPPYSCRIBE_LIBRARY_URL` | HappyScribe library URL (or use org + folder IDs below) |
-| `HAPPYSCRIBE_ORGANIZATION_ID` | Optional if `HAPPYSCRIBE_LIBRARY_URL` is set |
-| `HAPPYSCRIBE_FOLDER_ID` | Optional if `HAPPYSCRIBE_LIBRARY_URL` is set |
 | `CANVA_CLIENT_ID` | Canva OAuth client ID |
 | `CANVA_CLIENT_SECRET` | Canva OAuth client secret |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json` |
@@ -72,8 +68,6 @@ Set these under **Settings → Secrets and variables → Actions → Secrets**:
 | `META_APP_ID` | Meta app ID |
 | `META_APP_SECRET` | Meta app secret |
 | `META_ACCESS_TOKEN` | Long-lived Meta page access token |
-| `META_PAGE_ID` | Optional — resolved from username if omitted |
-| `META_INSTAGRAM_ACCOUNT_ID` | Optional — resolved from page if omitted |
 
 ### Repository variables
 
@@ -81,9 +75,12 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 
 | Variable | Example |
 |----------|---------|
+| `AIRTABLE_URL` | `https://airtable.com/app.../tbl...` |
+| `CANVA_URL` | `https://www.canva.com/folder/FAHSXg0enw4` |
+| `TRANSLATION_PROVIDER` | `anthropic` (or `none` to skip AI translation) |
+| `HAPPYSCRIBE_URL` | `https://www.happyscribe.com/v2/.../library/...` |
 | `PUBLISH_TIMEZONE` | `Europe/Sofia` |
-| `PUBLISH_HOUR` | `18` |
-| `QUOTES_PUBLISH_TIMEZONE` | `Europe/Sofia` |
+| `VIDEOS_PUBLISH_HOUR` | `18` |
 | `QUOTES_PUBLISH_HOUR` | `8` |
 
 ### How CI credentials work

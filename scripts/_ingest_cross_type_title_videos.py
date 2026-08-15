@@ -40,7 +40,6 @@ from catalog_parser.eligibility import (  # noqa: E402
 )
 from catalog_parser.parser import (  # noqa: E402
     TYPE_VIDEO,
-    extract_sheet_id,
     filter_by_pkg_tn,
     parse_catalog,
     type_duration_bounds,
@@ -48,6 +47,7 @@ from catalog_parser.parser import (  # noqa: E402
 from catalog_parser.runtime_env import materialize_credentials  # noqa: E402
 from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE  # noqa: E402
 from catalog_parser.smartcat_web import DEFAULT_STORAGE_STATE, SmartcatWebClient  # noqa: E402
+from catalog_parser.workflow.config import load_catalog_id  # noqa: E402
 from catalog_parser.workflow.table_cache import TableCache  # noqa: E402
 
 TODAY_LOG_TITLES = [
@@ -114,9 +114,7 @@ def main() -> int:
     sheets = get_sheets_service(DEFAULT_CREDENTIALS, DEFAULT_TOKEN, use_console=False)
     candidates = parse_catalog(
         sheets,
-        extract_sheet_id(os.environ["SHEET_ID"].strip()),
-        sheet_name=os.getenv("SHEET_NAME") or None,
-        sheet_range=(os.getenv("SHEET_RANGE") or None) or None,
+        load_catalog_id(PROJECT_ROOT),
         limit=0,
         min_duration=type_min,
         max_duration=type_max,

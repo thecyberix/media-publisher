@@ -64,8 +64,11 @@ from media_publisher.sources.tn_psd import (  # noqa: E402
     resolve_psd_target,
     safe_cache_name,
 )
+from media_publisher.sources.drive_layout import (
+    drive_folder_url,
+    resolve_thumbnails_for_approval_id,
+)
 from media_publisher.sources.thumbnail_review import (  # noqa: E402
-    DEFAULT_REVIEW_FOLDER_URL,
     ReviewQueueItem,
     process_approved_review_thumbnails,
     review_drive_filename,
@@ -389,7 +392,11 @@ def main() -> int:
     export_dir.mkdir(parents=True, exist_ok=True)
 
     records = airtable.list_records(filter_formula=audit.build_filter_formula())
-    review_folder_id = settings.thumbnail_review_drive_folder_id
+    review_folder_id = resolve_thumbnails_for_approval_id(
+        drive,
+        drive_url=settings.drive_url,
+    )
+    review_url = drive_folder_url(review_folder_id)
     approved_subfolder = settings.thumbnail_review_approved_subfolder
 
     approved_results = process_approved_review_thumbnails(
@@ -639,7 +646,7 @@ def main() -> int:
 
     if review_uploaded_items and send_review_notification_email(
         review_uploaded_items,
-        review_folder_url=DEFAULT_REVIEW_FOLDER_URL,
+        review_folder_url=review_url,
     ):
         print(f"EMAIL review notification sent ({review_uploaded} video(s))")
     elif review_uploaded:

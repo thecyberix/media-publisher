@@ -132,6 +132,8 @@ Local equivalent:
 python -m catalog_parser ingest --unassigned --type reel --count 4
 ```
 
+Ingest reads the catalog spreadsheet from `catalog_id` in `workflow_config.json` (first sheet tab). It is not a GitHub secret or variable.
+
 ## Airtable backups and status history
 
 Each orchestrator run writes a full-table JSON snapshot to `output/backups/`:
@@ -171,9 +173,8 @@ Configure under **Settings → Secrets and variables → Actions → Secrets**.
 | Secret | Description |
 |--------|-------------|
 | `AIRTABLE_TOKEN` | [Airtable personal access token](https://airtable.com/create/tokens) with `data.records:read` and `data.records:write` on the target base. Comment scopes are not required.
-| `AIRTABLE_BASE_ID` | Base id, e.g. `appbIH4wzW6ZRUnF5`. |
-| `AIRTABLE_TABLE_NAME` | Table name exactly as shown in Airtable, e.g. `Translator's Paradise`. |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (single line is fine). The service account must have access to the catalog sheet, video folders, Docs/Word files in those folders, and the output folder. |
+| `TRANSLATION_API_KEY` | API key for the catalog RAG translator (Anthropic or OpenAI, matching `TRANSLATION_PROVIDER`). Required when `SMARTCAT_AI_PREFILL` is on and `TRANSLATION_PROVIDER` is not `none`. |
 
 ### Archive duplicate-title checks during ingest
 
@@ -183,15 +184,20 @@ Archive titles are cached permanently at `output/backups/airtable-archive-titles
 
 ### Repository variables (non-secret config)
 
-These can live under **Settings → Secrets and variables → Actions → Variables** (or as secrets if you prefer):
+These live under **Settings → Secrets and variables → Actions → Variables**:
 
 | Variable | Description |
 |----------|-------------|
+| `AIRTABLE_URL` | Share URL for the live catalog table, e.g. `https://airtable.com/appbIH4wzW6ZRUnF5/tblji1RaFztkeDn04/viw2Xz3EENcDEmarw`. Base (`app…`) and table (`tbl…`) ids are parsed from it; the view segment is ignored. |
+| `TRANSLATION_PROVIDER` | `anthropic` (default), `openai`, or `none` to skip all AI translation. |
+| `TRANSLATION_MODEL` | Optional. Defaults to `claude-sonnet-4-6` or `gpt-4o-mini` from the provider. |
+| `TRANSLATION_BASE_URL` | Optional. Leave unset for the official API host. Set only for a proxy or OpenAI-compatible gateway. |
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
-| `OUTPUT_DRIVE_FOLDER` | Google Drive folder URL (or id) where combined media is uploaded, e.g. `https://drive.google.com/drive/folders/1sE-DZV2lrRJxEK7Fnjw7uU8y0KXg7imd`. |
+| `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
+| `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |
 | `SAVE_SOIL_IMAGE_DRIVE_FOLDER` | Optional override for the translated SAVE SOIL end-card folder. Default: `https://drive.google.com/drive/folders/1IRF64Wpotz1OuO2dvSZNJjC167Qkq5-q` (`SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg`). |
 
-The workflow checks **Variables first**, then **Secrets** for these names. `SAVE_SOIL_IMAGE_DRIVE_FOLDER` is optional; Combined Media generation uses the default folder when it is unset.
+`SAVE_SOIL_IMAGE_DRIVE_FOLDER` may also be set as a secret; the workflow checks **Variables first**, then **Secrets**. It is optional; Combined Media generation uses the default folder when it is unset.
 
 ### Required when ingest runs (web session mode)
 
@@ -207,7 +213,6 @@ Alert emails go to the repository variable `NOTIFY_EMAIL`. Also set:
 
 | Secret | Description |
 |--------|-------------|
-| `SHEET_ID` | Google Sheet id from the catalog URL. |
 | `HAPPYSCRIBE_API_KEY` | HappyScribe API key used to check the watched library folder for leftover transcriptions (same secret as the publish workflow). Optional; the check is skipped when unset. |
 
 ### Optional: Canva thumbnail export during ingest
@@ -242,7 +247,7 @@ placeholders when API export is denied for a specific design.
 
 Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. When **Video caption translated** is empty, the same run also fills it from the approved image (vision first, Drive TN fallback) using the ingest caption path — gated by `SMARTCAT_AI_PREFILL`, and skipped for manual-Canva placeholders. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
 
-Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. Optional overrides: `THUMBNAIL_REVIEW_DRIVE_FOLDER_ID`, `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`. Review emails need `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, and `NOTIFY_EMAIL` on the orchestrator / ingest job.
+Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. The review folder is the `Thumbnails for approval` child of `DRIVE_URL`. Optional: `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`. Review emails need `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, and `NOTIFY_EMAIL` on the orchestrator / ingest job.
 
 ### Missing prepared thumbnail on Editing done
 
@@ -385,8 +390,6 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 |----------|---------|---------|
 | `WORKFLOW_REEL_TO_VIDEO_RATIO` | `6` | Target reel:video ratio for ingest. |
 | `WORKFLOW_MAX_VIDEO_SECONDS` | `900` | Prefer videos under 15 minutes during ingest. |
-| `SHEET_NAME` | first tab | Sheet tab name for ingest. |
-| `SHEET_RANGE` | all used cells | A1 range for ingest. |
 | `VIDEO_TYPE` | `Reel` | Default video type when not driven by workflow rules. |
 | `SMARTCAT_TARGET_LANGUAGE` | `bg` | Smartcat language for subtitle checks. |
 
@@ -395,7 +398,7 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 1. Create a service account in [Google Cloud Console](https://console.cloud.google.com/) for the same project as your APIs.
 2. Enable **Google Sheets API**, **Google Drive API**, and **Google Docs API**.
 3. Create a JSON key and store the entire file contents in `GOOGLE_SERVICE_ACCOUNT_JSON`.
-4. Share the catalog Google Sheet with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
+4. Share the catalog Google Sheet (`catalog_id` in `workflow_config.json`) with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
 5. Share each Drive folder used by the workflow (video folders, output folder, and the SAVE SOIL stills folder) with that email as **Editor** (upload/delete needed for combined media; Viewer is enough for the SAVE SOIL stills). The translated end cards are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in [this folder](https://drive.google.com/drive/folders/1IRF64Wpotz1OuO2dvSZNJjC167Qkq5-q).
 
 OAuth `credentials.json` / `token.json` are for local development only; CI uses the service account.

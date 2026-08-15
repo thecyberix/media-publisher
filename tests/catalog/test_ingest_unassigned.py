@@ -18,13 +18,10 @@ class IngestBatchTests(unittest.TestCase):
     @patch("catalog_parser.workflow.ingest.get_drive_service")
     @patch("catalog_parser.workflow.ingest.get_sheets_service")
     @patch("catalog_parser.workflow.ingest.parse_catalog")
-    @patch.dict(
-        "os.environ",
-        {"SHEET_ID": "sheet123"},
-        clear=False,
-    )
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
     def test_ingest_batch_unassigned_sets_status_without_translator(
         self,
+        _mock_catalog_id: MagicMock,
         mock_parse_catalog: MagicMock,
         _mock_sheets: MagicMock,
         _mock_drive: MagicMock,
@@ -62,13 +59,10 @@ class IngestBatchTests(unittest.TestCase):
     @patch("catalog_parser.workflow.ingest.get_drive_service")
     @patch("catalog_parser.workflow.ingest.get_sheets_service")
     @patch("catalog_parser.workflow.ingest.parse_catalog")
-    @patch.dict(
-        "os.environ",
-        {"SHEET_ID": "sheet123"},
-        clear=False,
-    )
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
     def test_ingest_batch_for_translator_assigns_translator_and_todo(
         self,
+        _mock_catalog_id: MagicMock,
         mock_parse_catalog: MagicMock,
         _mock_sheets: MagicMock,
         _mock_drive: MagicMock,
@@ -106,13 +100,10 @@ class IngestBatchTests(unittest.TestCase):
     @patch("catalog_parser.workflow.ingest.get_drive_service")
     @patch("catalog_parser.workflow.ingest.get_sheets_service")
     @patch("catalog_parser.workflow.ingest.parse_catalog")
-    @patch.dict(
-        "os.environ",
-        {"SHEET_ID": "sheet123"},
-        clear=False,
-    )
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
     def test_ingest_batch_dry_run_does_not_write(
         self,
+        _mock_catalog_id: MagicMock,
         mock_parse_catalog: MagicMock,
         _mock_sheets: MagicMock,
         _mock_drive: MagicMock,

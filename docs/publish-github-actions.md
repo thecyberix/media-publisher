@@ -145,10 +145,13 @@ Video and quote publish runs refresh Canva (if needed), probe the API once at st
 
 The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render can run when Drive override and Canva catalog lookup fail for non-auth reasons.
 
-## Repository variables (email)
+## Repository variables
 
 | Variable | Used for |
 |----------|----------|
+| `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval` |
+| `CANVA_URL` | Parent Canva folder; catalog thumbnails use `Long videos` and `Short videos` |
+| `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes, e.g. `https://docs.google.com/spreadsheets/d/13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec/edit` |
 | `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts (also set on catalog workflows) |
 | `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails; comma-separated list supported |
 

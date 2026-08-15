@@ -57,8 +57,8 @@ env:
   META_APP_ID: ${{ secrets.META_APP_ID }}
   META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
   META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-  META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
   GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+  DRIVE_URL: ${{ vars.DRIVE_URL }}
 
 jobs:
   publish:

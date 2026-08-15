@@ -170,7 +170,7 @@ class RuntimeEnvTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / ".env").write_text(
-                "AIRTABLE_TOKEN=pat\nAIRTABLE_BASE_ID=app\nAIRTABLE_TABLE_NAME=tbl\n",
+                "AIRTABLE_TOKEN=pat\nAIRTABLE_URL=https://airtable.com/appTestBase01/tblTestTable01\n",
                 encoding="utf-8",
             )
             token_json = '{"access_token": "from-env", "refresh_token": "r", "expires_at": 9999999999}'
@@ -182,8 +182,17 @@ class RuntimeEnvTests(unittest.TestCase):
                 },
                 clear=False,
             ):
+                for key in (
+                    "AIRTABLE_URL",
+                    "AIRTABLE_BASE_ID",
+                    "AIRTABLE_TABLE_NAME",
+                    "AIRTABLE_TOKEN",
+                ):
+                    os.environ.pop(key, None)
                 settings = load_settings(root)
 
+            self.assertEqual(settings.airtable_base_id, "appTestBase01")
+            self.assertEqual(settings.airtable_table_name, "tblTestTable01")
             self.assertTrue((root / settings.youtube_token).exists())
             self.assertIn("from-env", (root / settings.youtube_token).read_text(encoding="utf-8"))
 

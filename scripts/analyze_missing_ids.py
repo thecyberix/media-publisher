@@ -39,14 +39,10 @@ MISSING_IDS = [
 
 def main() -> int:
     settings = load_settings(PROJECT_ROOT)
+    location = resolve_library_location(library_url=settings.happyscribe_url)
     hs = HappyScribeClient(
         settings.happyscribe_api_key or "",
-        organization_id="3310225",
-    )
-    location = resolve_library_location(
-        library_url=settings.happyscribe_library_url,
-        organization_id=settings.happyscribe_organization_id,
-        folder_id=settings.happyscribe_folder_id,
+        organization_id=location.organization_id,
     )
     merged, folder_counts, _ = load_search_transcriptions(
         hs,
