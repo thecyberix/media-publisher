@@ -18,7 +18,7 @@ class ConfigTests(unittest.TestCase):
         load_env_file(env_path)
         settings = load_settings(Path(__file__).resolve().parents[1])
         self.assertEqual(settings.airtable_base_id, "appbIH4wzW6ZRUnF5")
-        self.assertEqual(settings.airtable_table_name, "Translator's Paradise")
+        self.assertEqual(settings.airtable_table_name, "tblji1RaFztkeDn04")
         self.assertEqual(settings.airtable_token, "")
 
 

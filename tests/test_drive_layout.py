@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from media_publisher.sources.drive_layout import (
     FOLDER_COMBINED_MEDIA_FILES,
@@ -32,8 +33,9 @@ class DriveLayoutTests(unittest.TestCase):
             ),
             "abc123",
         )
-        with self.assertRaises(GoogleDriveError):
-            require_drive_root_id("")
+        with patch.dict(os.environ, {"DRIVE_URL": ""}, clear=False):
+            with self.assertRaises(GoogleDriveError):
+                require_drive_root_id("")
 
     def test_resolve_named_folder_looks_up_child(self) -> None:
         drive = MagicMock()

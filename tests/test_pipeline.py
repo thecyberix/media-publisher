@@ -478,6 +478,8 @@ class PublishPipelineTests(unittest.TestCase):
         settings = self._pipeline_settings()
         video_path = Path("downloads/publish-media/combined/Launch video.mp4")
         thumbnail_path = Path("downloads/canva/Launch video.png")
+        drive_mock = unittest.mock.Mock()
+        drive_mock.find_child_folder.return_value = None
 
         with patch.object(client, "list_records", return_value=[record]), patch.object(
             happyscribe,
@@ -502,7 +504,7 @@ class PublishPipelineTests(unittest.TestCase):
             return_value="https://www.youtube.com/watch?v=abc123",
         ), patch(
             "media_publisher.pipeline.GoogleDriveClient.from_service_account",
-            return_value=unittest.mock.Mock(),
+            return_value=drive_mock,
         ), patch.object(
             client,
             "update_record",
