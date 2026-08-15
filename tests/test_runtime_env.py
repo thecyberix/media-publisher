@@ -60,7 +60,7 @@ class RuntimeEnvTests(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "CANVA_TOKEN_SYNC_PAT": "pat",
+                    "CONFIG_SYNC_PAT": "pat",
                     "GITHUB_REPOSITORY": "owner/repo",
                 },
                 clear=True,
@@ -82,7 +82,7 @@ class RuntimeEnvTests(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "CANVA_TOKEN_SYNC_PAT": "pat",
+                    "CONFIG_SYNC_PAT": "pat",
                 },
                 clear=True,
             ), patch(
@@ -116,7 +116,7 @@ class RuntimeEnvTests(unittest.TestCase):
 
             with patch.dict(
                 os.environ,
-                {"CANVA_TOKEN_SYNC_PAT": "pat"},
+                {"CONFIG_SYNC_PAT": "pat"},
                 clear=True,
             ), patch(
                 "media_publisher.runtime_env._set_github_actions_secret_file_api"
@@ -124,6 +124,16 @@ class RuntimeEnvTests(unittest.TestCase):
                 maybe_persist_canva_token(root)
 
             self.assertEqual(api_mock.call_args.args[0], "thecyberix/media-publisher")
+
+    def test_github_sync_pat_reads_config_sync_pat(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"CONFIG_SYNC_PAT": "new-pat"},
+            clear=True,
+        ):
+            from media_publisher.runtime_env import github_sync_pat
+
+            self.assertEqual(github_sync_pat(), "new-pat")
 
     def test_materialize_credentials_keeps_newer_canva_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

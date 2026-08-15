@@ -25,6 +25,7 @@ CANVA_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["CANVA_TOKEN_JSON"]
 YOUTUBE_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["YOUTUBE_TOKEN_JSON"]
 DAILY_PLAYLIST_SLOTS_RELATIVE_PATH = "data/youtube_daily_playlist_slots.json"
 DAILY_PLAYLIST_SLOTS_VARIABLE = "YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON"
+CONFIG_SYNC_PAT_VARIABLE = "CONFIG_SYNC_PAT"
 DEFAULT_GITHUB_REPOSITORY = "thecyberix/media-publisher"
 GITHUB_API_VERSION = "2022-11-28"
 INITIAL_CREDENTIAL_JSON: dict[str, str] = {}
@@ -170,8 +171,13 @@ def _github_api_request(
         message = f"GitHub API {exc.code} for {url}: {detail}"
         if exc.code == 403 and "/actions/secrets/" in url:
             message += (
-                " Ensure CANVA_TOKEN_SYNC_PAT is a fine-grained PAT with "
+                " Ensure CONFIG_SYNC_PAT is a fine-grained PAT with "
                 "Actions secrets: Read and write on this repository."
+            )
+        elif exc.code == 403 and "/actions/variables/" in url:
+            message += (
+                " Ensure CONFIG_SYNC_PAT is a fine-grained PAT with "
+                "Variables: Read and write on this repository."
             )
         raise RuntimeError(message) from exc
 
@@ -280,13 +286,18 @@ def _set_github_actions_secret_file_api(
     )
 
 
+def github_sync_pat() -> str:
+    """PAT used to write GitHub Actions secrets and variables from CI/local runs."""
+    return os.getenv(CONFIG_SYNC_PAT_VARIABLE, "").strip()
+
+
 def maybe_persist_canva_token(project_root: Path) -> str | None:
     """Write a rotated Canva token back to GitHub Secrets after local/CI refresh.
 
-    Set CANVA_TOKEN_SYNC_PAT to a PAT with repository secret write access.
+    Set CONFIG_SYNC_PAT to a PAT with repository secret and variable write access.
     GITHUB_REPOSITORY defaults to thecyberix/media-publisher when unset locally.
     """
-    sync_pat = os.getenv("CANVA_TOKEN_SYNC_PAT", "").strip()
+    sync_pat = github_sync_pat()
     if not sync_pat:
         return None
 
@@ -334,10 +345,10 @@ def maybe_persist_youtube_token(
 ) -> str | None:
     """Write a YouTube token back to GitHub Secrets after local re-auth/refresh.
 
-    Uses the same CANVA_TOKEN_SYNC_PAT (repo secrets write access).
+    Uses the same CONFIG_SYNC_PAT (repo secrets and variables write access).
     Pass force=True after interactive re-auth so a revoked→new token always syncs.
     """
-    sync_pat = os.getenv("CANVA_TOKEN_SYNC_PAT", "").strip()
+    sync_pat = github_sync_pat()
     if not sync_pat:
         return None
 
@@ -374,7 +385,7 @@ def maybe_persist_youtube_token(
 
 def maybe_persist_daily_playlist_slots(project_root: Path) -> str | None:
     """Write daily playlist slot IDs back to a GitHub Actions variable."""
-    sync_pat = os.getenv("CANVA_TOKEN_SYNC_PAT", "").strip()
+    sync_pat = github_sync_pat()
     if not sync_pat:
         return None
     repository = _github_repository()

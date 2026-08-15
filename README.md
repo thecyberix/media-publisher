@@ -61,7 +61,7 @@ Set these under **Settings → Secrets and variables → Actions → Secrets**:
 | `CANVA_CLIENT_ID` | Canva OAuth client ID |
 | `CANVA_CLIENT_SECRET` | Canva OAuth client secret |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json` |
-| `CANVA_TOKEN_SYNC_PAT` | GitHub PAT with **Secrets: Read and write** for this repo (auto-updates `CANVA_TOKEN_JSON` after local or CI Canva token refresh) |
+| `CONFIG_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets** and **Variables** Read and write on this repo (syncs Canva/YouTube tokens and `YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON`) |
 | `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
 | `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (shared with catalog-parser; written to `credentials/google-sheets-service-account.json` for channel reports) |
@@ -89,7 +89,7 @@ At startup, `load_settings()` reads environment variables (injected by GitHub Ac
 
 **Sharing Google credentials:** Use one `GOOGLE_SERVICE_ACCOUNT_JSON` org/repo secret for catalog ingest, channel reports, and Drive access.
 
-**Canva (shared):** Publishing and catalog ingest use the same `CANVA_CLIENT_ID` / `CANVA_TOKEN_JSON` → `credentials/canva-token.json`. Set `CANVA_TOKEN_SYNC_PAT` locally (and in GitHub Actions secrets) so any Canva token refresh updates `CANVA_TOKEN_JSON` automatically at the end of `media_publisher` / `catalog_parser` CLI runs.
+**Canva (shared):** Publishing and catalog ingest use the same `CANVA_CLIENT_ID` / `CANVA_TOKEN_JSON` → `credentials/canva-token.json`. Set `CONFIG_SYNC_PAT` locally (and in GitHub Actions secrets) so Canva/YouTube token refreshes and daily-playlist slot updates are written back automatically.
 
 ### Reporting (snapshots, weekly work, monthly views, past events)
 

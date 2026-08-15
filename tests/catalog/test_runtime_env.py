@@ -46,7 +46,7 @@ class RuntimeEnvTests(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "CANVA_TOKEN_SYNC_PAT": "pat",
+                    "CONFIG_SYNC_PAT": "pat",
                 },
                 clear=True,
             ), patch(

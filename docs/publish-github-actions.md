@@ -138,10 +138,10 @@ Same as the catalog workflow where noted:
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Drive override thumbnails/videos, TN template download |
 | `CANVA_TOKEN_JSON` | Canva catalog thumbnails (reels/videos without TN caption) |
 | `CANVA_CLIENT_ID` / `CANVA_CLIENT_SECRET` | Canva token refresh in CI |
-| `CANVA_TOKEN_SYNC_PAT` | Persist refreshed Canva token back to repo secrets |
+| `CONFIG_SYNC_PAT` | Persist Canva/YouTube tokens and daily-playlist slots (Secrets + Variables write) |
 | `AIRTABLE_*`, `HAPPYSCRIBE_*`, `YOUTUBE_*`, `META_*` | Catalog fetch and platform publish |
 
-Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Canva auth failures abort the run instead of falling through to TN generation.
+Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run instead of falling through to TN generation.
 
 The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render can run when Drive override and Canva catalog lookup fail for non-auth reasons.
 
@@ -151,6 +151,8 @@ The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render 
 |----------|----------|
 | `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval` |
 | `CANVA_URL` | Parent Canva folder; catalog thumbnails use `Long videos` and `Short videos` |
+| `YOUTUBE_PLAYLIST_ID` | Channel playlist for published catalog videos and quotes (`Съзнателна Планета`) |
+| `YOUTUBE_DAILY_PLAYLIST_ID` | Smartlink daily playlist (`Днес`) |
 | `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes, e.g. `https://docs.google.com/spreadsheets/d/13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec/edit` |
 | `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts (also set on catalog workflows) |
 | `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails; comma-separated list supported |

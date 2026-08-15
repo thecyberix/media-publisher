@@ -174,7 +174,7 @@ Configure under **Settings → Secrets and variables → Actions → Secrets**.
 |--------|-------------|
 | `AIRTABLE_TOKEN` | [Airtable personal access token](https://airtable.com/create/tokens) with `data.records:read` and `data.records:write` on the target base. Comment scopes are not required.
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (single line is fine). The service account must have access to the catalog sheet, video folders, Docs/Word files in those folders, and the output folder. |
-| `TRANSLATION_API_KEY` | API key for the catalog RAG translator (Anthropic or OpenAI, matching `TRANSLATION_PROVIDER`). Required when `SMARTCAT_AI_PREFILL` is on and `TRANSLATION_PROVIDER` is not `none`. |
+| `TRANSLATION_API_KEY` | API key for the catalog RAG translator (Anthropic or OpenAI, matching `TRANSLATION_PROVIDER`). Required unless `TRANSLATION_PROVIDER` is `none`. |
 
 ### Archive duplicate-title checks during ingest
 
@@ -230,7 +230,7 @@ generating the translated thumbnail at publish time.
 | `CANVA_CLIENT_ID` | Canva Connect integration client id (shared with publish workflow). |
 | `CANVA_CLIENT_SECRET` | Canva Connect integration client secret. |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json`. |
-| `CANVA_TOKEN_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets: Read and write** on this repo. After CI refreshes the Canva token, the app updates `CANVA_TOKEN_JSON` automatically. |
+| `CONFIG_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets** and **Variables** Read and write on this repo. After CI refreshes the Canva token, the app updates `CANVA_TOKEN_JSON` automatically. |
 
 If Canva auth is missing or broken when a package has a Canva design link, ingest
 **fails** (do not soft-fallback). If auth works but that design is not accessible
@@ -245,7 +245,7 @@ ratio, the file is uploaded to the Drive review folder and one review email is
 sent for that ingest run. The same review folder is used for **manual Canva**
 placeholders when API export is denied for a specific design.
 
-Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. When **Video caption translated** is empty, the same run also fills it from the approved image (vision first, Drive TN fallback) using the ingest caption path — gated by `SMARTCAT_AI_PREFILL`, and skipped for manual-Canva placeholders. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
+Each daily orchestrator run uploads files from the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail**, then removes them from Drive. When **Video caption translated** is empty, the same run also fills it from the approved image (vision first, Drive TN fallback) using the ingest caption path — skipped when `TRANSLATION_PROVIDER` is `none`, and skipped for manual-Canva placeholders. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
 
 Uses the same `GOOGLE_SERVICE_ACCOUNT_JSON` secret as the rest of catalog-parser. The review folder is the `Thumbnails for approval` child of `DRIVE_URL`. Optional: `THUMBNAIL_REVIEW_APPROVED_SUBFOLDER`. Review emails need `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, and `NOTIFY_EMAIL` on the orchestrator / ingest job.
 
@@ -303,9 +303,9 @@ Renew Canva locally:
 python scripts/_canva_auth_interactive.py
 ```
 
-When `CANVA_TOKEN_SYNC_PAT` is set, the script updates the `CANVA_TOKEN_JSON` GitHub secret automatically.
+When `CONFIG_SYNC_PAT` is set, the script updates the `CANVA_TOKEN_JSON` GitHub secret automatically.
 
-Canva refresh tokens are **single-use**. The daily authorization check skips Canva. Catalog orchestration refreshes (if needed) and probes Canva once at startup, then syncs `CANVA_TOKEN_JSON` when `CANVA_TOKEN_SYNC_PAT` is set. Later steps in the same job must keep the rotated on-disk token — they do not rematerialize `CANVA_TOKEN_JSON` from the job-scoped secret after Restore. Avoid overlapping Canva-using workflows (catalog + publish) that could refresh the same secret concurrently.
+Canva refresh tokens are **single-use**. The daily authorization check skips Canva. Catalog orchestration refreshes (if needed) and probes Canva once at startup, then syncs `CANVA_TOKEN_JSON` when `CONFIG_SYNC_PAT` is set. Later steps in the same job must keep the rotated on-disk token — they do not rematerialize `CANVA_TOKEN_JSON` from the job-scoped secret after Restore. Avoid overlapping Canva-using workflows (catalog + publish) that could refresh the same secret concurrently.
 
 Test locally:
 
