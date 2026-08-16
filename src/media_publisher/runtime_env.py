@@ -6,7 +6,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -353,16 +352,12 @@ def maybe_persist_canva_token(project_root: Path) -> str | None:
     if baseline is not None and baseline == current:
         return None
 
-    try:
-        _set_github_actions_secret_file(
-            repository,
-            "CANVA_TOKEN_JSON",
-            token_path,
-            token=sync_pat,
-        )
-    except RuntimeError as exc:
-        print(f"Warning: {exc}", file=sys.stderr)
-        return None
+    _set_github_actions_secret_file(
+        repository,
+        "CANVA_TOKEN_JSON",
+        token_path,
+        token=sync_pat,
+    )
 
     global CANVA_TOKEN_BASELINE
     CANVA_TOKEN_BASELINE = current
@@ -409,16 +404,12 @@ def maybe_persist_youtube_token(
         if baseline is not None and baseline == current:
             return None
 
-    try:
-        _set_github_actions_secret_file(
-            repository,
-            "YOUTUBE_TOKEN_JSON",
-            token_path,
-            token=sync_pat,
-        )
-    except RuntimeError as exc:
-        print(f"Warning: {exc}", file=sys.stderr)
-        return None
+    _set_github_actions_secret_file(
+        repository,
+        "YOUTUBE_TOKEN_JSON",
+        token_path,
+        token=sync_pat,
+    )
 
     global YOUTUBE_TOKEN_BASELINE
     YOUTUBE_TOKEN_BASELINE = current
