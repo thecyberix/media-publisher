@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from catalog_parser.smartcat_cookie import SmartcatCookieClient
 from catalog_parser.smartcat import (
+    DEFAULT_TARGET_LANGUAGE,
     DEFAULT_UI_BASE,
     SmartcatError,
     build_pkg_sm_link,
