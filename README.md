@@ -61,7 +61,7 @@ Set these under **Settings → Secrets and variables → Actions → Secrets**:
 | `CANVA_CLIENT_ID` | Canva OAuth client ID |
 | `CANVA_CLIENT_SECRET` | Canva OAuth client secret |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json` |
-| `CONFIG_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets** and **Variables** Read and write on this repo (syncs Canva/YouTube tokens and `YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON`) |
+| `CONFIG_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets** and **Variables** Read and write on this repo (syncs Canva/YouTube tokens and `YOUTUBE_DAILY_PLAYLIST_JSON`) |
 | `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
 | `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (shared with catalog-parser; written to `credentials/google-sheets-service-account.json` for channel reports) |
@@ -76,7 +76,6 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 | Variable | Example |
 |----------|---------|
 | `AIRTABLE_URL` | `https://airtable.com/app.../tbl...` |
-| `CATALOG_URL` | `https://docs.google.com/spreadsheets/d/...` |
 | `CANVA_URL` | `https://www.canva.com/folder/FAHSXg0enw4` |
 | `TRANSLATION_PROVIDER` | `anthropic` (or `none` to skip AI translation) |
 | `HAPPYSCRIBE_URL` | `https://www.happyscribe.com/v2/.../library/...` |
@@ -84,7 +83,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 | `VIDEOS_PUBLISH_HOUR` | `18` |
 | `QUOTES_PUBLISH_HOUR` | `8` |
 | `YOUTUBE_PLAYLIST_ID` | `PLpP5d0BDr0xaGn6QSPyQjG6GhK-dcm3Lm` |
-| `YOUTUBE_DAILY_PLAYLIST_ID` | `PLKM1FUqZWv28` |
+| `YOUTUBE_DAILY_PLAYLIST_JSON` | `{"playlist_id":"PLKM1FUqZWv28","quote":"...","reel":"...","lau":"..."}` |
 
 ### How CI credentials work
 
@@ -112,7 +111,7 @@ python -m media_publisher --update-channel-report --channel-report-all-months
 python -m media_publisher --update-channel-report --channel-report-month 2026-02
 ```
 
-Requires `GOOGLE_SERVICE_ACCOUNT_JSON`, YouTube OAuth token with `yt-analytics.readonly`, and Meta page token with `read_insights` + `instagram_manage_insights`. Mapping: `config/channel_report_bulgarian.json`.
+Requires `GOOGLE_SERVICE_ACCOUNT_JSON`, YouTube OAuth token with `yt-analytics.readonly`, and Meta page token with `read_insights` + `instagram_manage_insights`. Mapping: `config/channel_report.json`. The Sheet tab title is the `TARGET_LANGUAGE` name (for example `Bulgarian`).
 
 ### Manual publish run
 
@@ -142,6 +141,7 @@ To trigger the same way as cron-job.org (API / script), see `docs/publish-github
 src/media_publisher/     publishing CLI, sources, publishers
 src/catalog_parser/      catalog ingest + daily workflow orchestrator
 scripts/catalog/         catalog maintenance and CI helper scripts
+config/workflow_config.json
 config/workflow_config.example.json
 .github/workflows/
   ci.yml

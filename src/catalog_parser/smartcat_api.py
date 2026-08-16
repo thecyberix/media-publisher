@@ -11,6 +11,7 @@ from typing import Any
 from catalog_parser.smartcat import (
     DEFAULT_TARGET_LANGUAGE,
     SmartcatError,
+    configured_target_language,
     find_bulgarian_srt_document,
     find_matching_document,
     parse_pkg_sm_link,
@@ -183,10 +184,12 @@ class SmartcatApiClient:
         language_id: str,
         target_srt: str,
         *,
-        filename: str = "ai.bg.srt",
+        filename: str | None = None,
     ) -> None:
         """Upload a target SRT via company API PUT /document/translate."""
         import uuid
+
+        name = filename or f"ai.{configured_target_language()}.srt"
 
         composite_id = build_document_language_id(document_id, language_id)
         boundary = f"----SmartcatBoundary{uuid.uuid4().hex}"
@@ -195,7 +198,7 @@ class SmartcatApiClient:
             (
                 f"--{boundary}\r\n"
                 f'Content-Disposition: form-data; name="translationFile"; '
-                f'filename="{filename}"\r\n'
+                f'filename="{name}"\r\n'
                 f"Content-Type: application/x-subrip\r\n\r\n"
             ).encode("utf-8")
             + file_bytes

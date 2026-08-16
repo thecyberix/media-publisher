@@ -41,7 +41,6 @@ from catalog_parser.parser import (
 from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.runtime_env import materialize_credentials, maybe_persist_canva_token
 from catalog_parser.smartcat import (
-    DEFAULT_TARGET_LANGUAGE,
     DEFAULT_UI_BASE,
     SmartcatError,
     configured_target_language,
@@ -681,7 +680,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="smartcat",
         default=None,
-        help="Resolve Bulgarian SRT links from pkgSmLk using Smartcat.",
+        help="Resolve target-language SRT links from pkgSmLk using Smartcat.",
     )
     smartcat_group.add_argument(
         "--no-smartcat",
@@ -699,7 +698,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Target language for SRT lookup "
-            f"(default: TARGET_LANGUAGE, else {DEFAULT_TARGET_LANGUAGE})."
+            f"(default: TARGET_LANGUAGE alias from config/languages.json)."
         ),
     )
     ingest_parser.add_argument(

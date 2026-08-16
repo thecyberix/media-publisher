@@ -13,6 +13,7 @@ from media_publisher.events.templates import (
     get_program,
     normalize_event_type,
 )
+from media_publisher.languages import LanguageDefinition, selected_language
 from media_publisher.sources.drive_layout import resolve_events_folder_id
 from media_publisher.sources.google_drive import (
     DOCX_MIME_TYPE,
@@ -28,12 +29,10 @@ ENGLISH_HEADING_RE = re.compile(
     r"(?P<name>Surya Kriya|Bhuta Shuddhi|Yogasanas?|Angamardana)\s+Programme",
     re.IGNORECASE,
 )
-PROGRAM_NAME_RE = re.compile(
-    r'Програма\s+[“"„«]\s*(?P<name>[^”"»“]+?)\s*[”"»“]',
-)
 LEARN_MORE_URL_RE = re.compile(r"https?://\S+")
-QUOTE_ATTRIBUTION_RE = re.compile(r"^[-–—]\s*садгуру\s*$", re.IGNORECASE)
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+ENGLISH_BENEFITS_HEADINGS = ("benefits", "this programme offers")
+ENGLISH_LEARN_MORE_PREFIXES = ("watch", "learn more", "find out")
 
 EVENT_TYPE_BY_ENGLISH_NAME = {
     "surya kriya": EVENT_TYPE_SURYA_KRIYA,
@@ -60,6 +59,7 @@ class ParsedProgramCopy:
     learn_more_intro: str
     learn_more_url: str
     learn_more_label: str
+    benefits_heading: str
 
 
 def event_template_cache_path(project_root: Path) -> Path:
@@ -119,8 +119,9 @@ def load_program_from_drive(
     )
     copy = copies.get(base.event_type)
     if copy is None:
+        language = selected_language()
         raise EventTemplateError(
-            f"Drive template has no Bulgarian copy for {base.event_type!r}"
+            f"Drive template has no {language.name} copy for {base.event_type!r}"
         )
     return apply_parsed_copy(base, copy)
 
@@ -142,7 +143,11 @@ def load_program_copies_from_drive(
     return parse_hatha_template_docx(destination)
 
 
-def parse_hatha_template_docx(path: Path) -> dict[str, ParsedProgramCopy]:
+def parse_hatha_template_docx(
+    path: Path,
+    *,
+    language: LanguageDefinition | None = None,
+) -> dict[str, ParsedProgramCopy]:
     try:
         from docx import Document
     except ImportError as exc:
@@ -152,6 +157,7 @@ def parse_hatha_template_docx(path: Path) -> dict[str, ParsedProgramCopy]:
     document = Document(str(path))
     copies: dict[str, ParsedProgramCopy] = {}
     tables = list(document.tables)
+    definition = language or selected_language()
     for index, table in enumerate(tables):
         if len(table.rows) != 1 or len(table.columns) != 1:
             continue
@@ -161,16 +167,20 @@ def parse_hatha_template_docx(path: Path) -> dict[str, ParsedProgramCopy]:
         event_type = event_type_from_english_heading(heading)
         if event_type is None or event_type not in PROGRAMS:
             continue
-        bulgarian_cell = _find_bulgarian_cell(tables[index + 1 : index + 4])
-        if bulgarian_cell is None:
+        language_cell = _find_language_cell(
+            tables[index + 1 : index + 4],
+            language=definition,
+        )
+        if language_cell is None:
             continue
         copies[event_type] = parse_program_copy(
             event_type=event_type,
             english_lines=english_lines,
-            bulgarian_lines=_cell_lines(bulgarian_cell),
+            language_lines=_cell_lines(language_cell),
             youtube_url=(
-                _cell_youtube_url(bulgarian_cell) or _cell_youtube_url(english_cell)
+                _cell_youtube_url(language_cell) or _cell_youtube_url(english_cell)
             ),
+            language=definition,
         )
     if not copies:
         raise EventTemplateError("Hatha template did not contain any programme copy")
@@ -188,54 +198,63 @@ def parse_program_copy(
     *,
     event_type: str,
     english_lines: list[str],
-    bulgarian_lines: list[str],
+    language_lines: list[str],
     youtube_url: str | None = None,
+    language: LanguageDefinition | None = None,
 ) -> ParsedProgramCopy:
+    definition = language or selected_language()
+    events = definition.require_events()
     english = _parse_language_block(
         english_lines,
-        benefits_headings=("benefits", "this programme offers"),
+        benefits_headings=ENGLISH_BENEFITS_HEADINGS,
+        learn_more_prefixes=ENGLISH_LEARN_MORE_PREFIXES,
+        quote_attributions=(),
     )
-    bulgarian = _parse_language_block(
-        bulgarian_lines,
-        benefits_headings=("ползи", "те спомагат за"),
+    localized = _parse_language_block(
+        language_lines,
+        benefits_headings=events.benefits_headings,
+        learn_more_prefixes=events.learn_more_prefixes,
+        quote_attributions=events.quote_attributions,
     )
-    title = next((line for line in bulgarian_lines if line.strip()), "")
-    program_name = _program_name_from_title(title)
+    title = next((line for line in language_lines if line.strip()), "")
+    program_name = _program_name_from_title(title, events.program_word)
     if not program_name:
         raise EventTemplateError(
-            f"Could not parse Bulgarian programme name for {event_type!r}"
+            f"Could not parse {definition.name} programme name for {event_type!r}"
         )
-    quote = bulgarian.quote
+    quote = localized.quote
     learn_more_url = _normalize_youtube_url(
         (youtube_url or "").strip()
-        or bulgarian.learn_more_url
+        or localized.learn_more_url
         or english.learn_more_url
     )
     if not learn_more_url:
         raise EventTemplateError(
             f"Template is missing a YouTube URL for {event_type!r}"
         )
-    if not quote and not bulgarian.body:
+    if not quote and not localized.body:
         raise EventTemplateError(
-            f"Bulgarian template is missing quote/body for {event_type!r}"
+            f"{definition.name} template is missing quote/body for {event_type!r}"
         )
-    if not bulgarian.benefits:
+    if not localized.benefits:
         raise EventTemplateError(
-            f"Bulgarian template is missing benefits for {event_type!r}"
+            f"{definition.name} template is missing benefits for {event_type!r}"
         )
     return ParsedProgramCopy(
         event_type=normalize_event_type(event_type),
         program_name=program_name,
-        title_emoji=_title_emoji(title) or _title_emoji(
-            next((line for line in english_lines if line.strip()), "")
+        title_emoji=_title_emoji(title, events.program_word) or _title_emoji(
+            next((line for line in english_lines if line.strip()), ""),
+            "Programme",
         ),
         quote=quote,
-        body=bulgarian.body,
-        benefits=bulgarian.benefits,
-        benefit_bullet=bulgarian.benefit_bullet,
-        learn_more_intro=bulgarian.learn_more_intro,
+        body=localized.body,
+        benefits=localized.benefits,
+        benefit_bullet=localized.benefit_bullet,
+        learn_more_intro=localized.learn_more_intro,
         learn_more_url=learn_more_url,
-        learn_more_label=bulgarian.learn_more_label,
+        learn_more_label=localized.learn_more_label,
+        benefits_heading=localized.benefits_heading,
     )
 
 
@@ -251,6 +270,7 @@ def apply_parsed_copy(base: ProgramTemplate, copy: ParsedProgramCopy) -> Program
         learn_more_intro=copy.learn_more_intro,
         learn_more_url=copy.learn_more_url,
         learn_more_label=copy.learn_more_label,
+        benefits_heading=copy.benefits_heading or base.benefits_heading,
     )
 
 
@@ -263,12 +283,15 @@ class _LanguageBlock:
     learn_more_intro: str
     learn_more_url: str
     learn_more_label: str
+    benefits_heading: str
 
 
 def _parse_language_block(
     lines: list[str],
     *,
     benefits_headings: tuple[str, ...],
+    learn_more_prefixes: tuple[str, ...],
+    quote_attributions: tuple[str, ...],
 ) -> _LanguageBlock:
     stripped = [line.strip() for line in lines]
     quote = ""
@@ -278,8 +301,10 @@ def _parse_language_block(
     learn_more_intro = ""
     learn_more_url = ""
     learn_more_label = ""
+    benefits_heading = ""
     mode = "pre"
     heading_set = {heading.casefold().rstrip(":") for heading in benefits_headings}
+    attribution_re = _attribution_re(quote_attributions)
     for line in stripped:
         if not line:
             continue
@@ -287,9 +312,10 @@ def _parse_language_block(
             mode = "quote"
             continue
         if line.casefold().rstrip(":") in heading_set:
+            benefits_heading = line
             mode = "benefits"
             continue
-        if _is_learn_more_line(line):
+        if _is_learn_more_line(line, learn_more_prefixes):
             intro, url, label = _split_learn_more(line)
             learn_more_intro = intro
             learn_more_url = url
@@ -303,7 +329,11 @@ def _parse_language_block(
             quote = _clean_quote(line)
             mode = "quote_tail"
             continue
-        if mode == "quote_tail" and QUOTE_ATTRIBUTION_RE.match(line):
+        if (
+            mode == "quote_tail"
+            and attribution_re is not None
+            and attribution_re.match(line)
+        ):
             quote = f"{quote} {line}".strip()
             mode = "body"
             continue
@@ -325,15 +355,27 @@ def _parse_language_block(
         learn_more_intro=learn_more_intro,
         learn_more_url=learn_more_url,
         learn_more_label=learn_more_label,
+        benefits_heading=benefits_heading,
     )
 
 
-def _find_bulgarian_cell(tables):
+def _attribution_re(names: tuple[str, ...]) -> re.Pattern[str] | None:
+    cleaned = [re.escape(name.strip()) for name in names if name.strip()]
+    if not cleaned:
+        return None
+    return re.compile(
+        rf"^[-–—]\s*(?:{'|'.join(cleaned)})\s*$",
+        re.IGNORECASE,
+    )
+
+
+def _find_language_cell(tables, *, language: LanguageDefinition):
+    header_name = language.name.casefold()
     for table in tables:
         if not table.rows:
             continue
         header = table.rows[0].cells[0].text.strip().casefold()
-        if header != "bulgarian" or len(table.rows) < 2:
+        if header != header_name or len(table.rows) < 2:
             continue
         return table.rows[1].cells[0]
     return None
@@ -388,15 +430,20 @@ def _paragraph_lines(paragraph) -> list[str]:
     return parts
 
 
-def _program_name_from_title(title: str) -> str:
-    match = PROGRAM_NAME_RE.search(title)
+def _program_name_from_title(title: str, program_word: str) -> str:
+    pattern = re.compile(
+        re.escape(program_word) + r'\s+[“"„«]\s*(?P<name>[^”"»“]+?)\s*[”"»“]',
+        re.IGNORECASE,
+    )
+    match = pattern.search(title)
     if match is None:
         return ""
     return match.group("name").strip()
 
 
-def _title_emoji(title: str) -> str:
-    match = re.match(r"^(\S+)\s+Програма", title.strip())
+def _title_emoji(title: str, program_word: str) -> str:
+    pattern = re.compile(r"^(\S+)\s+" + re.escape(program_word), re.IGNORECASE)
+    match = pattern.match(title.strip())
     if match:
         return match.group(1)
     match = re.match(r"^(\S+)\s+", title.strip())
@@ -407,11 +454,11 @@ def _clean_quote(text: str) -> str:
     return text.strip().strip("_").strip()
 
 
-def _is_learn_more_line(line: str) -> bool:
+def _is_learn_more_line(line: str, prefixes: tuple[str, ...]) -> bool:
     folded = line.casefold()
-    return bool(LEARN_MORE_URL_RE.search(line)) or folded.startswith(
-        ("вижте", "watch", "научете", "learn more", "find out")
-    )
+    if LEARN_MORE_URL_RE.search(line):
+        return True
+    return any(folded.startswith(prefix.casefold()) for prefix in prefixes)
 
 
 def _split_learn_more(line: str) -> tuple[str, str, str]:

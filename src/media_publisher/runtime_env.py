@@ -9,6 +9,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 # Environment variables whose values are written to credential files before startup.
 # Used by GitHub Actions (secrets) and optional local overrides; ignored when unset.
@@ -25,7 +26,7 @@ CREDENTIAL_ENV_FILES: dict[str, str] = {
 CANVA_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["CANVA_TOKEN_JSON"]
 YOUTUBE_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["YOUTUBE_TOKEN_JSON"]
 DAILY_PLAYLIST_SLOTS_RELATIVE_PATH = "data/youtube_daily_playlist_slots.json"
-DAILY_PLAYLIST_SLOTS_VARIABLE = "YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON"
+DAILY_PLAYLIST_JSON_VARIABLE = "YOUTUBE_DAILY_PLAYLIST_JSON"
 CONFIG_SYNC_PAT_VARIABLE = "CONFIG_SYNC_PAT"
 GITHUB_API_VERSION = "2022-11-28"
 _GITHUB_OWNER_REPO_RE = re.compile(
@@ -107,8 +108,30 @@ def materialize_credentials(project_root: Path) -> list[Path]:
     return written
 
 
+def parse_daily_playlist_payload(raw: str) -> dict[str, Any] | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def daily_playlist_id_from_payload(payload: dict[str, Any] | None) -> str | None:
+    if not payload:
+        return None
+    value = payload.get("playlist_id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 def _materialize_daily_playlist_slots(project_root: Path) -> None:
-    payload = os.getenv("YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON", "").strip()
+    payload = os.getenv(DAILY_PLAYLIST_JSON_VARIABLE, "").strip()
     if not payload:
         return
     destination = project_root / DAILY_PLAYLIST_SLOTS_RELATIVE_PATH
@@ -432,16 +455,16 @@ def maybe_persist_daily_playlist_slots(project_root: Path) -> str | None:
     current = slots_path.read_text(encoding="utf-8").strip()
     if not current:
         return None
-    baseline = os.getenv("YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON", "").strip()
+    baseline = os.getenv(DAILY_PLAYLIST_JSON_VARIABLE, "").strip()
     if baseline and _normalize_json_text(baseline) == _normalize_json_text(current):
         return None
     _set_github_actions_variable(
         repository,
-        DAILY_PLAYLIST_SLOTS_VARIABLE,
+        DAILY_PLAYLIST_JSON_VARIABLE,
         current,
         token=sync_pat,
     )
-    return f"Updated {DAILY_PLAYLIST_SLOTS_VARIABLE} GitHub variable after daily playlist sync."
+    return f"Updated {DAILY_PLAYLIST_JSON_VARIABLE} GitHub variable after daily playlist sync."
 
 
 def _normalize_json_text(payload: str) -> str:

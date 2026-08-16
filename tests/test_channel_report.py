@@ -55,7 +55,6 @@ class ChannelReportMappingTests(unittest.TestCase):
     def test_load_mapping_with_platform_sections(self) -> None:
         payload = {
             "spreadsheet_id": "abc123",
-            "sheet_gid": 1179708,
             "layout": "kpi_dashboard",
             "platform_sections": {
                 "youtube": {"start_row": 43, "end_row": 55},
@@ -88,7 +87,6 @@ class ChannelReportMappingTests(unittest.TestCase):
     def test_load_mapping_from_file(self) -> None:
         payload = {
             "spreadsheet_id": "abc123",
-            "sheet_gid": 1179708,
             "layout": "kpi_dashboard",
             "platform_rows": {"youtube": 37, "instagram": 70},
         }
@@ -97,7 +95,6 @@ class ChannelReportMappingTests(unittest.TestCase):
             path.write_text(json.dumps(payload), encoding="utf-8")
             mapping = load_channel_report_mapping(path)
         self.assertEqual(mapping.spreadsheet_id, "abc123")
-        self.assertEqual(mapping.sheet_gid, 1179708)
         self.assertEqual(mapping.platform_rows["youtube"], 37)
 
     def test_detect_platform_columns(self) -> None:
@@ -251,7 +248,6 @@ class KpiDashboardTests(unittest.TestCase):
     def test_load_metric_rows_from_sections_only(self) -> None:
         mapping = ChannelReportMapping(
             spreadsheet_id="abc",
-            sheet_title="Bulgarian",
             platform_sections={"youtube": PlatformSection(start_row=43, end_row=44)},
         )
         sheets = MagicMock()
@@ -264,7 +260,6 @@ class KpiDashboardTests(unittest.TestCase):
     def test_kpi_dashboard_dry_run(self) -> None:
         mapping = ChannelReportMapping(
             spreadsheet_id="abc",
-            sheet_title="Bulgarian",
             layout="kpi_dashboard",
             month_header_row=3,
             platform_sections={
@@ -320,7 +315,6 @@ class UpdateChannelReportTests(unittest.TestCase):
     def test_dry_run_writes_nothing(self) -> None:
         mapping = ChannelReportMapping(
             spreadsheet_id="abc",
-            sheet_title="Bulgarian",
             layout="month_rows",
             header_row=1,
             first_data_row=2,

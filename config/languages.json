@@ -1,0 +1,94 @@
+{
+  "Bulgarian": {
+    "alias": "bg",
+    "country": "България",
+    "months": [
+      "януари",
+      "февруари",
+      "март",
+      "април",
+      "май",
+      "юни",
+      "юли",
+      "август",
+      "септември",
+      "октомври",
+      "ноември",
+      "декември"
+    ],
+    "date_year_suffix": " г.",
+    "events": {
+      "program_word": "Програма",
+      "benefits_headings": ["Ползи", "Те спомагат за"],
+      "quote_attributions": ["Садгуру"],
+      "learn_more_prefixes": ["Вижте", "Научете"],
+      "city_preposition": "в",
+      "city_preposition_before": {
+        "в": "във"
+      },
+      "registration_cta": "👉 Регистрация тук:",
+      "html_registration_label": "Регистрация",
+      "closing_lines": [
+        "💫 С любов, светлина и смях,",
+        "Доброволци"
+      ],
+      "page_heading": "Събития",
+      "empty_state": "Очаквайте скоро!",
+      "profile_alt": "Садгуру"
+    },
+    "ingest": {
+      "smartcat_language_id": 1026,
+      "aliases": ["bg", "bul", "bulgarian"],
+      "quote_open": "„",
+      "quote_close": "“",
+      "letter_pattern": "[\\u0400-\\u04FF]",
+      "title_case_small_words": [
+        "на",
+        "от",
+        "в",
+        "във",
+        "с",
+        "със",
+        "и",
+        "или",
+        "а",
+        "но",
+        "за",
+        "до",
+        "по",
+        "към",
+        "при",
+        "без",
+        "през",
+        "като",
+        "че",
+        "ли",
+        "да",
+        "не"
+      ]
+    },
+    "publish": {
+      "display_name": "Садгуру",
+      "hashtag": "#Садгуру",
+      "youtube_title_pipe_suffix": "| Садгуру",
+      "shorts_description_hashtags": "#shorts #садгуру",
+      "quote_youtube_description_hashtag": "#садгуру",
+      "learn_more_label": "Научете повече:",
+      "youtube_tags": [
+        "садгуру на български език",
+        "садгуру",
+        "садгуру на български",
+        "садгуру бг превод",
+        "садгуру бг",
+        "медитация",
+        "садгуру медитация",
+        "садгуру йога",
+        "йога практика",
+        "вътрешно изграждане",
+        "чудото на ума",
+        "садгуру българия",
+        "духовно развитие"
+      ]
+    }
+  }
+}

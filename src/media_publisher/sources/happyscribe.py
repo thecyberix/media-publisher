@@ -12,14 +12,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator
 
+from media_publisher.languages import selected_language
 from media_publisher.models import PublishJob
 
 DEFAULT_API_BASE = "https://www.happyscribe.com/api/v1"
 DEFAULT_USER_AGENT = "media-publisher/0.1"
 DEFAULT_FFMPEG = "ffmpeg"
 DEFAULT_FFPROBE = "ffprobe"
-# Shared HappyScribe folder used for published/archived videos in this workspace.
-DEFAULT_PUBLISHED_FOLDER_ID = "23170478"
 # libass scales MarginV/FontSize from this play resolution for plain SRT input.
 LIBASS_DEFAULT_PLAY_RES_Y = 288
 EXPORT_POLL_INTERVAL_SECONDS = 1.0
@@ -202,7 +201,13 @@ def normalize_name_for_catalog_match(name: str) -> str:
         text = text[4:].strip()
     text = re.sub(r"\(\d+\)$", "", text).strip()
     stem = Path(text).stem
-    stem = re.sub(r"\(bg\)$", "", stem, flags=re.IGNORECASE).strip()
+    alias = selected_language().alias
+    stem = re.sub(
+        rf"\({re.escape(alias)}\)$",
+        "",
+        stem,
+        flags=re.IGNORECASE,
+    ).strip()
     return re.sub(r"[^a-z0-9]+", "", stem.casefold())
 
 

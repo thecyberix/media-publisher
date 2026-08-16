@@ -132,7 +132,7 @@ Local equivalent:
 python -m catalog_parser ingest --unassigned --type reel --count 4
 ```
 
-Ingest reads the catalog spreadsheet from `CATALOG_URL` (or `workflow_config.json` `catalog_id`). The first sheet tab is used.
+Ingest reads the catalog spreadsheet id from `config/workflow_config.json` (`catalog_id`). The first sheet tab is used.
 
 ## Airtable backups and status history
 
@@ -174,7 +174,7 @@ Configure under **Settings → Secrets and variables → Actions → Secrets**.
 |--------|-------------|
 | `AIRTABLE_TOKEN` | [Airtable personal access token](https://airtable.com/create/tokens) with `data.records:read` and `data.records:write` on the target base. Comment scopes are not required.
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (single line is fine). The service account must have access to the catalog sheet, video folders, Docs/Word files in those folders, and the output folder. |
-| `TRANSLATION_API_KEY` | API key for the catalog RAG translator (Anthropic or OpenAI, matching `TRANSLATION_PROVIDER`). Required unless `TRANSLATION_PROVIDER` is `none`. |
+| `TRANSLATION_API_KEY` | API key for the catalog RAG translator (Anthropic or OpenAI, matching `TRANSLATION_PROVIDER`). Unset: skip AI translation. |
 
 ### Archive duplicate-title checks during ingest
 
@@ -189,12 +189,11 @@ These live under **Settings → Secrets and variables → Actions → Variables*
 | Variable | Description |
 |----------|-------------|
 | `AIRTABLE_URL` | Share URL for the live catalog table, e.g. `https://airtable.com/appbIH4wzW6ZRUnF5/tblji1RaFztkeDn04/viw2Xz3EENcDEmarw`. Base (`app…`) and table (`tbl…`) ids are parsed from it; the view segment is ignored. |
-| `TRANSLATION_PROVIDER` | `anthropic` (default), `openai`, or `none` to skip all AI translation. |
+| `TRANSLATION_PROVIDER` | `anthropic`, `openai`, or `none`. Unset: skip all AI translation. |
 | `TRANSLATION_MODEL` | Optional. Defaults to `claude-sonnet-4-6` or `gpt-4o-mini` from the provider. |
 | `TRANSLATION_BASE_URL` | Optional. Leave unset for the official API host. Set only for a proxy or OpenAI-compatible gateway. |
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
 | `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg` in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
-| `CATALOG_URL` | Catalog Google Sheet URL or id. Ingest uses the first tab. Example: `https://docs.google.com/spreadsheets/d/1BGxTfnvs3zezyJVTSXroy9N0l7j5QHbzPzRj_TSjO-c/edit`. |
 | `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |
 
 ### Required when ingest runs (web session mode)
@@ -386,19 +385,17 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `WORKFLOW_REEL_TO_VIDEO_RATIO` | `6` | Target reel:video ratio for ingest. |
-| `WORKFLOW_MAX_VIDEO_SECONDS` | `900` | Prefer videos under 15 minutes during ingest. |
 | `VIDEO_TYPE` | `Reel` | Default video type when not driven by workflow rules. |
-| `TARGET_LANGUAGE` | `bg` | Language code used for Smartcat subtitle checks. |
-| `TARGET_LANGUAGE_NAME` | `Bulgarian` | Display / Smartcat UI name matched with the code. |
-| `TARGET_COUNTRY` | `България` | Default country for event announcements. |
+| `TARGET_LANGUAGE` | `Bulgarian` | Key in `config/languages.json` (alias, country, months). |
+
+Catalog ingest limits (`catalog_id`, `target_reel_to_video_ratio`, `max_video_seconds`) live in checked-in `config/workflow_config.json`.
 
 ## Google service account setup
 
 1. Create a service account in [Google Cloud Console](https://console.cloud.google.com/) for the same project as your APIs.
 2. Enable **Google Sheets API**, **Google Drive API**, and **Google Docs API**.
 3. Create a JSON key and store the entire file contents in `GOOGLE_SERVICE_ACCOUNT_JSON`.
-4. Share the catalog Google Sheet (`CATALOG_URL`) with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
+4. Share the catalog Google Sheet (`config/workflow_config.json` `catalog_id`) with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
 5. Share the `DRIVE_URL` parent folder (and any source video folders outside it) with that email as **Editor**. Combined media writes into `Combined Media Files`. Translated SAVE SOIL stills are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in `Overrides/Images`.
 
 OAuth `credentials.json` / `token.json` are for local development only; CI uses the service account.

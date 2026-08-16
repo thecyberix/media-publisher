@@ -18,9 +18,6 @@ from catalog_parser.airtable import (
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_SHORT, TYPE_VIDEO
 
-DEFAULT_PUBLISH_TIMEZONE = "Europe/Sofia"
-DEFAULT_PUBLISH_HOUR = 18
-
 FIELD_SG_YT_DATE = "SG-YT-Date published"
 FIELD_SG_FB_DATE = "SG-FB-Date published"
 FIELD_SG_IG_DATE = "SG-IG-Date published"
@@ -50,15 +47,13 @@ class ScheduleTomorrowResult:
 
 
 def _publish_settings() -> tuple[str, int]:
-    timezone = os.getenv("PUBLISH_TIMEZONE", DEFAULT_PUBLISH_TIMEZONE).strip()
+    timezone = os.getenv("PUBLISH_TIMEZONE", "").strip()
+    hour_raw = os.getenv("VIDEOS_PUBLISH_HOUR", "").strip()
     if not timezone:
-        timezone = DEFAULT_PUBLISH_TIMEZONE
-    hour_raw = os.getenv("VIDEOS_PUBLISH_HOUR", str(DEFAULT_PUBLISH_HOUR)).strip()
-    try:
-        publish_hour = int(hour_raw or str(DEFAULT_PUBLISH_HOUR))
-    except ValueError:
-        publish_hour = DEFAULT_PUBLISH_HOUR
-    return timezone, publish_hour
+        raise RuntimeError("PUBLISH_TIMEZONE is required")
+    if not hour_raw:
+        raise RuntimeError("VIDEOS_PUBLISH_HOUR is required")
+    return timezone, int(hour_raw)
 
 
 def _field_text(value: Any) -> str | None:
@@ -274,12 +269,11 @@ def prepared_thumbnail_is_missing(
         return None
 
     try:
-        from media_publisher.sources.canva import (
-            DEFAULT_CANVA_URL,
-            canva_catalog_urls_from_client,
-        )
+        from media_publisher.sources.canva import canva_catalog_urls_from_client
 
-        parent_url = os.getenv("CANVA_URL", DEFAULT_CANVA_URL).strip() or DEFAULT_CANVA_URL
+        parent_url = os.getenv("CANVA_URL", "").strip()
+        if not parent_url:
+            raise RuntimeError("CANVA_URL is required")
         long_catalog_url, short_catalog_url = canva_catalog_urls_from_client(
             canva_client,
             parent_url,

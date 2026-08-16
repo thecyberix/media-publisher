@@ -4,20 +4,7 @@ import calendar
 import re
 from datetime import date, datetime, time
 
-_BG_MONTHS = (
-    "януари",
-    "февруари",
-    "март",
-    "април",
-    "май",
-    "юни",
-    "юли",
-    "август",
-    "септември",
-    "октомври",
-    "ноември",
-    "декември",
-)
+from media_publisher.languages import get_language
 
 _DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
@@ -50,10 +37,13 @@ def format_event_datetime(
     language: str = "bg",
 ) -> str:
     clock = f"{event_time.hour:02d}:{event_time.minute:02d}"
-    code = language.strip().lower()
-    if code in {"bg", "bul", "bulgarian"}:
-        month_name = _BG_MONTHS[event_date.month - 1]
-        return f"{event_date.day} {month_name} {event_date.year} г., {clock}"
+    definition = get_language(language)
+    if definition is not None:
+        month_name = definition.month_name(event_date.month)
+        return (
+            f"{event_date.day} {month_name} {event_date.year}"
+            f"{definition.date_year_suffix}, {clock}"
+        )
     month_name = calendar.month_name[event_date.month]
     return f"{event_date.day} {month_name} {event_date.year}, {clock}"
 

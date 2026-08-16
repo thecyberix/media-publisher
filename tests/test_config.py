@@ -20,8 +20,6 @@ class ConfigTests(unittest.TestCase):
             "META_PAGE_USERNAME",
             "META_INSTAGRAM_USERNAME",
             "TARGET_LANGUAGE",
-            "TARGET_LANGUAGE_NAME",
-            "TARGET_COUNTRY",
         ):
             os.environ.pop(key, None)
 

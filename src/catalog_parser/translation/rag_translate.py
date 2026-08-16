@@ -31,53 +31,107 @@ DEFAULT_MAX_TOKENS = 4096
 DEFAULT_MODEL = DEFAULT_OPENAI_MODEL
 DEFAULT_BASE_URL = DEFAULT_OPENAI_BASE_URL
 
-SYSTEM_PROMPT = (
-    "You are a professional subtitle translator for Sadhguru / Isha content. "
-    "Translate English cues into natural Bulgarian that matches the spiritual, "
-    "spoken register of the provided example translations. Preserve meaning; "
-    "do not add explanations. Return only the requested output format."
+_ENGLISH_TITLE_CASE_SMALL_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "of",
+        "on",
+        "in",
+        "to",
+        "for",
+        "at",
+        "by",
+        "from",
+        "with",
+        "as",
+        "into",
+        "over",
+        "vs",
+    }
 )
 
-SUBTITLE_FORMAT_RULES = (
-    "Formatting rules:\n"
-    "- Do not insert line breaks unless the English text itself contains a "
-    "line break.\n"
-    "- Use Bulgarian quotation marks „…“ (not ASCII \"). "
-    "If this cue opens a quotation, include „. "
-    "If this cue closes a quotation that began earlier, end with “.\n"
-    "- When previous/next subtitle context is provided, keep the wording "
-    "continuous with that dialogue; translate only the English marked for "
-    "translation."
-)
 
-BG_QUOTE_OPEN = "„"
-BG_QUOTE_CLOSE = "“"
+def _target_language_name() -> str:
+    from media_publisher.languages import selected_language
 
-METADATA_TITLE_SYSTEM_PROMPT = (
-    "You are a professional YouTube metadata translator for Sadhguru / Isha "
-    "content. Translate English video titles into natural Bulgarian that matches "
-    "the tone and phrasing of the provided example title translations. Keep "
-    "titles concise and YouTube-ready. Preserve meaning; do not add explanations. "
-    "Return only the Bulgarian title text."
-)
+    return selected_language().name
 
-METADATA_DESCRIPTION_SYSTEM_PROMPT = (
-    "You are a professional YouTube metadata translator for Sadhguru / Isha "
-    "content. Translate English video descriptions into natural Bulgarian that "
-    "matches the tone of the provided example description translations. Preserve "
-    "paragraph breaks. Do not invent links, hashtags, or calls to action that are "
-    "not in the source. Preserve meaning; do not add explanations. Return only "
-    "the Bulgarian description text."
-)
 
-METADATA_CAPTION_SYSTEM_PROMPT = (
-    "You are a professional thumbnail caption translator for Sadhguru / Isha "
-    "content. Translate English overlay caption lines into natural Bulgarian that "
-    "matches the tone and phrasing of the provided example title translations. "
-    "Preserve the same number of lines and line breaks as the English source. "
-    "Do not add credits, hashtags, logos, or explanations. Return only the "
-    "Bulgarian caption text."
-)
+def _ingest_config():
+    from media_publisher.languages import selected_language
+
+    return selected_language().require_ingest()
+
+
+def system_prompt() -> str:
+    name = _target_language_name()
+    return (
+        "You are a professional subtitle translator for Sadhguru / Isha content. "
+        f"Translate English cues into natural {name} that matches the spiritual, "
+        "spoken register of the provided example translations. Preserve meaning; "
+        "do not add explanations. Return only the requested output format."
+    )
+
+
+def subtitle_format_rules() -> str:
+    ingest = _ingest_config()
+    return (
+        "Formatting rules:\n"
+        "- Do not insert line breaks unless the English text itself contains a "
+        "line break.\n"
+        f"- Use { _target_language_name() } quotation marks "
+        f"{ingest.quote_open}…{ingest.quote_close} (not ASCII \"). "
+        f"If this cue opens a quotation, include {ingest.quote_open}. "
+        f"If this cue closes a quotation that began earlier, end with {ingest.quote_close}.\n"
+        "- When previous/next subtitle context is provided, keep the wording "
+        "continuous with that dialogue; translate only the English marked for "
+        "translation."
+    )
+
+
+def metadata_title_system_prompt() -> str:
+    name = _target_language_name()
+    return (
+        "You are a professional YouTube metadata translator for Sadhguru / Isha "
+        f"content. Translate English video titles into natural {name} that matches "
+        "the tone and phrasing of the provided example title translations. Keep "
+        "titles concise and YouTube-ready. Preserve meaning; do not add explanations. "
+        f"Return only the {name} title text."
+    )
+
+
+def metadata_description_system_prompt() -> str:
+    name = _target_language_name()
+    return (
+        "You are a professional YouTube metadata translator for Sadhguru / Isha "
+        f"content. Translate English video descriptions into natural {name} that "
+        "matches the tone of the provided example description translations. Preserve "
+        "paragraph breaks. Do not invent links, hashtags, or calls to action that are "
+        "not in the source. Preserve meaning; do not add explanations. Return only "
+        f"the {name} description text."
+    )
+
+
+def _title_case_small_words() -> frozenset[str]:
+    extra = {word.casefold() for word in _ingest_config().title_case_small_words}
+    return _ENGLISH_TITLE_CASE_SMALL_WORDS | extra
+
+
+def metadata_caption_system_prompt() -> str:
+    name = _target_language_name()
+    return (
+        "You are a professional thumbnail caption translator for Sadhguru / Isha "
+        f"content. Translate English overlay caption lines into natural {name} that "
+        "matches the tone and phrasing of the provided example title translations. "
+        "Preserve the same number of lines and line breaks as the English source. "
+        "Do not add credits, hashtags, logos, or explanations. Return only the "
+        f"{name} caption text."
+    )
 
 CAPTION_EXTRACT_PROMPT = (
     "Extract the English overlay caption text from this video thumbnail image.\n"
@@ -114,7 +168,8 @@ def apply_translation_casing(text: str, record_type: str | None) -> str:
 def _casing_instruction(record_type: str | None) -> str:
     if requires_all_caps(record_type):
         return (
-            "Capitalization: write the Bulgarian translation in ALL CAPS "
+            "Capitalization: write the "
+            f"{_target_language_name()} translation in ALL CAPS "
             "(uppercase letters only for letters)."
         )
     if record_type and str(record_type).strip().casefold() == "video":
@@ -158,7 +213,10 @@ def _first_env(*names: str, default: str = "") -> str:
 
 
 def translation_provider_disabled() -> bool:
-    return _env("TRANSLATION_PROVIDER").casefold() in {
+    raw = _env("TRANSLATION_PROVIDER").casefold()
+    if not raw:
+        return True
+    return raw in {
         "none",
         "off",
         "disabled",
@@ -166,6 +224,14 @@ def translation_provider_disabled() -> bool:
         "0",
         "no",
     }
+
+
+def translation_api_key_configured() -> bool:
+    return bool(
+        _env("TRANSLATION_API_KEY")
+        or _env("ANTHROPIC_API_KEY")
+        or _env("OPENAI_API_KEY")
+    )
 
 
 def chat_config_from_env() -> ChatConfig:
@@ -194,16 +260,10 @@ def chat_config_from_env() -> ChatConfig:
         provider: Provider = "anthropic"
     elif provider_raw in {"openai", "open-ai"}:
         provider = "openai"
-    elif anthropic_key and not openai_key and not common_key:
-        provider = "anthropic"
-    elif openai_key and not anthropic_key and not common_key:
-        provider = "openai"
-    elif common_key or anthropic_key or openai_key:
-        provider = "anthropic"
     else:
         raise RuntimeError(
-            "Set TRANSLATION_API_KEY and TRANSLATION_PROVIDER "
-            "(anthropic or openai) for translation"
+            "Set TRANSLATION_PROVIDER to anthropic or openai for translation, "
+            "or omit it to skip AI translation"
         )
 
     if provider == "anthropic":
@@ -314,7 +374,7 @@ def _has_orphan_function_line(lines: list[str]) -> bool:
     """True when a break left a line that is only a short preposition/particle."""
     for line in lines:
         tokens = [tok for tok in line.split() if _alpha_fold(tok)]
-        if len(tokens) == 1 and _alpha_fold(tokens[0]) in _TITLE_CASE_SMALL_WORDS:
+        if len(tokens) == 1 and _alpha_fold(tokens[0]) in _title_case_small_words():
             return True
     return False
 
@@ -361,55 +421,7 @@ def _line_is_all_caps(line: str) -> bool:
     return bool(letters) and all(ch.isupper() for ch in letters)
 
 
-# Short function words kept lowercase in mid-line title-style captions
-# (e.g. English "Life on the Edge" → Bulgarian "Живот на Ръба").
-_TITLE_CASE_SMALL_WORDS = frozenset(
-    {
-        # English
-        "a",
-        "an",
-        "the",
-        "and",
-        "or",
-        "but",
-        "of",
-        "on",
-        "in",
-        "to",
-        "for",
-        "at",
-        "by",
-        "from",
-        "with",
-        "as",
-        "into",
-        "over",
-        "vs",
-        # Bulgarian
-        "на",
-        "от",
-        "в",
-        "във",
-        "с",
-        "със",
-        "и",
-        "или",
-        "а",
-        "но",
-        "за",
-        "до",
-        "по",
-        "към",
-        "при",
-        "без",
-        "през",
-        "като",
-        "че",
-        "ли",
-        "да",
-        "не",
-    }
-)
+# Short function words kept lowercase in mid-line title-style captions.
 
 
 def _line_is_title_case(line: str) -> bool:
@@ -427,7 +439,7 @@ def _line_is_title_case(line: str) -> bool:
             titled += 1
         elif (
             0 < index < len(words) - 1
-            and fold in _TITLE_CASE_SMALL_WORDS
+            and fold in _title_case_small_words()
             and all(ch.islower() for ch in letters)
         ):
             mid_small += 1
@@ -482,7 +494,7 @@ def _to_title_case_words(line: str) -> str:
         # Lowercase short function words except first/last tokens
         # (so "in 2024" / "на Ръба" stay lowercase mid-line).
         if (
-            fold in _TITLE_CASE_SMALL_WORDS
+            fold in _title_case_small_words()
             and index != first_token
             and index != last_token
         ):
@@ -523,43 +535,50 @@ def match_source_line_casing(source: str, translation: str) -> str:
 
 
 def _ensure_bg_opening_quote(text: str) -> str:
-    if BG_QUOTE_OPEN in text:
+    quote_open, quote_close = _ingest_config().quote_open, _ingest_config().quote_close
+    if quote_open in text:
         return text
-    cleaned = text.replace('"', "").replace("“", "").replace("„", "")
+    cleaned = (
+        text.replace('"', "")
+        .replace(quote_close, "")
+        .replace(quote_open, "")
+    )
     for marker in (": ", ", "):
         idx = cleaned.find(marker)
         if idx >= 0:
             at = idx + len(marker)
-            return cleaned[:at] + BG_QUOTE_OPEN + cleaned[at:]
-    return BG_QUOTE_OPEN + cleaned
+            return cleaned[:at] + quote_open + cleaned[at:]
+    return quote_open + cleaned
 
 
 def _ensure_bg_closing_quote(text: str) -> str:
+    quote_open, quote_close = _ingest_config().quote_open, _ingest_config().quote_close
     cleaned = text.replace('"', "").rstrip()
     cleaned = normalize_bg_quote_punctuation(cleaned)
-    if BG_QUOTE_CLOSE in cleaned:
+    if quote_close in cleaned:
         return cleaned
-    if cleaned.endswith(BG_QUOTE_OPEN):
-        return cleaned + BG_QUOTE_CLOSE
-    # Bulgarian style: „…?“ / „…!“ — closing quote after sentence punctuation.
-    return cleaned + BG_QUOTE_CLOSE
+    if cleaned.endswith(quote_open):
+        return cleaned + quote_close
+    return cleaned + quote_close
 
 
 def normalize_bg_quote_punctuation(text: str) -> str:
-    """Move sentence punctuation inside closing quotes: „…“? → „…?“."""
+    """Move sentence punctuation inside closing quotes."""
     if not text:
         return text
-    # Also handle ASCII " left before punctuation.
-    fixed = re.sub(r'"([?!….])', rf"\1{BG_QUOTE_CLOSE}", text)
+    quote_close = _ingest_config().quote_close
+    fixed = re.sub(r'"([?!….])', rf"\1{quote_close}", text)
     return re.sub(
-        rf"{re.escape(BG_QUOTE_CLOSE)}([?!….])",
-        rf"\1{BG_QUOTE_CLOSE}",
+        rf"{re.escape(quote_close)}([?!….])",
+        rf"\1{quote_close}",
         fixed,
     )
 
 
 def _english_quote_count(text: str) -> int:
-    return sum((text or "").count(ch) for ch in '"“„”')
+    ingest = _ingest_config()
+    marks = '"“„”' + ingest.quote_open + ingest.quote_close
+    return sum((text or "").count(ch) for ch in dict.fromkeys(marks))
 
 
 def repair_bulgarian_quotes(
@@ -641,17 +660,19 @@ def build_single_cue_messages(
             f"Next subtitle (context only):\n{next_en.strip()}"
         )
     context_block = ("\n\n".join(context_parts) + "\n\n") if context_parts else ""
+    name = _target_language_name()
+    ingest = _ingest_config()
     user = (
-        "Translate the English subtitle cue into Bulgarian.\n\n"
-        f"{SUBTITLE_FORMAT_RULES}\n\n"
+        f"Translate the English subtitle cue into {name}.\n\n"
+        f"{subtitle_format_rules()}\n\n"
         f"Examples from prior Sadhguru translations:\n{format_examples(examples)}\n\n"
         f"{context_block}"
         f"English to translate:\n{cue_en}\n"
         f"{casing_block}"
-        "Respond with Bulgarian translation text only."
+        f"Respond with {name} translation text only."
     )
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt()},
         {"role": "user", "content": user},
     ]
 
@@ -700,19 +721,22 @@ def build_batch_messages(
         )
     casing = _casing_instruction(record_type)
     casing_block = f"\n{casing}\n" if casing else "\n"
+    name = _target_language_name()
+    ingest = _ingest_config()
     user = (
-        "Translate each English subtitle cue into Bulgarian.\n"
+        f"Translate each English subtitle cue into {name}.\n"
         "Use the examples for that cue when choosing wording and register.\n\n"
-        f"{SUBTITLE_FORMAT_RULES}\n\n"
+        f"{subtitle_format_rules()}\n\n"
         + "\n\n".join(blocks)
         + casing_block
-        + "Respond with a JSON array of strings, one Bulgarian translation per cue, "
+        + f"Respond with a JSON array of strings, one {name} translation per cue, "
         "in the same order. No markdown fences. "
         "If a translation contains double quotes, escape them as \\\". "
-        "Prefer Bulgarian quotation marks „…“ and avoid ASCII \" inside strings."
+        f"Prefer {name} quotation marks {ingest.quote_open}…{ingest.quote_close} "
+        "and avoid ASCII \" inside strings."
     )
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt()},
         {"role": "user", "content": user},
     ]
 
@@ -1242,25 +1266,26 @@ def build_metadata_messages(
     *,
     kind: Literal["title", "description", "caption"],
 ) -> list[dict[str, str]]:
+    name = _target_language_name()
     if kind == "title":
-        system = METADATA_TITLE_SYSTEM_PROMPT
+        system = metadata_title_system_prompt()
         field_label = "title"
         instructions = (
-            "Translate the English YouTube title into Bulgarian.\n"
+            f"Translate the English YouTube title into {name}.\n"
             "Keep it concise and natural for YouTube.\n\n"
         )
     elif kind == "description":
-        system = METADATA_DESCRIPTION_SYSTEM_PROMPT
+        system = metadata_description_system_prompt()
         field_label = "description"
         instructions = (
-            "Translate the English YouTube description into Bulgarian.\n"
+            f"Translate the English YouTube description into {name}.\n"
             "Preserve paragraph breaks. Do not invent links or hashtags.\n\n"
         )
     elif kind == "caption":
-        system = METADATA_CAPTION_SYSTEM_PROMPT
+        system = metadata_caption_system_prompt()
         field_label = "caption"
         instructions = (
-            "Translate the English thumbnail caption into Bulgarian.\n"
+            f"Translate the English thumbnail caption into {name}.\n"
             "Preserve the exact number of lines and line breaks.\n"
             "Do not add credits, hashtags, or logos.\n\n"
         )
@@ -1271,7 +1296,7 @@ def build_metadata_messages(
         f"{instructions}"
         f"Examples from prior Sadhguru translations:\n{format_examples(examples)}\n\n"
         f"English {field_label}:\n{en_text}\n\n"
-        f"Respond with Bulgarian {field_label} text only."
+        f"Respond with {name} {field_label} text only."
     )
     return [
         {"role": "system", "content": system},

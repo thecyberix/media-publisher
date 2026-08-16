@@ -20,14 +20,10 @@ from media_publisher.sources.airtable import (
 )
 from media_publisher.sources.happyscribe import (
     HappyScribeClient,
+    catalog_names_for_record,
     find_transcription_for_catalog,
     normalize_name_for_catalog_match,
     resolve_library_location,
-)
-from scripts.search_sync_smartcat_happyscribe import (
-    DEFAULT_PUBLISHED_FOLDER_ID,
-    catalog_names_for_record,
-    load_search_transcriptions,
 )
 
 MISSING_IDS = [
@@ -44,11 +40,15 @@ def main() -> int:
         settings.happyscribe_api_key or "",
         organization_id=location.organization_id,
     )
-    merged, folder_counts, _ = load_search_transcriptions(
-        hs,
-        primary=location,
-        extra_folder_ids=[DEFAULT_PUBLISHED_FOLDER_ID],
+    extra_folders = (
+        [settings.happyscribe_published_folder_id]
+        if settings.happyscribe_published_folder_id
+        else []
     )
+    merged = hs.list_search_transcriptions(location, extra_folder_ids=extra_folders)
+    folder_counts = {
+        location.folder_id: len(hs.list_library_transcriptions(location)),
+    }
     merged_by_id = {item.id: item for item in merged}
 
     print("=== HappyScribe transcriptions (by ID) ===")

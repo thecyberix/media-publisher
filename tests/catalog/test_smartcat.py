@@ -74,14 +74,17 @@ class SmartcatLinkParsingTests(unittest.TestCase):
         from unittest.mock import patch
 
         from catalog_parser.smartcat import configured_language_aliases
+        from media_publisher.languages import LanguageDefinition
 
-        with patch.dict(
-            "os.environ",
-            {
-                "TARGET_LANGUAGE": "de",
-                "TARGET_LANGUAGE_NAME": "German",
-            },
-            clear=False,
+        german = LanguageDefinition(
+            name="German",
+            alias="de",
+            country="Deutschland",
+            months=tuple(str(index) for index in range(1, 13)),
+        )
+        with patch(
+            "media_publisher.languages.selected_language",
+            return_value=german,
         ):
             self.assertEqual(
                 configured_language_aliases(),

@@ -45,7 +45,7 @@ Hello
         self.assertTrue(ok)
         bad, reason = passes_bilingual_gates(source, target_bad)
         self.assertFalse(bad)
-        self.assertIn("Cyrillic", reason)
+        self.assertIn("script", reason)
 
     def test_scorecard_identical(self) -> None:
         srt = """1

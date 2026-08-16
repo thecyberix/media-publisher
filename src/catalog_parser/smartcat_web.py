@@ -15,6 +15,8 @@ from catalog_parser.smartcat import (
     build_smartcat_editor_link,
     bulgarian_segments_have_translation,
     bulgarian_target_is_fully_done,
+    configured_language_aliases,
+    configured_target_language_name,
     get_language_target,
     language_matches,
     parse_pkg_sm_link,
@@ -64,7 +66,7 @@ def pick_bulgarian_srt_href(
             score += 40
         if title_norm and title_norm in haystack:
             score += 30
-        if ".bg." in haystack or "bulgarian" in haystack:
+        if any(alias in haystack for alias in configured_language_aliases()):
             score += 20
         if score > best_score:
             best_score = score
@@ -362,7 +364,10 @@ def enrich_records_with_bulgarian_srt_links_web(
             if enriched_record.get(link_field):
                 print("  -> editor link resolved")
             elif enriched_record.get(f"{link_field}SkipReason"):
-                print("  -> skipped (Bulgarian subtitles already completed)")
+                print(
+                    f"  -> skipped ({configured_target_language_name()} "
+                    "subtitles already completed)"
+                )
             elif enriched_record.get(f"{link_field}Error"):
                 print(f"  -> error: {enriched_record[f'{link_field}Error']}")
             enriched.append(enriched_record)

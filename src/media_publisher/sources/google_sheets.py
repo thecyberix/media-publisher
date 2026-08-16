@@ -175,12 +175,14 @@ class GoogleSheetsClient:
     ) -> SheetTab:
         tabs = self.list_tabs(spreadsheet_id)
         if sheet_title and sheet_title.strip():
-            target = sheet_title.strip()
+            target = sheet_title.strip().casefold()
             for tab in tabs:
-                if tab.title == target:
+                if tab.title.casefold() == target:
                     return tab
+            names = ", ".join(tab.title for tab in tabs)
             raise GoogleSheetsError(
-                f"Sheet tab {target!r} was not found in spreadsheet {spreadsheet_id!r}"
+                f"Sheet tab {sheet_title.strip()!r} was not found in spreadsheet "
+                f"{spreadsheet_id!r}. Available tabs: {names}"
             )
         if sheet_gid is not None:
             for tab in tabs:

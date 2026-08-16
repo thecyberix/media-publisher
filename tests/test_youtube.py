@@ -26,6 +26,7 @@ from media_publisher.publishers.youtube import (
     prepare_youtube_thumbnail,
     publish_to_youtube,
     queue_pending_daily_playlist_slot,
+    save_daily_playlist_state,
     save_token,
     should_queue_daily_playlist,
     validate_schedule_time,
@@ -552,10 +553,12 @@ class YouTubeClientTests(unittest.TestCase):
                 self.assertEqual(
                     load_daily_playlist_pending(slots_path),
                     {
-                        "lau": {
-                            "video_id": "vid123",
-                            "publish_at": format_publish_at(publish_at),
-                        }
+                        "lau": [
+                            {
+                                "video_id": "vid123",
+                                "publish_at": format_publish_at(publish_at),
+                            }
+                        ]
                     },
                 )
 
@@ -607,6 +610,23 @@ class YouTubeClientTests(unittest.TestCase):
             ),
             "lau",
         )
+
+    def test_save_daily_playlist_state_keeps_playlist_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text(
+                '{"playlist_id":"PLdaily","quote":"quote1","reel":"reel1"}\n',
+                encoding="utf-8",
+            )
+            save_daily_playlist_state(
+                slots_path,
+                {"quote": "quote2", "reel": "reel1"},
+                None,
+            )
+            payload = json.loads(slots_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["playlist_id"], "PLdaily")
+            self.assertEqual(payload["quote"], "quote2")
+            self.assertEqual(payload["reel"], "reel1")
 
     def test_sync_daily_playlist_keeps_other_slots(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -804,8 +824,37 @@ class YouTubeClientTests(unittest.TestCase):
             self.assertEqual(synced, [])
             client.sync_daily_playlist_slot.assert_not_called()
             self.assertEqual(
-                load_daily_playlist_pending(slots_path)["reel"]["video_id"],
+                load_daily_playlist_pending(slots_path)["reel"][0]["video_id"],
                 "still-private",
+            )
+
+    def test_queue_pending_keeps_unflushed_due_quote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text(
+                json.dumps(
+                    {
+                        "quote": "old",
+                        "pending": {
+                            "quote": {
+                                "video_id": "today",
+                                "publish_at": "2026-08-16T05:00:00Z",
+                            }
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            queue_pending_daily_playlist_slot(
+                slots_path,
+                slot="quote",
+                video_id="tomorrow",
+                publish_at=datetime(2026, 8, 17, 5, 0, tzinfo=timezone.utc),
+            )
+            self.assertEqual(
+                [entry["video_id"] for entry in load_daily_playlist_pending(slots_path)["quote"]],
+                ["today", "tomorrow"],
             )
 
     def test_reorder_daily_playlist_slots_sets_positions(self) -> None:

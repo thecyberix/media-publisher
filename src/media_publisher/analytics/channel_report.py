@@ -33,12 +33,14 @@ from media_publisher.analytics.youtube_analytics import (
     fetch_youtube_monthly_metrics_for_client,
     fetch_youtube_monthly_views_for_client,
 )
+from media_publisher.languages import selected_language
 from media_publisher.publishers.meta import MetaClient
 from media_publisher.publishers.youtube import YouTubeClient
 from media_publisher.sources.airtable import AirtableClient, AirtableError
 from media_publisher.sources.google_sheets import (
     GoogleSheetsClient,
     GoogleSheetsError,
+    SheetTab,
     a1_cell,
 )
 
@@ -163,8 +165,6 @@ class MonthColumn:
 @dataclass(frozen=True)
 class ChannelReportMapping:
     spreadsheet_id: str
-    sheet_gid: int | None = None
-    sheet_title: str | None = None
     layout: ReportLayout = "kpi_dashboard"
     header_row: int = 1
     first_data_row: int = 2
@@ -239,8 +239,6 @@ class ChannelReportMapping:
 
         return cls(
             spreadsheet_id=spreadsheet_id.strip(),
-            sheet_gid=_optional_int(payload.get("sheet_gid")),
-            sheet_title=_optional_str(payload.get("sheet_title")),
             layout=layout_raw,  # type: ignore[arg-type]
             header_row=int(payload.get("header_row", 1)),
             first_data_row=int(payload.get("first_data_row", 2)),
@@ -291,17 +289,34 @@ def load_channel_report_mapping(path: Path) -> ChannelReportMapping:
     return ChannelReportMapping.from_dict(payload)
 
 
+def resolve_report_sheet_tab(
+    client: GoogleSheetsClient,
+    mapping: ChannelReportMapping,
+) -> SheetTab:
+    """Use the TARGET_LANGUAGE name as the spreadsheet tab title."""
+    return client.resolve_sheet_tab(
+        mapping.spreadsheet_id,
+        sheet_title=selected_language().name,
+    )
+
+
+def resolve_report_sheet_title(
+    client: GoogleSheetsClient,
+    mapping: ChannelReportMapping,
+) -> str:
+    return client.resolve_sheet_title(
+        mapping.spreadsheet_id,
+        sheet_title=selected_language().name,
+    )
+
+
 def inspect_channel_report_sheet(
     client: GoogleSheetsClient,
     mapping: ChannelReportMapping,
     *,
     max_rows: int = 40,
 ) -> list[list[str]]:
-    sheet_title = client.resolve_sheet_title(
-        mapping.spreadsheet_id,
-        sheet_gid=mapping.sheet_gid,
-        sheet_title=mapping.sheet_title,
-    )
+    sheet_title = resolve_report_sheet_title(client, mapping)
     escaped_title = sheet_title.replace("'", "''")
     if mapping.layout == "kpi_dashboard":
         month_columns = _load_month_columns(client, mapping, sheet_title)
@@ -397,11 +412,7 @@ def _update_kpi_dashboard_report(
             "platform_sections or platform_rows is required for kpi_dashboard layout"
         )
 
-    sheet_title = sheets_client.resolve_sheet_title(
-        mapping.spreadsheet_id,
-        sheet_gid=mapping.sheet_gid,
-        sheet_title=mapping.sheet_title,
-    )
+    sheet_title = resolve_report_sheet_title(sheets_client, mapping)
     month_columns = _load_month_columns(sheets_client, mapping, sheet_title)
     if not month_columns:
         raise ChannelReportError("No month columns found in the report header row")
@@ -544,21 +555,14 @@ def ensure_report_write_ranges_unprotected(
     if not row_numbers:
         return []
 
-    sheet_title = client.resolve_sheet_title(
-        mapping.spreadsheet_id,
-        sheet_gid=mapping.sheet_gid,
-        sheet_title=mapping.sheet_title,
-    )
+    tab = resolve_report_sheet_tab(client, mapping)
+    sheet_title = tab.title
     payload = client.get_spreadsheet(mapping.spreadsheet_id)
-    sheet_id = mapping.sheet_gid
-    if sheet_id is None:
-        for sheet in payload.get("sheets", []):
-            properties = sheet.get("properties", {})
-            if properties.get("title") == sheet_title:
-                sheet_id = properties.get("sheetId")
-                break
+    sheet_id = tab.sheet_id
     if not isinstance(sheet_id, int):
-        raise ChannelReportError("Could not resolve Bulgarian tab sheet id")
+        raise ChannelReportError(
+            f"Could not resolve sheet id for tab {sheet_title!r}"
+        )
 
     protected_range = find_sheet_wide_protection(
         client,
@@ -682,11 +686,7 @@ def _update_month_rows_report(
     target_month: date | None,
     all_months: bool,
 ) -> ChannelReportResult:
-    sheet_title = sheets_client.resolve_sheet_title(
-        mapping.spreadsheet_id,
-        sheet_gid=mapping.sheet_gid,
-        sheet_title=mapping.sheet_title,
-    )
+    sheet_title = resolve_report_sheet_title(sheets_client, mapping)
     escaped_title = sheet_title.replace("'", "''")
     header_rows = sheets_client.get_values(
         mapping.spreadsheet_id,
@@ -1216,19 +1216,6 @@ def _next_month(value: date) -> date:
     if value.month == 12:
         return date(value.year + 1, 1, 1)
     return date(value.year, value.month + 1, 1)
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    return int(value)
-
-
-def _optional_str(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    return text or None
 
 
 def _column_letters_to_index(value: str) -> int:

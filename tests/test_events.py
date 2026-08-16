@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import date, datetime, time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -20,7 +21,6 @@ from media_publisher.events.format import (
     parse_event_time,
 )
 from media_publisher.events.page import (
-    EMPTY_STATE_TEXT,
     SMARTLINK_ACCENT,
     SMARTLINK_BACKGROUND,
     SMARTLINK_TEXT,
@@ -40,20 +40,26 @@ from media_publisher.events.publish import (
     publish_event,
 )
 from media_publisher.events.templates import (
-    BHUTA_SHUDDHI_LEARN_MORE_URL,
     EVENT_TYPE_BHUTA_SHUDDHI,
     EVENT_TYPE_SURYA_KRIYA,
     EVENT_TYPE_YOGASANA,
     SURYA_KRIYA_LEARN_MORE_LABEL,
-    SURYA_KRIYA_LEARN_MORE_URL,
-    YOGASANA_LEARN_MORE_URL,
     city_preposition,
     get_program,
     normalize_event_type,
     render_event,
 )
+from media_publisher.languages import selected_language
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.sources.google_drive import DriveFile
+
+SURYA_YT = "https://youtu.be/QFd8S1EHvU8"
+BHUTA_YT = "https://youtu.be/bWsQ1Yz9VDM"
+YOGASANA_YT = "https://youtu.be/H_3dIi6H84M"
+
+
+def _program_with_url(event_type: str, url: str):
+    return replace(get_program(event_type), learn_more_url=url)
 
 
 class EventFormatTests(unittest.TestCase):
@@ -85,18 +91,19 @@ class EventTemplateTests(unittest.TestCase):
             event_date=date(2026, 9, 15),
             event_time=time(18, 0),
             registration_link="https://example.com/register",
+            program=_program_with_url(EVENT_TYPE_SURYA_KRIYA, SURYA_YT),
         )
         self.assertIn("Суря крия", rendered.title)
         self.assertIn("София", rendered.title)
         self.assertIn("\nв София, България", rendered.title)
         self.assertIn("15 септември 2026 г., 18:00", rendered.full_text)
         self.assertIn("https://example.com/register", rendered.full_text)
-        self.assertIn(SURYA_KRIYA_LEARN_MORE_URL, rendered.full_text)
+        self.assertIn(SURYA_YT, rendered.full_text)
         self.assertIn("https://example.com/register", rendered.facebook_post_text)
-        self.assertIn(SURYA_KRIYA_LEARN_MORE_URL, rendered.facebook_post_text)
+        self.assertIn(SURYA_YT, rendered.facebook_post_text)
         self.assertIn("👉 Регистрация тук:", rendered.facebook_post_text)
         self.assertIn(
-            f"Вижте какво казва Садгуру: {SURYA_KRIYA_LEARN_MORE_URL}",
+            f"Вижте какво казва Садгуру: {SURYA_YT}",
             rendered.facebook_post_text,
         )
         self.assertNotIn(SURYA_KRIYA_LEARN_MORE_LABEL, rendered.facebook_post_text)
@@ -115,7 +122,7 @@ class EventTemplateTests(unittest.TestCase):
         self.assertIn('class="yt-title"', rendered.html_body)
         self.assertIn(SURYA_KRIYA_LEARN_MORE_LABEL, rendered.html_body)
         self.assertIn(
-            f'href="{SURYA_KRIYA_LEARN_MORE_URL}"',
+            f'href="{SURYA_YT}"',
             rendered.html_body,
         )
         self.assertIn("✅ Умствена яснота и фокус", rendered.html_body)
@@ -129,14 +136,15 @@ class EventTemplateTests(unittest.TestCase):
             event_date=date(2026, 10, 5),
             event_time=time(11, 0),
             registration_link="https://example.com/bhuta",
+            program=_program_with_url(EVENT_TYPE_BHUTA_SHUDDHI, BHUTA_YT),
         )
         self.assertEqual(rendered.event_type, EVENT_TYPE_BHUTA_SHUDDHI)
         self.assertIn("Бута Шудди", rendered.title)
         self.assertIn("\nв Пловдив, България", rendered.title)
         self.assertIn("петте елемента", rendered.full_text)
-        self.assertIn(BHUTA_SHUDDHI_LEARN_MORE_URL, rendered.full_text)
+        self.assertIn(BHUTA_YT, rendered.full_text)
         self.assertIn(
-            f"Вижте видеото: {BHUTA_SHUDDHI_LEARN_MORE_URL}",
+            f"Вижте видеото: {BHUTA_YT}",
             rendered.facebook_post_text,
         )
         self.assertIn(
@@ -185,11 +193,12 @@ class EventTemplateTests(unittest.TestCase):
             event_date=date(2026, 9, 26),
             event_time=time(9, 0),
             registration_link="https://sadanandayoga.com/events/yogasanas#registration",
+            program=_program_with_url(EVENT_TYPE_YOGASANA, YOGASANA_YT),
         )
         self.assertEqual(rendered.event_type, EVENT_TYPE_YOGASANA)
         self.assertIn("Йогасани", rendered.title)
         self.assertIn("\nв Пловдив, България", rendered.title)
-        self.assertIn(YOGASANA_LEARN_MORE_URL, rendered.full_text)
+        self.assertIn(YOGASANA_YT, rendered.full_text)
         self.assertIn("✅ Облекчаване на хронични здравословни проблеми", rendered.html_body)
         self.assertEqual(rendered.facebook_image_folder, "Yogasanas")
 
@@ -218,7 +227,7 @@ class EventDriveCopyTests(unittest.TestCase):
                 "✅ Focus",
                 "Watch Sadhguru: https://youtu.be/Lh0ZucHjp14",
             ],
-            bulgarian_lines=[
+            language_lines=[
                 "☀️ Програма “Суря крия” [град], [държава] ☀️",
                 "🗓: [дата и час]",
                 "„Суря“ означава Слънце, а „крия“ – вътрешен енергиен процес. – Садгуру",
@@ -233,6 +242,7 @@ class EventDriveCopyTests(unittest.TestCase):
         )
         self.assertEqual(copy.body, "")
         self.assertEqual(copy.benefits, ("Умствена яснота и фокус",))
+        self.assertEqual(copy.benefits_heading, "Ползи:")
         program = apply_parsed_copy(get_program(EVENT_TYPE_SURYA_KRIYA), copy)
         rendered = render_event(
             event_type=EVENT_TYPE_SURYA_KRIYA,
@@ -259,7 +269,7 @@ class EventDriveCopyTests(unittest.TestCase):
                 "🎯 Harmony",
                 "Watch the video: https://youtu.be/jzSX_uBstSA",
             ],
-            bulgarian_lines=[
+            language_lines=[
                 "💫 Програма “Бута Шудди” в [град], [държава] 💫",
                 "🗓: [дата и час]",
                 "Бута Шудди е йога система, фокусирана върху пречистването на петте елемента.",
@@ -373,7 +383,7 @@ class EventDriveCopyTests(unittest.TestCase):
                 "Benefits:",
                 "✅ Focus",
             ],
-            bulgarian_lines=[
+            language_lines=[
                 "☀️ Програма “Суря крия” в [град], [държава] ☀️",
                 "🗓: [дата и час]",
                 "Цитат. – Садгуру",
@@ -465,7 +475,8 @@ class EventPageTests(unittest.TestCase):
             )
             path = rebuild_index(root)
             html = path.read_text(encoding="utf-8")
-            self.assertIn(EMPTY_STATE_TEXT, html)
+            page = selected_language().require_events()
+            self.assertIn(page.empty_state, html)
             self.assertIn(SMARTLINK_BACKGROUND, html)
             self.assertIn(SMARTLINK_TEXT, html)
             self.assertIn(SMARTLINK_ACCENT, html)

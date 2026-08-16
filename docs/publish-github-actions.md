@@ -151,19 +151,21 @@ The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render 
 |----------|----------|
 | `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval` |
 | `CANVA_URL` | Parent Canva folder; catalog thumbnails use `Long videos` and `Short videos` |
-| `YOUTUBE_CHANNEL_HANDLE` | YouTube handle (default `SadhguruBulgarian`). Empty uses the code default. |
-| `YOUTUBE_PLAYLIST_ID` | Channel playlist for published catalog videos and quotes |
-| `YOUTUBE_DAILY_PLAYLIST_ID` | Daily Smartlink playlist |
-| `META_PAGE_USERNAME` | Facebook Page username (default `SadhguruBulgarian`). |
-| `META_INSTAGRAM_USERNAME` | Instagram username (default `sadhguru.bulgarian`). |
-| `TARGET_LANGUAGE` | Language code for Smartcat / locale (`bg`). |
-| `TARGET_LANGUAGE_NAME` | Language display name (`Bulgarian`). |
-| `TARGET_COUNTRY` | Default country for event announcements (`България`). |
-| `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes, e.g. `https://docs.google.com/spreadsheets/d/13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec/edit` |
-| `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts (also set on catalog workflows) |
-| `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails; comma-separated list supported |
+| `YOUTUBE_CHANNEL_HANDLE` | YouTube handle. Required for publish. |
+| `YOUTUBE_PLAYLIST_ID` | Channel playlist for published catalog videos and quotes. Unset: skip playlist add. |
+| `YOUTUBE_DAILY_PLAYLIST_JSON` | Daily Smartlink playlist id plus slot state (`playlist_id`, `quote`, `reel`, `lau`). Unset: skip daily playlist updates. |
+| `META_PAGE_USERNAME` | Facebook Page username. Required for Meta publish. |
+| `META_INSTAGRAM_USERNAME` | Instagram username. Required for Meta publish. |
+| `TARGET_LANGUAGE` | Language key in `config/languages.json`. Required. |
+| `SMARTLINK_URL` | Metricool Smartlink for video captions. Required for publish. |
+| `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes. Required for quote publish. |
+| `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts. Unset: skip those emails. |
+| `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails. Unset: skip those emails. |
+| `PUBLISH_TIMEZONE` | IANA timezone for scheduling. Required. |
+| `QUOTES_PUBLISH_HOUR` | Local hour for quote slots. Required. |
+| `VIDEOS_PUBLISH_HOUR` | Local hour for video slots. Required. |
 
-Also requires secrets `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD`.
+Also uses secrets `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD` when sending email. If those or `NOTIFY_EMAIL` are unset, email is skipped.
 
 ## Headers (all cron-job.org publish jobs)
 

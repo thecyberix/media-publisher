@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from media_publisher.languages import selected_language
 from media_publisher.timezones import get_timezone
 from media_publisher.sources.quote_pdf import (
     ensure_quote_image_from_pdf_page,
@@ -21,21 +22,6 @@ QUOTE_VIDEO_DIRNAME = ".videos"
 STATE_FILENAME = ".schedule-state.json"
 QUOTE_CANVA_DESIGN_TITLE_TEMPLATE = "{month_name} {year} FB/YT DMQ Template Final"
 QUOTE_CANVA_IG_DESIGN_TITLE_TEMPLATE = "{month_name} {year} IG DMQ Template Final"
-
-BULGARIAN_MONTHS: dict[str, int] = {
-    "януари": 1,
-    "февруари": 2,
-    "март": 3,
-    "април": 4,
-    "май": 5,
-    "юни": 6,
-    "юли": 7,
-    "август": 8,
-    "септември": 9,
-    "октомври": 10,
-    "ноември": 11,
-    "декември": 12,
-}
 
 ISO_DATE_STEM_RE = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})$")
 DMY_DATE_STEM_RE = re.compile(
@@ -87,23 +73,23 @@ def _infer_year(day: int, month: int, *, today: date) -> int:
     return today.year + 1
 
 
-def bulgarian_month_display_name(month: int) -> str:
-    for name, number in BULGARIAN_MONTHS.items():
-        if number == month:
-            return name.capitalize()
-    raise QuoteDiscoveryError(f"Unsupported month number: {month}")
+def month_display_name(month: int) -> str:
+    return selected_language().month_name(month).capitalize()
+
+
+bulgarian_month_display_name = month_display_name
 
 
 def quote_canva_design_title(year: int, month: int) -> str:
     return QUOTE_CANVA_DESIGN_TITLE_TEMPLATE.format(
-        month_name=bulgarian_month_display_name(month),
+        month_name=month_display_name(month),
         year=year,
     )
 
 
 def quote_canva_ig_design_title(year: int, month: int) -> str:
     return QUOTE_CANVA_IG_DESIGN_TITLE_TEMPLATE.format(
-        month_name=bulgarian_month_display_name(month),
+        month_name=month_display_name(month),
         year=year,
     )
 
@@ -145,7 +131,7 @@ def parse_quote_date_from_stem(
     match = BULGARIAN_DATE_STEM_RE.match(text)
     if match:
         month_name = match.group("month").casefold()
-        month = BULGARIAN_MONTHS.get(month_name)
+        month = selected_language().month_number(month_name)
         if month is None:
             return None
         day = int(match.group("day"))

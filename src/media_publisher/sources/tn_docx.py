@@ -10,6 +10,7 @@ from docx.oxml.text.paragraph import CT_P
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+from media_publisher.languages import selected_language
 from media_publisher.sources.google_drive import GoogleDriveClient
 
 WORD_DOC_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -89,7 +90,10 @@ def extract_tn_text(grid: list[list[str]]) -> dict[str, str | None]:
         return {"english": None, "bulgarian": None}
 
     header_cells = [_normalize_label(cell) for cell in rows[0]]
-    if header_cells == [_normalize_label("english"), _normalize_label("language")]:
+    language_header = _normalize_label(selected_language().name)
+    if header_cells[:2] == [_normalize_label("english"), language_header] or header_cells[
+        :2
+    ] == [_normalize_label("english"), _normalize_label("language")]:
         data_rows = rows[1:]
     else:
         data_rows = rows

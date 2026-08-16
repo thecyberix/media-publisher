@@ -267,7 +267,7 @@ def fetch_catalog_values(service: Resource, catalog_id: str) -> list[list[Any]]:
         if exc.resp.status in {403, 404}:
             raise ValueError(
                 f"Could not read catalog spreadsheet {catalog_id!r} "
-                f"(range {range_notation!r}). Check workflow_config.json catalog_id "
+                f"(range {range_notation!r}). Check config/workflow_config.json catalog_id "
                 "and that the Google account can open the sheet."
             ) from exc
         raise

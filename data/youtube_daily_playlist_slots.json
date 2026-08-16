@@ -1,9 +1,14 @@
 {
-  "quote": "z06R2Oa6nok",
+  "playlist_id": "PLKM1FUqZWv28",
+  "quote": "ue6PEQYfnGs",
   "reel": "-Lg5u70ZmlE",
-  "lau": "Fs8KjtgL-CQ",
+  "lau": "GLL_i7YitOU",
   "pending": {
-    "lau": {
+    "quote": {
+      "video_id": "1Y6nrKCZfSo",
+      "publish_at": "2026-08-17T05:00:00Z"
+    },
+    "reel": {
       "video_id": "FA9Bg0y74sE",
       "publish_at": "2026-08-16T15:00:00Z"
     }

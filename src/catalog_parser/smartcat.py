@@ -1,55 +1,63 @@
 from __future__ import annotations
 
-import os
 import re
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 DEFAULT_UI_BASE = "https://ea.smartcat.com"
-DEFAULT_TARGET_LANGUAGE = "bg"
-DEFAULT_TARGET_LANGUAGE_NAME = "Bulgarian"
+
+
+def configured_target_language() -> str:
+    from media_publisher.languages import selected_language
+
+    return selected_language().alias
+
+
+DEFAULT_TARGET_LANGUAGE = configured_target_language()
+
+
+def configured_target_language_name() -> str:
+    from media_publisher.languages import selected_language
+
+    return selected_language().name
+
+
+def configured_language_aliases() -> frozenset[str]:
+    from media_publisher.languages import selected_language
+
+    language = selected_language()
+    aliases = {language.alias.lower(), language.name.lower()}
+    if language.ingest is not None:
+        aliases |= {code.lower() for code in language.ingest.aliases}
+    return frozenset(aliases)
+
+
+def configured_smartcat_language_id() -> int:
+    from media_publisher.languages import selected_language
+
+    return selected_language().require_ingest().smartcat_language_id
+
+
+def language_id_by_code() -> dict[str, int]:
+    language_id = configured_smartcat_language_id()
+    return {alias: language_id for alias in configured_language_aliases()}
+
+
+def target_srt_name_pattern() -> re.Pattern[str]:
+    aliases = sorted(configured_language_aliases(), key=len, reverse=True)
+    escaped = "|".join(re.escape(alias) for alias in aliases)
+    return re.compile(
+        rf"(^|[._-])(?:{escaped})([._-]|$)|(?:{escaped})",
+        re.IGNORECASE,
+    )
+
 
 PKG_SM_LINK_PATTERN = re.compile(
     r"https?://[^/]+/projects/(?P<project_id>[a-f0-9-]+)/files",
     re.IGNORECASE,
 )
-BULGARIAN_LANGUAGE_ALIASES = frozenset({"bg", "bul", "bulgarian"})
-BULGARIAN_LANGUAGE_ID = 1026
-LANGUAGE_ID_BY_CODE = {
-    "bg": BULGARIAN_LANGUAGE_ID,
-    "bul": BULGARIAN_LANGUAGE_ID,
-    "bulgarian": BULGARIAN_LANGUAGE_ID,
-}
-
-
-def _env_or_default(name: str, default: str) -> str:
-    return os.getenv(name, "").strip() or default
-
-
-def configured_target_language() -> str:
-    return _env_or_default("TARGET_LANGUAGE", DEFAULT_TARGET_LANGUAGE)
-
-
-def configured_target_language_name() -> str:
-    return _env_or_default("TARGET_LANGUAGE_NAME", DEFAULT_TARGET_LANGUAGE_NAME)
-
-
-def configured_language_aliases() -> frozenset[str]:
-    aliases = {
-        configured_target_language().lower(),
-        configured_target_language_name().lower(),
-    }
-    if aliases & {code.lower() for code in BULGARIAN_LANGUAGE_ALIASES}:
-        aliases |= {code.lower() for code in BULGARIAN_LANGUAGE_ALIASES}
-    return frozenset(aliases)
-
-
 SRT_NAME_PATTERN = re.compile(r"\.srt$", re.IGNORECASE)
-BULGARIAN_NAME_PATTERN = re.compile(
-    r"(^|[._-])(bg|bul)([._-]|$)|bulgarian",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -280,7 +288,7 @@ def find_matching_document(
 def _is_bulgarian_srt_name(name: str) -> bool:
     if not SRT_NAME_PATTERN.search(name):
         return False
-    return bool(BULGARIAN_NAME_PATTERN.search(name))
+    return bool(target_srt_name_pattern().search(name))
 
 
 def find_bulgarian_srt_document(
@@ -323,8 +331,9 @@ def resolve_language_id(language: str) -> int:
     normalized = language.strip().lower()
     if normalized.isdigit():
         return int(normalized)
-    if normalized in LANGUAGE_ID_BY_CODE:
-        return LANGUAGE_ID_BY_CODE[normalized]
+    mapping = language_id_by_code()
+    if normalized in mapping:
+        return mapping[normalized]
     raise SmartcatError(f"Unsupported Smartcat language code: {language!r}")
 
 
@@ -462,7 +471,7 @@ def enrich_records_with_bulgarian_srt_links(
             if link is None:
                 updated[link_field] = None
                 updated[f"{link_field}SkipReason"] = (
-                    "Bulgarian subtitles already completed in Smartcat"
+                    f"{configured_target_language_name()} subtitles already completed in Smartcat"
                 )
             else:
                 updated[link_field] = link

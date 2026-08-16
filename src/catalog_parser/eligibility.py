@@ -13,6 +13,7 @@ from catalog_parser.airtable import (
 from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.drive_mix import check_mixable_media, record_has_mixable_media
 from googleapiclient.discovery import Resource
+from media_publisher.languages import selected_language
 
 def needs_bulgarian_translation(record: dict[str, Any]) -> bool:
     pkg_bg_srt_link = record.get("pkgBgSrtLk")
@@ -177,7 +178,9 @@ def explain_catalog_eligibility(
         elif not record.get("pkgSmLk"):
             reasons.append("Smartcat: missing pkgSmLk in catalog sheet")
         else:
-            reasons.append("Smartcat: no Bulgarian SRT editor link resolved")
+            reasons.append(
+                f"Smartcat: no {selected_language().name} SRT editor link resolved"
+            )
 
     reasons.extend(
         airtable_identity_collision_reasons(

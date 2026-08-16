@@ -26,9 +26,31 @@ class GateTests(unittest.TestCase):
         with patch.dict(os.environ, {"TRANSLATION_PROVIDER": "none"}, clear=False):
             self.assertFalse(ai_prefill_enabled())
 
-    def test_ai_prefill_enabled_when_provider_set(self) -> None:
-        with patch.dict(os.environ, {"TRANSLATION_PROVIDER": "anthropic"}, clear=False):
+    def test_ai_prefill_disabled_when_provider_unset(self) -> None:
+        env = {key: value for key, value in os.environ.items() if key != "TRANSLATION_PROVIDER"}
+        env.pop("TRANSLATION_API_KEY", None)
+        with patch.dict(os.environ, env, clear=True):
+            os.environ["TARGET_LANGUAGE"] = "Bulgarian"
+            self.assertFalse(ai_prefill_enabled())
+
+    def test_ai_prefill_enabled_when_provider_and_key_set(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"TRANSLATION_PROVIDER": "anthropic", "TRANSLATION_API_KEY": "test-key"},
+            clear=False,
+        ):
             self.assertTrue(ai_prefill_enabled())
+
+    def test_ai_prefill_disabled_when_key_missing(self) -> None:
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in {"TRANSLATION_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"}
+        }
+        env["TRANSLATION_PROVIDER"] = "anthropic"
+        with patch.dict(os.environ, env, clear=True):
+            os.environ["TARGET_LANGUAGE"] = "Bulgarian"
+            self.assertFalse(ai_prefill_enabled())
 
     def test_needs_translation_vs_fully_done(self) -> None:
         empty = {

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, time
 
 from media_publisher.events.format import format_event_datetime, format_iso_local
+from media_publisher.languages import LanguageDefinition, get_language, selected_language
 
 EVENT_TYPE_SURYA_KRIYA = "surya_kriya"
 EVENT_TYPE_BHUTA_SHUDDHI = "bhuta_shuddhi"
@@ -11,7 +12,6 @@ EVENT_TYPE_YOGASANA = "yogasana"
 
 # Programme images and the Hatha WhatsApp template live in the "Events" child of DRIVE_URL.
 
-SURYA_KRIYA_LEARN_MORE_URL = "https://youtu.be/QFd8S1EHvU8"
 SURYA_KRIYA_LEARN_MORE_LABEL = "Суря крия - Запалете Слънцето във вас! | Садгуру"
 SURYA_KRIYA_QUOTE = (
     "„Суря крия е мощен процес за активиране на слънчевата енергия във вас.“ – Садгуру"
@@ -29,7 +29,6 @@ SURYA_KRIYA_BENEFITS = (
     "Балансирани хормонални нива",
 )
 
-BHUTA_SHUDDHI_LEARN_MORE_URL = "https://youtu.be/bWsQ1Yz9VDM"
 BHUTA_SHUDDHI_LEARN_MORE_LABEL = (
     "Бута Шудди - Основното Пречистване | Садгуру на Български"
 )
@@ -47,7 +46,6 @@ BHUTA_SHUDDHI_BENEFITS = (
     "Пречистване на петте елемента във вас",
 )
 
-YOGASANA_LEARN_MORE_URL = "https://youtu.be/H_3dIi6H84M"
 YOGASANA_LEARN_MORE_LABEL = "Йогасани - пози за издигане на съзнанието | Садгуру"
 YOGASANA_QUOTE = (
     "„Ако сте в една асана осъзнато, тя може да промени начина, по който мислите, "
@@ -79,6 +77,7 @@ class ProgramTemplate:
     learn_more_url: str
     learn_more_label: str
     facebook_image_folder: str
+    benefits_heading: str = ""
 
 
 PROGRAMS: dict[str, ProgramTemplate] = {
@@ -91,7 +90,7 @@ PROGRAMS: dict[str, ProgramTemplate] = {
         benefits=SURYA_KRIYA_BENEFITS,
         benefit_bullet="✅",
         learn_more_intro="Вижте какво казва Садгуру:",
-        learn_more_url=SURYA_KRIYA_LEARN_MORE_URL,
+        learn_more_url="",
         learn_more_label=SURYA_KRIYA_LEARN_MORE_LABEL,
         facebook_image_folder="Surya Kriya",
     ),
@@ -104,7 +103,7 @@ PROGRAMS: dict[str, ProgramTemplate] = {
         benefits=BHUTA_SHUDDHI_BENEFITS,
         benefit_bullet="🎯",
         learn_more_intro="Вижте видеото:",
-        learn_more_url=BHUTA_SHUDDHI_LEARN_MORE_URL,
+        learn_more_url="",
         learn_more_label=BHUTA_SHUDDHI_LEARN_MORE_LABEL,
         facebook_image_folder="Bhuta Shuddhi",
     ),
@@ -117,7 +116,7 @@ PROGRAMS: dict[str, ProgramTemplate] = {
         benefits=YOGASANA_BENEFITS,
         benefit_bullet="✅",
         learn_more_intro="Научете повече тук:",
-        learn_more_url=YOGASANA_LEARN_MORE_URL,
+        learn_more_url="",
         learn_more_label=YOGASANA_LEARN_MORE_LABEL,
         facebook_image_folder="Yogasanas",
     ),
@@ -164,12 +163,13 @@ def get_program(event_type: str) -> ProgramTemplate:
     return program
 
 
-def city_preposition(city: str) -> str:
-    """Bulgarian 'в' becomes 'във' before cities that start with В/в."""
-    first = (city or "").strip()[:1]
-    if first.casefold() == "в":
-        return "във"
-    return "в"
+def city_preposition(city: str, language: LanguageDefinition | None = None) -> str:
+    events = (language or selected_language()).require_events()
+    first = (city or "").strip()[:1].casefold()
+    for prefix, preposition in events.city_preposition_before:
+        if first == prefix.casefold():
+            return preposition
+    return events.city_preposition
 
 
 def render_event(
@@ -184,6 +184,8 @@ def render_event(
     language: str = "bg",
 ) -> RenderedEvent:
     program = program or get_program(event_type)
+    definition = get_language(language) or selected_language()
+    events = definition.require_events()
 
     city_text = city.strip()
     country_text = country.strip()
@@ -196,22 +198,25 @@ def render_event(
         raise ValueError("registration_link is required")
 
     datetime_display = format_event_datetime(
-        event_date, event_time, language=language
+        event_date, event_time, language=definition.alias
     )
     datetime_iso = format_iso_local(event_date, event_time)
-    prep = city_preposition(city_text)
+    prep = city_preposition(city_text, definition)
     emoji = program.title_emoji
-    title_line1 = f'{emoji} Програма "{program.program_name}" {emoji}'
+    title_line1 = (
+        f'{emoji} {events.program_word} "{program.program_name}" {emoji}'
+    )
     title_line2 = f"{prep} {city_text}, {country_text}"
     title = f"{title_line1}\n{title_line2}"
     title_one_line = (
-        f'{emoji} Програма "{program.program_name}" {prep} '
+        f'{emoji} {events.program_word} "{program.program_name}" {prep} '
         f"{city_text}, {country_text} {emoji}"
     )
 
     benefit_lines = tuple(
         f"{program.benefit_bullet} {benefit}" for benefit in program.benefits
     )
+    benefits_heading = program.benefits_heading or events.benefits_headings[0]
 
     body_lines = [
         title_line1,
@@ -226,17 +231,16 @@ def render_event(
     body_lines.extend(
         [
             "",
-            "Ползи:",
+            benefits_heading,
             "",
             *benefit_lines,
             "",
             f"{program.learn_more_intro} {program.learn_more_label}",
             program.learn_more_url,
             "",
-            f"👉 Регистрация тук: {link}",
+            f"{events.registration_cta} {link}",
             "",
-            "💫 С любов, светлина и смях,",
-            "Доброволци",
+            *events.closing_lines,
         ]
     )
     full_text = "\n".join(body_lines)
@@ -254,16 +258,15 @@ def render_event(
     facebook_post_lines.extend(
         [
             "",
-            "Ползи:",
+            benefits_heading,
             "",
             *benefit_lines,
             "",
             f"{program.learn_more_intro} {program.learn_more_url}",
             "",
-            f"👉 Регистрация тук: {link}",
+            f"{events.registration_cta} {link}",
             "",
-            "💫 С любов, светлина и смях,",
-            "Доброволци",
+            *events.closing_lines,
         ]
     )
     facebook_post_text = "\n".join(facebook_post_lines)
@@ -280,6 +283,8 @@ def render_event(
         learn_more_url=program.learn_more_url,
         learn_more_label=program.learn_more_label,
         registration_link=link,
+        benefits_heading=benefits_heading,
+        html_registration_label=events.html_registration_label,
     )
 
     return RenderedEvent(
@@ -321,12 +326,15 @@ def _html_section(
     learn_more_intro: str,
     learn_more_url: str,
     learn_more_label: str,
+    benefits_heading: str,
+    html_registration_label: str,
     registration_link: str,
 ) -> str:
     mark = f"{_html_escape(benefit_bullet)} " if benefit_bullet else ""
     benefit_items = "\n".join(
         f"<li>{mark}{_html_escape(benefit)}</li>" for benefit in benefits
     )
+    heading = _html_escape(benefits_heading)
     # Fixed section order (one DOM node per aligned subgrid row).
     return "\n".join(
         [
@@ -335,7 +343,7 @@ def _html_section(
             f'<p class="quote">{_html_escape(quote)}</p>',
             f'<p class="description">{_html_escape(body)}</p>',
             '<div class="benefits-block">',
-            "<p><strong>Ползи:</strong></p>",
+            f"<p><strong>{heading}</strong></p>",
             '<ul class="benefits">',
             benefit_items,
             "</ul>",
@@ -350,6 +358,7 @@ def _html_section(
             f'<span class="yt-title">{_html_escape(learn_more_label)}</span>'
             "</a></p>",
             '<p class="cta">'
-            f'<a href="{_html_escape(registration_link)}">Регистрация</a></p>',
+            f'<a href="{_html_escape(registration_link)}">'
+            f"{_html_escape(html_registration_label)}</a></p>",
         ]
     )

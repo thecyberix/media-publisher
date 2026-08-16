@@ -4,9 +4,15 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from media_publisher.runtime_env import materialize_credentials
+from media_publisher.languages import selected_language
+from media_publisher.runtime_env import (
+    DAILY_PLAYLIST_JSON_VARIABLE,
+    DAILY_PLAYLIST_SLOTS_RELATIVE_PATH,
+    daily_playlist_id_from_payload,
+    materialize_credentials,
+    parse_daily_playlist_payload,
+)
 from media_publisher.sources.airtable import apply_airtable_url_env
-from media_publisher.sources.happyscribe import DEFAULT_PUBLISHED_FOLDER_ID
 
 
 @dataclass(frozen=True)
@@ -19,7 +25,7 @@ class Settings:
     happyscribe_api_key: str | None = None
     happyscribe_api_base: str = "https://www.happyscribe.com/api/v1"
     happyscribe_url: str | None = None
-    happyscribe_published_folder_id: str | None = DEFAULT_PUBLISHED_FOLDER_ID
+    happyscribe_published_folder_id: str | None = None
     happyscribe_download_dir: str = "downloads/happyscribe"
     happyscribe_ffmpeg: str | None = None
     happyscribe_browser_state: str = "credentials/happyscribe-browser.json"
@@ -33,26 +39,26 @@ class Settings:
     canva_redirect_uri: str = "http://127.0.0.1:8765/callback"
     canva_api_base: str = "https://api.canva.com/rest/v1"
     canva_download_dir: str = "downloads/canva"
-    canva_url: str = "https://www.canva.com/folder/FAHSXg0enw4"
+    canva_url: str = ""
     canva_quotes_design_id: str | None = None
-    canva_quotes_folder_id: str = ""
-    quotes_publish_hour: int = 8
+    quotes_publish_hour: int | None = None
     quotes_sources_config: str = "config/quotes_sources.json"
     translated_quotes_url: str = ""
     quotes_work_dir: str = "downloads/quotes"
-    publish_timezone: str = "Europe/Sofia"
-    videos_publish_hour: int = 18
+    publish_timezone: str = ""
+    videos_publish_hour: int | None = None
     youtube_client_secrets: str = "credentials/youtube-client.json"
     youtube_token: str = "credentials/youtube-token.json"
-    youtube_channel_handle: str = "SadhguruBulgarian"
+    youtube_channel_handle: str = ""
+    smartlink_url: str = ""
     target_language: str = "bg"
     target_language_name: str = "Bulgarian"
     target_country: str = "България"
     youtube_short_cover_intro_seconds: float = 5.0
     youtube_playlist_id: str | None = None
     youtube_daily_playlist_id: str | None = None
-    youtube_daily_playlist_slots: str = "data/youtube_daily_playlist_slots.json"
-    channel_report_mapping: str = "config/channel_report_bulgarian.json"
+    youtube_daily_playlist_slots: str = ""
+    channel_report_mapping: str = "config/channel_report.json"
     channel_report_snapshots: str = "data/channel_report_snapshots.json"
     google_sheets_service_account: str = "credentials/google-sheets-service-account.json"
     drive_url: str = ""
@@ -66,8 +72,8 @@ class Settings:
     thumbnail_review_approved_subfolder: str = "Approved"
     publish_media_download_dir: str = "downloads/publish-media"
     meta_access_token: str | None = None
-    meta_page_username: str = "SadhguruBulgarian"
-    meta_instagram_username: str = "sadhguru.bulgarian"
+    meta_page_username: str = ""
+    meta_instagram_username: str = ""
     meta_app_id: str | None = None
     meta_app_secret: str | None = None
     meta_api_version: str = "v21.0"
@@ -82,6 +88,24 @@ def load_env_file(path: Path) -> None:
             key, value = line.split("=", 1)
             os.environ.setdefault(key.strip(), value.strip())
     apply_airtable_url_env()
+
+
+def _youtube_daily_playlist_settings(root: Path) -> tuple[str | None, str]:
+    payload: dict | None = None
+    env_raw = os.getenv(DAILY_PLAYLIST_JSON_VARIABLE, "").strip()
+    if env_raw:
+        payload = parse_daily_playlist_payload(env_raw)
+    path = root / DAILY_PLAYLIST_SLOTS_RELATIVE_PATH
+    if path.is_file():
+        file_payload = parse_daily_playlist_payload(
+            path.read_text(encoding="utf-8")
+        )
+        if file_payload:
+            payload = {**(payload or {}), **file_payload}
+    playlist_id = daily_playlist_id_from_payload(payload)
+    if not playlist_id:
+        return None, ""
+    return playlist_id, DAILY_PLAYLIST_SLOTS_RELATIVE_PATH
 
 
 def update_env_values(path: Path, updates: dict[str, str]) -> None:
@@ -116,11 +140,19 @@ def load_settings(project_root: Path | None = None) -> Settings:
         value = os.getenv(name, "").strip()
         return value or None
 
+    def optional_int(name: str) -> int | None:
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            return None
+        return int(raw)
+
     intro_seconds_raw = (
         os.getenv("YOUTUBE_SHORT_COVER_INTRO_SECONDS", "").strip()
         or os.getenv("YOUTUBE_SHORT_COVER_END_SECONDS", "5").strip()
         or "5"
     )
+    language = selected_language()
+    daily_playlist_id, daily_playlist_slots = _youtube_daily_playlist_settings(root)
 
     return Settings(
         airtable_token=os.getenv("AIRTABLE_TOKEN", "").strip(),
@@ -135,9 +167,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "https://www.happyscribe.com/api/v1",
         happyscribe_url=optional("HAPPYSCRIBE_URL"),
-        happyscribe_published_folder_id=(
-            optional("HAPPYSCRIBE_PUBLISHED_FOLDER_ID") or DEFAULT_PUBLISHED_FOLDER_ID
-        ),
+        happyscribe_published_folder_id=optional("HAPPYSCRIBE_PUBLISHED_FOLDER_ID"),
         happyscribe_download_dir=os.getenv(
             "HAPPYSCRIBE_DOWNLOAD_DIR", "downloads/happyscribe"
         ).strip()
@@ -167,14 +197,9 @@ def load_settings(project_root: Path | None = None) -> Settings:
         or "https://api.canva.com/rest/v1",
         canva_download_dir=os.getenv("CANVA_DOWNLOAD_DIR", "downloads/canva").strip()
         or "downloads/canva",
-        canva_url=os.getenv(
-            "CANVA_URL",
-            "https://www.canva.com/folder/FAHSXg0enw4",
-        ).strip()
-        or "https://www.canva.com/folder/FAHSXg0enw4",
+        canva_url=os.getenv("CANVA_URL", "").strip(),
         canva_quotes_design_id=optional("CANVA_QUOTES_DESIGN_ID"),
-        canva_quotes_folder_id=(os.getenv("CANVA_QUOTES_FOLDER_ID") or "").strip(),
-        quotes_publish_hour=int(os.getenv("QUOTES_PUBLISH_HOUR", "8").strip() or "8"),
+        quotes_publish_hour=optional_int("QUOTES_PUBLISH_HOUR"),
         quotes_sources_config=os.getenv(
             "QUOTES_SOURCES_CONFIG", "config/quotes_sources.json"
         ).strip()
@@ -182,35 +207,27 @@ def load_settings(project_root: Path | None = None) -> Settings:
         translated_quotes_url=os.getenv("TRANSLATED_QUOTES_URL", "").strip(),
         quotes_work_dir=os.getenv("QUOTES_WORK_DIR", "downloads/quotes").strip()
         or "downloads/quotes",
-        publish_timezone=os.getenv("PUBLISH_TIMEZONE", "Europe/Sofia").strip()
-        or "Europe/Sofia",
-        videos_publish_hour=int(os.getenv("VIDEOS_PUBLISH_HOUR", "18").strip() or "18"),
+        publish_timezone=os.getenv("PUBLISH_TIMEZONE", "").strip(),
+        videos_publish_hour=optional_int("VIDEOS_PUBLISH_HOUR"),
         youtube_client_secrets=os.getenv(
             "YOUTUBE_CLIENT_SECRETS", "credentials/youtube-client.json"
         ).strip()
         or "credentials/youtube-client.json",
         youtube_token=os.getenv("YOUTUBE_TOKEN", "credentials/youtube-token.json").strip()
         or "credentials/youtube-token.json",
-        youtube_channel_handle=os.getenv(
-            "YOUTUBE_CHANNEL_HANDLE", "SadhguruBulgarian"
-        ).strip()
-        or "SadhguruBulgarian",
-        target_language=os.getenv("TARGET_LANGUAGE", "bg").strip() or "bg",
-        target_language_name=os.getenv("TARGET_LANGUAGE_NAME", "Bulgarian").strip()
-        or "Bulgarian",
-        target_country=os.getenv("TARGET_COUNTRY", "България").strip() or "България",
+        youtube_channel_handle=os.getenv("YOUTUBE_CHANNEL_HANDLE", "").strip(),
+        smartlink_url=os.getenv("SMARTLINK_URL", "").strip(),
+        target_language=language.alias,
+        target_language_name=language.name,
+        target_country=language.country,
         youtube_short_cover_intro_seconds=float(intro_seconds_raw),
         youtube_playlist_id=optional("YOUTUBE_PLAYLIST_ID"),
-        youtube_daily_playlist_id=optional("YOUTUBE_DAILY_PLAYLIST_ID"),
-        youtube_daily_playlist_slots=os.getenv(
-            "YOUTUBE_DAILY_PLAYLIST_SLOTS",
-            "data/youtube_daily_playlist_slots.json",
-        ).strip()
-        or "data/youtube_daily_playlist_slots.json",
+        youtube_daily_playlist_id=daily_playlist_id,
+        youtube_daily_playlist_slots=daily_playlist_slots,
         channel_report_mapping=os.getenv(
-            "CHANNEL_REPORT_MAPPING", "config/channel_report_bulgarian.json"
+            "CHANNEL_REPORT_MAPPING", "config/channel_report.json"
         ).strip()
-        or "config/channel_report_bulgarian.json",
+        or "config/channel_report.json",
         channel_report_snapshots=os.getenv(
             "CHANNEL_REPORT_SNAPSHOTS", "data/channel_report_snapshots.json"
         ).strip()
@@ -264,13 +281,45 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "downloads/publish-media",
         meta_access_token=optional("META_ACCESS_TOKEN"),
-        meta_page_username=os.getenv("META_PAGE_USERNAME", "SadhguruBulgarian").strip()
-        or "SadhguruBulgarian",
-        meta_instagram_username=os.getenv(
-            "META_INSTAGRAM_USERNAME", "sadhguru.bulgarian"
-        ).strip()
-        or "sadhguru.bulgarian",
+        meta_page_username=os.getenv("META_PAGE_USERNAME", "").strip(),
+        meta_instagram_username=os.getenv("META_INSTAGRAM_USERNAME", "").strip(),
         meta_app_id=optional("META_APP_ID"),
         meta_app_secret=optional("META_APP_SECRET"),
         meta_api_version=os.getenv("META_API_VERSION", "v21.0").strip() or "v21.0",
     )
+
+
+def missing_required_publish_settings(settings: Settings) -> list[str]:
+    """Repo variables that must be set for publish workflows (no code defaults)."""
+    missing: list[str] = []
+    if not settings.airtable_token:
+        missing.append("AIRTABLE_TOKEN")
+    if not settings.airtable_base_id or not settings.airtable_table_name:
+        missing.append("AIRTABLE_URL")
+    if not settings.drive_url:
+        missing.append("DRIVE_URL")
+    if not settings.canva_url:
+        missing.append("CANVA_URL")
+    if not settings.happyscribe_url:
+        missing.append("HAPPYSCRIBE_URL")
+    if not settings.youtube_channel_handle:
+        missing.append("YOUTUBE_CHANNEL_HANDLE")
+    if not settings.meta_page_username:
+        missing.append("META_PAGE_USERNAME")
+    if not settings.meta_instagram_username:
+        missing.append("META_INSTAGRAM_USERNAME")
+    if not settings.publish_timezone:
+        missing.append("PUBLISH_TIMEZONE")
+    if settings.quotes_publish_hour is None:
+        missing.append("QUOTES_PUBLISH_HOUR")
+    if settings.videos_publish_hour is None:
+        missing.append("VIDEOS_PUBLISH_HOUR")
+    if not settings.translated_quotes_url:
+        missing.append("TRANSLATED_QUOTES_URL")
+    if not settings.smartlink_url:
+        missing.append("SMARTLINK_URL")
+    try:
+        selected_language()
+    except Exception:
+        missing.append("TARGET_LANGUAGE")
+    return missing

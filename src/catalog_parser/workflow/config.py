@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+SHARED_WORKFLOW_CONFIG = Path("config") / "workflow_config.json"
+LOCAL_WORKFLOW_CONFIG = Path("workflow_config.json")
+
+
 @dataclass(frozen=True)
 class PersonProfile:
     name: str
@@ -23,9 +27,9 @@ class WorkflowConfig:
     translators: list[PersonProfile]
     editors: list[PersonProfile]
     timing_editors: list[PersonProfile]
-    work_dir: Path = Path("_tmp_drive_mix")
-    target_reel_to_video_ratio: int = 6
-    max_video_seconds: int = 15 * 60
+    work_dir: Path
+    target_reel_to_video_ratio: int
+    max_video_seconds: int
 
 
 def _parse_person(item: object) -> PersonProfile | None:
@@ -62,57 +66,65 @@ def _parse_person(item: object) -> PersonProfile | None:
     )
 
 
+def _read_json_object(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{path.as_posix()} must contain a JSON object")
+    return data
+
+
+def _load_shared_workflow_config(project_root: Path) -> dict:
+    path = project_root / SHARED_WORKFLOW_CONFIG
+    data = _read_json_object(path)
+    if not data:
+        raise RuntimeError(f"{SHARED_WORKFLOW_CONFIG.as_posix()} is required")
+    return data
+
+
+def _required_int(data: dict, key: str, source: str) -> int:
+    if key not in data or data[key] in (None, ""):
+        raise RuntimeError(f"{source} {key} is required")
+    return int(data[key])
+
+
 def _load_profiles_json(project_root: Path) -> dict:
     raw = os.getenv("WORKFLOW_PROFILES_JSON", "").strip()
     if raw:
         return json.loads(raw)
-    config_path = project_root / "workflow_config.json"
-    if config_path.exists():
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        profiles = data.get("profiles")
-        if isinstance(profiles, dict):
-            return profiles
+    data = _read_json_object(project_root / LOCAL_WORKFLOW_CONFIG)
+    profiles = data.get("profiles")
+    if isinstance(profiles, dict):
+        return profiles
     return {}
 
 
-def load_catalog_id(project_root: Path, *, file_data: dict | None = None) -> str:
+def load_catalog_id(project_root: Path) -> str:
     from catalog_parser.parser import extract_sheet_id
 
-    raw = (
-        os.getenv("CATALOG_URL", "").strip()
-        or os.getenv("CATALOG_ID", "").strip()
-    )
+    data = _load_shared_workflow_config(project_root)
+    raw = str(data.get("catalog_id", "")).strip()
     if not raw:
-        data = file_data
-        if data is None:
-            config_path = project_root / "workflow_config.json"
-            data = {}
-            if config_path.exists():
-                data = json.loads(config_path.read_text(encoding="utf-8"))
-        raw = str(data.get("catalog_id", "")).strip()
-    if not raw:
-        raise RuntimeError(
-            "CATALOG_URL (or CATALOG_ID) env var or workflow_config.json catalog_id is required"
-        )
+        raise RuntimeError(f"{SHARED_WORKFLOW_CONFIG.as_posix()} catalog_id is required")
     return extract_sheet_id(raw)
 
 
 def load_workflow_config(project_root: Path) -> WorkflowConfig:
-    config_path = project_root / "workflow_config.json"
-    file_data: dict = {}
-    if config_path.exists():
-        file_data = json.loads(config_path.read_text(encoding="utf-8"))
+    local_data = _read_json_object(project_root / LOCAL_WORKFLOW_CONFIG)
+    shared = _load_shared_workflow_config(project_root)
+    source = SHARED_WORKFLOW_CONFIG.as_posix()
 
     drive_url = (
         os.getenv("DRIVE_URL", "").strip()
-        or str(file_data.get("drive_url", "")).strip()
+        or str(local_data.get("drive_url", "")).strip()
     )
     if not drive_url:
         raise RuntimeError(
             "DRIVE_URL env var or workflow_config.json drive_url is required"
         )
 
-    catalog_id = load_catalog_id(project_root, file_data=file_data)
+    catalog_id = load_catalog_id(project_root)
 
     profiles = _load_profiles_json(project_root)
     translators_data = profiles.get("translators", [])
@@ -148,7 +160,7 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
 
     work_dir = Path(
         os.getenv("WORKFLOW_DIR", "").strip()
-        or file_data.get("work_dir", "_tmp_drive_mix")
+        or local_data.get("work_dir", "_tmp_drive_mix")
     )
     if not work_dir.is_absolute():
         work_dir = project_root / work_dir
@@ -160,14 +172,10 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
         editors=editors,
         timing_editors=timing_editors,
         work_dir=work_dir,
-        target_reel_to_video_ratio=int(
-            os.getenv("WORKFLOW_REEL_TO_VIDEO_RATIO", "").strip()
-            or file_data.get("target_reel_to_video_ratio", 6)
+        target_reel_to_video_ratio=_required_int(
+            shared, "target_reel_to_video_ratio", source
         ),
-        max_video_seconds=int(
-            os.getenv("WORKFLOW_MAX_VIDEO_SECONDS", "").strip()
-            or file_data.get("max_video_seconds", 15 * 60)
-        ),
+        max_video_seconds=_required_int(shared, "max_video_seconds", source),
     )
 
 

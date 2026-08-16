@@ -2,9 +2,9 @@
 
 Public listing of Isha programme announcements for Bulgaria. v1 supports **Surya Kriya** (Bulgarian).
 
-Styled to match the Metricool SmartLink:
-https://t-sml.mtrbio.com/public/smartlink/sadhguru-bulgarian
+Styled to match Metricool SmartLink page colors
 (cream background `#F9F4F3`, Merriweather, dark brown text, pill CTAs).
+Video captions use repository variable `SMARTLINK_URL`; if it is unset, the learn-more line is omitted.
 
 ## Enable GitHub Pages
 

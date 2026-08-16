@@ -2,27 +2,44 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Any
 
 from catalog_parser.translation.srt import Cue, parse_srt
 
-CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 LATIN_RE = re.compile(r"[A-Za-z]")
-
-# Default gates for Bulgarian target exports.
-DEFAULT_MIN_CYRILLIC_RATE = 0.80
+DEFAULT_MIN_TARGET_SCRIPT_RATE = 0.80
 DEFAULT_MAX_IDENTICAL_RATE = 0.20
+# Back-compat names used by corpus export scripts.
+DEFAULT_MIN_CYRILLIC_RATE = DEFAULT_MIN_TARGET_SCRIPT_RATE
+
+
+@lru_cache(maxsize=4)
+def _target_letter_re() -> re.Pattern[str]:
+    from media_publisher.languages import selected_language
+
+    pattern = selected_language().require_ingest().letter_pattern
+    return re.compile(pattern)
+
+
+def text_target_script_ratio(text: str) -> float:
+    target_re = _target_letter_re()
+    letters = target_re.findall(text) + LATIN_RE.findall(text)
+    if not letters:
+        return 0.0
+    return len(target_re.findall(text)) / len(letters)
 
 
 def text_cyrillic_ratio(text: str) -> float:
-    letters = CYRILLIC_RE.findall(text) + LATIN_RE.findall(text)
-    if not letters:
-        return 0.0
-    return len(CYRILLIC_RE.findall(text)) / len(letters)
+    return text_target_script_ratio(text)
+
+
+def looks_mostly_target_script(text: str, *, min_ratio: float = 0.3) -> bool:
+    return text_target_script_ratio(text) >= min_ratio
 
 
 def looks_mostly_cyrillic(text: str, *, min_ratio: float = 0.3) -> bool:
-    return text_cyrillic_ratio(text) >= min_ratio
+    return looks_mostly_target_script(text, min_ratio=min_ratio)
 
 
 def score_srt_text(content: str) -> dict[str, Any]:
@@ -33,7 +50,7 @@ def score_srt_text(content: str) -> dict[str, Any]:
             "cyrillic_rate": 0.0,
             "empty_rate": 1.0,
         }
-    cyrillic_cues = sum(1 for cue in cues if looks_mostly_cyrillic(cue.text))
+    cyrillic_cues = sum(1 for cue in cues if looks_mostly_target_script(cue.text))
     empty_cues = sum(1 for cue in cues if not cue.text.strip())
     return {
         "cue_count": len(cues),
@@ -73,7 +90,7 @@ def passes_bilingual_gates(
     source_srt: str,
     target_srt: str,
     *,
-    min_cyrillic_rate: float = DEFAULT_MIN_CYRILLIC_RATE,
+    min_cyrillic_rate: float = DEFAULT_MIN_TARGET_SCRIPT_RATE,
     max_identical_rate: float = DEFAULT_MAX_IDENTICAL_RATE,
 ) -> tuple[bool, str]:
     card = scorecard_pair(source_srt, target_srt)
@@ -84,7 +101,7 @@ def passes_bilingual_gates(
     if card["target_cyrillic_rate"] < min_cyrillic_rate:
         return (
             False,
-            f"target Cyrillic rate {card['target_cyrillic_rate']:.0%} "
+            f"target script rate {card['target_cyrillic_rate']:.0%} "
             f"< {min_cyrillic_rate:.0%}",
         )
     if card["identical_rate"] > max_identical_rate:
@@ -108,7 +125,7 @@ def filter_aligned_for_bulgarian(
             continue
         if source == target:
             continue
-        if not looks_mostly_cyrillic(target):
+        if not looks_mostly_target_script(target):
             continue
         kept.append(pair)
     return kept

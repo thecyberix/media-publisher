@@ -200,21 +200,24 @@ def run_publish_pipeline(
     print_line: Callable[[str], None] = print,
 ) -> tuple[int, list[PlatformPublishResult]]:
     """Fetch pending catalog rows, download videos, publish, and update Airtable."""
-    try:
-        synced_slots = flush_configured_daily_playlist(
-            client_secrets_path=settings.youtube_client_secrets,
-            token_path=settings.youtube_token,
-            expected_channel_handle=settings.youtube_channel_handle,
-            daily_playlist_id=settings.youtube_daily_playlist_id,
-            daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
-        )
-        if synced_slots:
-            print_line(
-                "Daily playlist updated for public slots: "
-                + ", ".join(synced_slots)
+    def flush_daily_playlist() -> None:
+        try:
+            synced_slots = flush_configured_daily_playlist(
+                client_secrets_path=settings.youtube_client_secrets,
+                token_path=settings.youtube_token,
+                expected_channel_handle=settings.youtube_channel_handle,
+                daily_playlist_id=settings.youtube_daily_playlist_id,
+                daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
             )
-    except Exception as exc:
-        print_line(f"Daily playlist flush skipped: {exc}")
+            if synced_slots:
+                print_line(
+                    "Daily playlist updated for public slots: "
+                    + ", ".join(synced_slots)
+                )
+        except Exception as exc:
+            print_line(f"Daily playlist flush skipped: {exc}")
+
+    flush_daily_playlist()
 
     tasks = fetch_pending_schedule_tasks(
         airtable,
@@ -582,4 +585,5 @@ def run_publish_pipeline(
     if skipped_count:
         summary = f"{summary[:-1]}, {skipped_count} skipped."
     print_line(summary)
+    flush_daily_playlist()
     return (1 if failures else 0), results

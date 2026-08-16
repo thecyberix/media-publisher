@@ -8,7 +8,11 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
-from media_publisher.config import load_settings, update_env_values
+from media_publisher.config import (
+    load_settings,
+    missing_required_publish_settings,
+    update_env_values,
+)
 from media_publisher.runtime_env import (
     maybe_persist_canva_token,
     maybe_persist_daily_playlist_slots,
@@ -64,6 +68,7 @@ from media_publisher.analytics.channel_report import (
     inspect_channel_report_sheet,
     load_channel_report_mapping,
     parse_month_cell,
+    resolve_report_sheet_tab,
     update_channel_report,
 )
 from media_publisher.analytics.channel_report_snapshots import (
@@ -301,7 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--country",
         default="",
-        help="Country for --publish-event (default: TARGET_COUNTRY / България).",
+        help="Country for --publish-event (default: selected language country).",
     )
     parser.add_argument(
         "--date",
@@ -311,7 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--time",
         default="",
-        help="Event time for --publish-event (HH:MM, Europe/Sofia display).",
+        help="Event time for --publish-event (HH:MM in PUBLISH_TIMEZONE).",
     )
     parser.add_argument(
         "--registration-link",
@@ -612,7 +617,8 @@ def canva_client_from_settings(settings) -> CanvaClient:
 
 def canva_settings_complete(settings) -> bool:
     return bool(
-        settings.canva_client_id
+        settings.canva_url
+        and settings.canva_client_id
         and settings.canva_client_secret
         and (PROJECT_ROOT / settings.canva_token).exists()
     )
@@ -863,6 +869,10 @@ def meta_settings_missing(settings) -> list[str]:
         missing.append("META_ACCESS_TOKEN")
     if not settings.meta_app_id:
         missing.append("META_APP_ID")
+    if not settings.meta_page_username:
+        missing.append("META_PAGE_USERNAME")
+    if not settings.meta_instagram_username:
+        missing.append("META_INSTAGRAM_USERNAME")
     return missing
 
 
@@ -893,18 +903,6 @@ def resolve_meta_targets(settings) -> tuple[str, str, MetaPageInfo]:
 
 def canva_download_dir_from_settings(settings) -> Path:
     return PROJECT_ROOT / settings.canva_download_dir
-
-
-def resolve_canva_quotes_folder_id(settings) -> str | None:
-    value = (settings.canva_quotes_folder_id or "").strip()
-    if not value:
-        return None
-    resource_type, resource_id = parse_canva_resource(value)
-    if resource_type != "folder":
-        raise CanvaError(
-            "CANVA_QUOTES_FOLDER_ID must be a Canva folder URL or folder id"
-        )
-    return resource_id
 
 
 def template_urls_from_settings(settings) -> dict[str, str]:
@@ -1125,9 +1123,35 @@ def attach_local_video_path(job, settings) -> None:
 
 def youtube_settings_complete(settings) -> bool:
     return bool(
-        (PROJECT_ROOT / settings.youtube_client_secrets).exists()
+        settings.youtube_channel_handle
+        and (PROJECT_ROOT / settings.youtube_client_secrets).exists()
         and (PROJECT_ROOT / settings.youtube_token).exists()
     )
+
+
+def require_publish_timezone(settings) -> str:
+    if not settings.publish_timezone:
+        raise RuntimeError("PUBLISH_TIMEZONE is required")
+    return settings.publish_timezone
+
+
+def require_quotes_publish_hour(settings) -> int:
+    if settings.quotes_publish_hour is None:
+        raise RuntimeError("QUOTES_PUBLISH_HOUR is required")
+    return settings.quotes_publish_hour
+
+
+def require_videos_publish_hour(settings) -> int:
+    if settings.videos_publish_hour is None:
+        raise RuntimeError("VIDEOS_PUBLISH_HOUR is required")
+    return settings.videos_publish_hour
+
+
+def daily_playlist_slots_path_from_settings(settings) -> Path | None:
+    relative = (settings.youtube_daily_playlist_slots or "").strip()
+    if not relative:
+        return None
+    return PROJECT_ROOT / relative
 
 
 def cli_requested_action(args) -> bool:
@@ -1210,13 +1234,9 @@ def run_inspect_channel_report(settings) -> int:
         print(f"Channel report inspect failed: {exc}")
         return 1
 
-    sheet_title = sheets.resolve_sheet_title(
-        mapping.spreadsheet_id,
-        sheet_gid=mapping.sheet_gid,
-        sheet_title=mapping.sheet_title,
-    )
+    tab = resolve_report_sheet_tab(sheets, mapping)
     print(f"Spreadsheet: {mapping.spreadsheet_id}")
-    print(f"Tab: {sheet_title} (gid={mapping.sheet_gid})")
+    print(f"Tab: {tab.title} (language={settings.target_language_name})")
     print(f"Mapping file: {mapping_path}")
     for index, row in enumerate(rows, start=1):
         print_console("\t".join(row) if row else "")
@@ -1417,8 +1437,8 @@ def build_quotes_pipeline_settings(
         project_root=PROJECT_ROOT,
         quotes_sources_config=PROJECT_ROOT / settings.quotes_sources_config,
         google_service_account=PROJECT_ROOT / settings.google_sheets_service_account,
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.quotes_publish_hour,
+        publish_timezone=require_publish_timezone(settings),
+        publish_hour=require_quotes_publish_hour(settings),
         template_urls=template_urls_from_settings(settings),
         meta_page_id=meta_page_id,
         meta_instagram_account_id=meta_instagram_account_id,
@@ -1429,7 +1449,9 @@ def build_quotes_pipeline_settings(
         youtube_channel_handle=settings.youtube_channel_handle,
         youtube_playlist_id=settings.youtube_playlist_id,
         youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
-        youtube_daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
+        youtube_daily_playlist_slots_path=daily_playlist_slots_path_from_settings(
+            settings
+        ),
         ffmpeg_path=settings.happyscribe_ffmpeg,
         publish_mode=publish_mode,
         private_test=private_test,
@@ -1485,8 +1507,8 @@ def print_publish_run_mode(
     reference_date,
     private_test: bool,
     content_label: str = "videos",
-    publish_timezone: str = "Europe/Sofia",
-    publish_hour: int = 18,
+    publish_timezone: str,
+    publish_hour: int,
 ) -> None:
     today = reference_date.isoformat()
     tomorrow = (reference_date + timedelta(days=1)).isoformat()
@@ -1547,16 +1569,16 @@ def run_quotes_publish(settings, args) -> int:
     platforms = resolve_selected_platforms(args)
     publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.quotes_publish_hour,
+        publish_timezone=require_publish_timezone(settings),
+        publish_hour=require_quotes_publish_hour(settings),
     )
     print_publish_run_mode(
         publish_mode=publish_mode,
         reference_date=reference_date,
         private_test=private_test,
         content_label="quote posts",
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.quotes_publish_hour,
+        publish_timezone=require_publish_timezone(settings),
+        publish_hour=require_quotes_publish_hour(settings),
     )
     if platforms is not None:
         print_console(f"Limiting quote publish to: {', '.join(platforms)}")
@@ -1584,7 +1606,7 @@ def run_quotes_publish(settings, args) -> int:
             PROJECT_ROOT / settings.quotes_sources_config
         )
         sync_reference = reference_date or datetime.now(
-            get_timezone(settings.publish_timezone)
+            get_timezone(require_publish_timezone(settings))
         ).date()
 
         sync_result = sync_generated_quotes_for_months(
@@ -1650,8 +1672,8 @@ def build_publish_pipeline_settings(
 
     return PublishPipelineSettings(
         project_root=PROJECT_ROOT,
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.videos_publish_hour,
+        publish_timezone=require_publish_timezone(settings),
+        publish_hour=require_videos_publish_hour(settings),
         canva_download_dir=canva_download_dir_from_settings(settings),
         canva_client=canva_client,
         canva_long_video_thumbnails_url=long_catalog_url,
@@ -1670,7 +1692,9 @@ def build_publish_pipeline_settings(
         youtube_channel_handle=settings.youtube_channel_handle,
         youtube_playlist_id=settings.youtube_playlist_id,
         youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
-        youtube_daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
+        youtube_daily_playlist_slots_path=daily_playlist_slots_path_from_settings(
+            settings
+        ),
         template_urls=template_urls_from_settings(settings),
         meta_page_id=meta_page_id,
         meta_instagram_account_id=meta_instagram_account_id,
@@ -1719,8 +1743,8 @@ def run_default_publish(settings, args) -> int:
     platforms = resolve_selected_platforms(args)
     publish_mode, reference_date, private_test = resolve_publish_run_mode(
         args,
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.videos_publish_hour,
+        publish_timezone=require_publish_timezone(settings),
+        publish_hour=require_videos_publish_hour(settings),
     )
     regenerate_videos = bool(getattr(args, "regenerate_videos", False))
     use_web_export = bool(getattr(args, "happyscribe_web_export", False))
@@ -1730,8 +1754,8 @@ def run_default_publish(settings, args) -> int:
         publish_mode=publish_mode,
         reference_date=reference_date,
         private_test=private_test,
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.videos_publish_hour,
+        publish_timezone=require_publish_timezone(settings),
+        publish_hour=require_videos_publish_hour(settings),
     )
     if platforms is not None:
         print_console(f"Limiting video publish to: {', '.join(platforms)}")
@@ -1832,13 +1856,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.check_config:
-        missing = []
-        if not settings.airtable_token:
-            missing.append("AIRTABLE_TOKEN")
-        if not settings.airtable_base_id or not settings.airtable_table_name:
-            missing.append("AIRTABLE_URL")
-        if not settings.drive_url:
-            missing.append("DRIVE_URL")
+        missing = missing_required_publish_settings(settings)
         if missing:
             print("Missing required settings:", ", ".join(missing))
             return 1
@@ -1856,6 +1874,7 @@ def main() -> int:
             print(f"    Channel: @{settings.youtube_channel_handle}")
         print(f"  Language: {settings.target_language_name} ({settings.target_language})")
         print(f"  Country: {settings.target_country}")
+        print(f"  Smartlink: {'yes' if settings.smartlink_url else 'no'}")
         print(f"  Meta: {'yes' if settings.meta_access_token else 'no'}")
         print(f"    Facebook: {meta_facebook_url(settings)}")
         print(f"    Instagram: {meta_instagram_url(settings)}")
@@ -2415,7 +2434,9 @@ def main() -> int:
                 cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
                 playlist_id=settings.youtube_playlist_id,
                 daily_playlist_id=settings.youtube_daily_playlist_id,
-                daily_playlist_slots_path=PROJECT_ROOT / settings.youtube_daily_playlist_slots,
+                daily_playlist_slots_path=daily_playlist_slots_path_from_settings(
+                    settings
+                ),
                 **template_urls_from_settings(settings),
             )
             permalink = youtube_video_url(video_id)

@@ -60,10 +60,10 @@ def _format_canva_http_error(method: str, path: str, code: int, detail: str) -> 
         f"{message} Re-authorize Canva with scopes: {' '.join(DEFAULT_SCOPES)} "
         "(run `python -m media_publisher --canva-auth`)."
     )
-DEFAULT_CANVA_URL = "https://www.canva.com/folder/FAHSXg0enw4"
+
+
 CANVA_LONG_VIDEOS_FOLDER_NAME = "Long videos"
 CANVA_SHORT_VIDEOS_FOLDER_NAME = "Short videos"
-CANVA_QUOTES_FOLDER_URL = "https://www.canva.com/folder/FAF9ECD0M-k"
 ORIGINAL_VIDEO_NAME_KEY = "Title"
 EXPORT_POLL_INTERVAL_SECONDS = 2.0
 EXPORT_POLL_MAX_ATTEMPTS = 60

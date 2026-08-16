@@ -26,6 +26,7 @@ from catalog_parser.smartcat_export import (
     resolve_source_language_id,
 )
 from catalog_parser.smartcat_web import SmartcatWebSession
+from media_publisher.languages import selected_language
 from catalog_parser.translation.corpus import (
     CorpusCandidate,
     default_current_year,
@@ -164,7 +165,7 @@ def write_aligned_pairs(
             "start": pair.start,
             "end": pair.end,
             "en": pair.source_text,
-            "bg": pair.target_text,
+            selected_language().alias: pair.target_text,
         }
         output_handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 

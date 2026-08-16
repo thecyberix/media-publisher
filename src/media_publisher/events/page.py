@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
@@ -9,18 +10,24 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from media_publisher.events.templates import RenderedEvent
+from media_publisher.languages import selected_language
 
 EVENTS_DIR_NAME = "events"
 EVENTS_DATA_RELATIVE = Path("data") / "events.json"
 EVENTS_INDEX_NAME = "index.html"
-EVENTS_TIMEZONE = ZoneInfo("Europe/Sofia")
-# Metricool SmartLink (https://t-sml.mtrbio.com/public/smartlink/sadhguru-bulgarian)
+
+
+def events_timezone() -> ZoneInfo:
+    name = os.getenv("PUBLISH_TIMEZONE", "").strip()
+    if not name:
+        raise RuntimeError("PUBLISH_TIMEZONE is required")
+    return ZoneInfo(name)
+# Metricool SmartLink page colors (caption URL is SMARTLINK_URL, not this page).
 SMARTLINK_BACKGROUND = "#F9F4F3"
 SMARTLINK_TEXT = "#2B0B0B"
 SMARTLINK_MUTED = "#6B4A4A"
 SMARTLINK_ACCENT = "#5E583A"  # "Събития" button
 SMARTLINK_LINK = "#4F6F8B"  # "Водени Медитации" button tone
-EMPTY_STATE_TEXT = "Очаквайте скоро!"
 PROFILE_IMAGE_SRC = "assets/sadhguru.png"
 
 
@@ -130,7 +137,7 @@ def parse_stored_event_datetime(value: str) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=EVENTS_TIMEZONE)
+        return parsed.replace(tzinfo=events_timezone())
     return parsed
 
 
@@ -147,11 +154,11 @@ def prune_past_events(
     now: datetime | None = None,
     write: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Remove events whose start datetime is in the past (Europe/Sofia).
+    """Remove events whose start datetime is in the past (PUBLISH_TIMEZONE).
 
     Returns ``(kept, removed)``.
     """
-    current = now or datetime.now(EVENTS_TIMEZONE)
+    current = now or datetime.now(events_timezone())
     existing = load_events(events_root) if events_root.is_dir() else []
     kept: list[dict[str, Any]] = []
     removed: list[dict[str, Any]] = []
@@ -234,20 +241,25 @@ def rebuild_index(events_root: Path, events: list[dict[str, Any]] | None = None)
         sections.append(body)
         sections.append("</article>")
 
+    page = selected_language().require_events()
     if sections:
         body_class = ""
         main_html = "\n".join(sections)
     else:
         body_class = ' class="is-empty"'
         main_html = (
-            f'    <p class="coming-soon">{_html_escape(EMPTY_STATE_TEXT)}</p>'
+            f'    <p class="coming-soon">{_html_escape(page.empty_state)}</p>'
         )
     chrome = _LIST_CHROME.format(
         events=main_html,
         profile_src=_html_escape(PROFILE_IMAGE_SRC),
+        profile_alt=_html_escape(page.profile_alt),
+        page_heading=_html_escape(page.page_heading),
     )
 
     html = _INDEX_TEMPLATE.format(
+        html_lang=_html_escape(selected_language().alias),
+        page_heading=_html_escape(page.page_heading),
         background=SMARTLINK_BACKGROUND,
         text=SMARTLINK_TEXT,
         muted=SMARTLINK_MUTED,
@@ -282,8 +294,8 @@ def _html_escape(value: str) -> str:
 
 _LIST_CHROME = """\
   <header>
-    <img class="profile" src="{profile_src}" alt="Садгуру" width="128" height="128">
-    <h1>Събития</h1>
+    <img class="profile" src="{profile_src}" alt="{profile_alt}" width="128" height="128">
+    <h1>{page_heading}</h1>
   </header>
   <main>
 {events}
@@ -292,11 +304,11 @@ _LIST_CHROME = """\
 
 _INDEX_TEMPLATE = """\
 <!DOCTYPE html>
-<html lang="bg">
+<html lang="{html_lang}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Събития</title>
+  <title>{page_heading}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">

@@ -1,6 +1,6 @@
 name: Daily catalog workflow
 
-# Primary schedule: external cron (cron-job.org) → workflow_dispatch at 00:00 Europe/Sofia.
+# Primary schedule: external cron (cron-job.org) → workflow_dispatch at 00:00 local time.
 # GitHub schedule below is a fallback; remove it once external cron is verified (see docs/catalog-github-actions.md).
 on:
   workflow_dispatch:
@@ -42,8 +42,6 @@ permissions:
 env:
   NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
   TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
-  TARGET_LANGUAGE_NAME: ${{ vars.TARGET_LANGUAGE_NAME }}
-  TARGET_COUNTRY: ${{ vars.TARGET_COUNTRY }}
 
 jobs:
   workflow:
@@ -176,17 +174,18 @@ jobs:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
           DRIVE_URL: ${{ vars.DRIVE_URL }}
-          CATALOG_URL: ${{ vars.CATALOG_URL }}
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
-          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || 'anthropic' }}
+          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
           TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL || '' }}
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
           CANVA_URL: ${{ vars.CANVA_URL }}
+          PUBLISH_TIMEZONE: ${{ vars.PUBLISH_TIMEZONE }}
+          VIDEOS_PUBLISH_HOUR: ${{ vars.VIDEOS_PUBLISH_HOUR }}
           CONFIG_SYNC_PAT: ${{ secrets.CONFIG_SYNC_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
@@ -215,17 +214,18 @@ jobs:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
           DRIVE_URL: ${{ vars.DRIVE_URL }}
-          CATALOG_URL: ${{ vars.CATALOG_URL }}
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
-          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || 'anthropic' }}
+          TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
           TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL || '' }}
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
           CANVA_URL: ${{ vars.CANVA_URL }}
+          PUBLISH_TIMEZONE: ${{ vars.PUBLISH_TIMEZONE }}
+          VIDEOS_PUBLISH_HOUR: ${{ vars.VIDEOS_PUBLISH_HOUR }}
           # Do not rematerialize CANVA_TOKEN_JSON here: the Restore step already
           # wrote credentials/canva-token.json, and re-injecting the job-scoped
           # (possibly stale) secret after a refresh revokes Canva's single-use

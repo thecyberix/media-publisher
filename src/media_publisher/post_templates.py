@@ -1,61 +1,58 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import replace
 
+from media_publisher.languages import selected_language
 from media_publisher.models import PlatformName, PublishJob, VideoFormat
 from media_publisher.sources.airtable import FIELD_ORIGINAL_VIDEO, FIELD_TITLE
 
-DEFAULT_YOUTUBE_CHANNEL_URL = "https://www.youtube.com/@SadhguruBulgarian"
-DEFAULT_FACEBOOK_PAGE_URL = "https://www.facebook.com/SadhguruBulgarian"
-DEFAULT_INSTAGRAM_PROFILE_URL = "https://www.instagram.com/sadhguru.bulgarian/"
+DEFAULT_YOUTUBE_CHANNEL_URL = ""
+DEFAULT_FACEBOOK_PAGE_URL = ""
+DEFAULT_INSTAGRAM_PROFILE_URL = ""
 
-YOUTUBE_TAGS_POST = (
-    "садгуру на български език",
-    "садгуру",
-    "садгуру на български",
-    "садгуру бг превод",
-    "садгуру бг",
-    "медитация",
-    "садгуру медитация",
-    "садгуру йога",
-    "йога практика",
-    "вътрешно изграждане",
-    "чудото на ума",
-    "садгуру българия",
-)
-
-YOUTUBE_TAGS_SHORT = (
-    "садгуру на български език",
-    "садгуру",
-    "садгуру на български",
-    "садгуру бг превод",
-    "садгуру бг",
-    "медитация",
-    "садгуру медитация",
-    "садгуру йога",
-    "йога практика",
-    "вътрешно изграждане",
-    "духовно развитие",
-)
-
-DEFAULT_SMARTLINK_URL = (
-    "https://t-sml.mtrbio.com/public/smartlink/sadhguru-bulgarian"
-)
-SMARTLINK_CTA = f"Научете повече: {DEFAULT_SMARTLINK_URL}"
 ORIGINAL_VIDEO_LABEL = "Original video: {original_video_url}"
+YOUTUBE_TITLE_MAX_LENGTH = 100
+
+
+def _publish():
+    return selected_language().require_publish()
+
+
+def smartlink_url() -> str:
+    return os.getenv("SMARTLINK_URL", "").strip()
+
+
+def smartlink_cta() -> str:
+    url = smartlink_url()
+    if not url:
+        return ""
+    return f"{_publish().learn_more_label} {url}"
+
+
+def quote_hashtag() -> str:
+    return _publish().hashtag
+
+
+def youtube_tags() -> tuple[str, ...]:
+    return _publish().youtube_tags
 
 
 def append_smartlink_cta(text: str) -> str:
     """Append the Smartlink CTA after a blank line when not already present."""
+    cta = smartlink_cta()
+    url = smartlink_url()
     clean = text.rstrip()
-    if SMARTLINK_CTA in clean or DEFAULT_SMARTLINK_URL in clean:
-        if SMARTLINK_CTA in clean:
+    if not cta:
+        return clean
+    if cta in clean or (url and url in clean):
+        if cta in clean:
             return clean
-        return clean.replace(DEFAULT_SMARTLINK_URL, SMARTLINK_CTA)
+        return clean.replace(url, cta)
     if not clean:
-        return SMARTLINK_CTA
-    return f"{clean}\n\n{SMARTLINK_CTA}"
+        return cta
+    return f"{clean}\n\n{cta}"
 
 
 def _original_video_url(job: PublishJob) -> str | None:
@@ -73,8 +70,11 @@ def _long_form_youtube_footer(
     lines: list[str] = []
     if include_original_video and original_video_url:
         lines.append(ORIGINAL_VIDEO_LABEL.format(original_video_url=original_video_url))
-        lines.append("")
-    lines.append(SMARTLINK_CTA)
+    cta = smartlink_cta()
+    if cta:
+        if lines:
+            lines.append("")
+        lines.append(cta)
     return "\n".join(lines)
 
 
@@ -100,69 +100,70 @@ def build_long_form_description(
     return footer
 
 
-YOUTUBE_TITLE_MAX_LENGTH = 100
-
-
 def build_short_form_youtube_title(title: str) -> str:
     clean = title.strip()
+    publish = _publish()
+    fallback = f"{publish.display_name} #shorts"
+    pipe = publish.youtube_title_pipe_suffix
     if not clean:
-        return "Садгуру #shorts"
+        return fallback
     if "#shorts" in clean.lower():
         return clean[:YOUTUBE_TITLE_MAX_LENGTH]
-    if clean.endswith("| Садгуру"):
+    if pipe and clean.endswith(pipe):
         suffix = " #shorts"
     else:
-        suffix = " | Садгуру #shorts"
+        suffix = f" {pipe} #shorts" if pipe else " #shorts"
     max_base = YOUTUBE_TITLE_MAX_LENGTH - len(suffix)
     if max_base < 1:
-        return "Садгуру #shorts"[:YOUTUBE_TITLE_MAX_LENGTH]
+        return fallback[:YOUTUBE_TITLE_MAX_LENGTH]
     base = clean[:max_base].rstrip(" -|")
     if not base:
-        return "Садгуру #shorts"[:YOUTUBE_TITLE_MAX_LENGTH]
+        return fallback[:YOUTUBE_TITLE_MAX_LENGTH]
     return f"{base}{suffix}"
 
 
 def build_short_form_youtube_description(description: str) -> str:
     clean = description.strip()
-    header = "#shorts #садгуру"
+    header = _publish().shorts_description_hashtags
     if clean:
         return append_smartlink_cta(f"{header}\n{clean}")
     return append_smartlink_cta(header)
 
 
 def _description_after_hashtag(description: str) -> str:
-    if description.startswith("Садгуру "):
-        return description[len("Садгуру ") :]
-    if description.startswith("садгуру "):
-        return description[len("садгуру ") :]
+    name = _publish().display_name
+    prefix = f"{name} "
+    if description.startswith(prefix):
+        return description[len(prefix) :]
+    if description.casefold().startswith(prefix.casefold()):
+        return description[len(name) + 1 :]
     return description
 
 
 def build_long_form_social_caption(job: PublishJob) -> str:
-    """Format long-form Facebook/Instagram captions like published Sadhguru BG posts."""
+    """Format long-form Facebook/Instagram captions like published posts."""
+    hashtag = quote_hashtag()
     title = job.title.strip().rstrip(".")
     description = job.description.strip()
     if not title:
         if not description:
-            return append_smartlink_cta(QUOTE_HASHTAG)
+            return append_smartlink_cta(hashtag)
         return append_smartlink_cta(
-            f"{QUOTE_HASHTAG} {_description_after_hashtag(description)}"
+            f"{hashtag} {_description_after_hashtag(description)}"
         )
     if not description:
-        return append_smartlink_cta(f"{title}. {QUOTE_HASHTAG}")
+        return append_smartlink_cta(f"{title}. {hashtag}")
     if description.startswith(title):
         rest = description[len(title) :].lstrip(" .")
-        if rest.startswith(QUOTE_HASHTAG):
+        if rest.startswith(hashtag):
             return append_smartlink_cta(description)
-        if rest.startswith(LEGACY_QUOTE_HASHTAG):
-            rest = rest[len(LEGACY_QUOTE_HASHTAG) :].lstrip()
         rest = _description_after_hashtag(rest)
         caption = (
-            f"{title}. {QUOTE_HASHTAG} {rest}" if rest else f"{title}. {QUOTE_HASHTAG}"
+            f"{title}. {hashtag} {rest}" if rest else f"{title}. {hashtag}"
         )
         return append_smartlink_cta(caption)
     rest = _description_after_hashtag(description)
-    return append_smartlink_cta(f"{title}. {QUOTE_HASHTAG} {rest}")
+    return append_smartlink_cta(f"{title}. {hashtag} {rest}")
 
 
 def inject_published_video_url(description: str, video_id: str) -> str:
@@ -178,44 +179,42 @@ def inject_published_video_url(description: str, video_id: str) -> str:
     return f"{body}\n\n{short_url}" if body else short_url
 
 
-QUOTE_HASHTAG = "#Садгуру"
-LEGACY_QUOTE_HASHTAG = "[#Садгуру]"
-
-
 def build_quote_post_caption(caption: str) -> str:
-    """Format quote posts like the Sadhguru Bulgarian Facebook quote template."""
+    """Format quote posts with the configured trailing hashtag."""
+    hashtag = quote_hashtag()
     clean = caption.strip()
     if not clean:
-        return QUOTE_HASHTAG
-    if clean.endswith(QUOTE_HASHTAG):
+        return hashtag
+    if clean.endswith(hashtag):
         return clean
-    if clean.endswith(LEGACY_QUOTE_HASHTAG):
-        return f"{clean[: -len(LEGACY_QUOTE_HASHTAG)].rstrip()} {QUOTE_HASHTAG}"
-    return f"{clean} {QUOTE_HASHTAG}"
+    return f"{clean} {hashtag}"
 
 
 def _quote_body(caption: str) -> str:
+    hashtag = quote_hashtag()
+    cta = smartlink_cta()
+    url = smartlink_url()
+    label = _publish().learn_more_label
     clean = caption.strip()
-    if SMARTLINK_CTA in clean:
-        clean = clean.split(SMARTLINK_CTA, 1)[0].rstrip()
-    elif DEFAULT_SMARTLINK_URL in clean:
-        clean = clean.split(DEFAULT_SMARTLINK_URL, 1)[0].rstrip()
-        if clean.endswith("Научете повече:"):
-            clean = clean[: -len("Научете повече:")].rstrip()
-    if clean.endswith(QUOTE_HASHTAG):
-        return clean[: -len(QUOTE_HASHTAG)].rstrip()
-    if clean.endswith(LEGACY_QUOTE_HASHTAG):
-        return clean[: -len(LEGACY_QUOTE_HASHTAG)].rstrip()
+    if cta and cta in clean:
+        clean = clean.split(cta, 1)[0].rstrip()
+    elif url and url in clean:
+        clean = clean.split(url, 1)[0].rstrip()
+        if clean.endswith(label):
+            clean = clean[: -len(label)].rstrip()
+    if clean.endswith(hashtag):
+        return clean[: -len(hashtag)].rstrip()
     return clean
 
 
 def build_quote_youtube_title(caption: str) -> str:
-    """Build a YouTube title from quote text with trailing #Садгуру."""
+    """Build a YouTube title from quote text with the configured hashtag."""
+    hashtag = quote_hashtag()
     body = _quote_body(caption)
-    suffix = f" {QUOTE_HASHTAG}"
+    suffix = f" {hashtag}"
     max_body_len = YOUTUBE_TITLE_MAX_LENGTH - len(suffix)
     if not body:
-        return QUOTE_HASHTAG
+        return hashtag
 
     if len(body) <= max_body_len:
         return f"{body}{suffix}"
@@ -232,9 +231,10 @@ def build_quote_youtube_title(caption: str) -> str:
 
 def build_quote_youtube_description(caption: str) -> str:
     body = _quote_body(caption)
+    header = _publish().quote_youtube_description_hashtag
     if not body:
-        return "#садгуру"
-    return f"#садгуру\n{body}"
+        return header
+    return f"{header}\n{body}"
 
 
 def build_quote_social_caption(caption: str) -> str:
@@ -242,24 +242,24 @@ def build_quote_social_caption(caption: str) -> str:
 
 
 def _append_trailing_hashtag(text: str) -> str:
+    hashtag = quote_hashtag()
     clean = text.strip()
     if not clean:
-        return QUOTE_HASHTAG
-    if clean.endswith(QUOTE_HASHTAG):
+        return hashtag
+    if clean.endswith(hashtag):
         return clean
-    if clean.endswith(LEGACY_QUOTE_HASHTAG):
-        return f"{clean[: -len(LEGACY_QUOTE_HASHTAG)].rstrip()} {QUOTE_HASHTAG}"
-    return f"{clean} {QUOTE_HASHTAG}"
+    return f"{clean} {hashtag}"
 
 
 def build_facebook_video_caption(job: PublishJob) -> str:
-    """Facebook caption: title, optional description, then #Садгуру at the end."""
+    """Facebook caption: title, optional description, then the configured hashtag."""
+    hashtag = quote_hashtag()
     title = job.title.strip().rstrip(".")
     description = job.description.strip()
     if not title:
         return build_quote_post_caption(description)
     if not description:
-        return append_smartlink_cta(f"{title}. {QUOTE_HASHTAG}")
+        return append_smartlink_cta(f"{title}. {hashtag}")
     if description.startswith(title):
         body = description
     else:
@@ -312,7 +312,7 @@ def _prepare_post_format_job(
         youtube_channel_url=youtube_channel_url,
     )
     if platform == "youtube":
-        return replace(job, description=description, tags=list(YOUTUBE_TAGS_POST))
+        return replace(job, description=description, tags=list(youtube_tags()))
     if platform == "facebook":
         return replace(job, description=build_facebook_video_caption(job))
     return replace(job, description=build_long_form_social_caption(job))
@@ -335,14 +335,14 @@ def _prepare_short_form_job(
                     job,
                     title=title,
                     description=description,
-                    tags=list(YOUTUBE_TAGS_SHORT),
+                    tags=list(youtube_tags()),
                 )
             source = description or title
             return replace(
                 job,
                 title=build_quote_youtube_title(source),
                 description=build_quote_youtube_description(source),
-                tags=list(YOUTUBE_TAGS_SHORT),
+                tags=list(youtube_tags()),
             )
         return replace(
             job,
@@ -350,7 +350,7 @@ def _prepare_short_form_job(
             description=build_short_form_youtube_description(
                 job.description or job.title
             ),
-            tags=list(YOUTUBE_TAGS_POST),
+            tags=list(youtube_tags()),
         )
     if job.content_kind == "image" and job.description.strip():
         return replace(job, description=build_quote_post_caption(job.description))

@@ -13,7 +13,7 @@ Manual workflow that announces a Bulgarian **Surya Kriya**, **Bhuta Shuddhi**, o
 |-------|----------|--------|
 | `event_type` | yes | `Surya Kriya`, `Bhuta Shuddhi`, or `Yogasanas` |
 | `city` | yes | Fills `[град]` |
-| `country` | no | Blank uses repository variable `TARGET_COUNTRY` (default `България`) |
+| `country` | no | Blank uses the country from `config/languages.json` for `TARGET_LANGUAGE` |
 | `date` | yes | `YYYY-MM-DD` |
 | `time` | yes | `HH:MM` |
 | `registration_link` | yes | Full URL |
@@ -31,7 +31,7 @@ Same Meta secrets as the publish pipeline:
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — loads the Hatha message template and Facebook images from Drive
 - `DRIVE_URL` — parent Drive folder; events use the `Events` subfolder
 
-Programme copy (quote, body, benefits, YouTube link) is read from the Hatha WhatsApp template in the `Events` folder under `DRIVE_URL` (`NEW Hatha WA Message Template ENG.docx`). Bulgarian cells are used, including the YouTube hyperlink on the video title.
+Programme copy (quote, body, benefits, YouTube link) is read from the Hatha WhatsApp template in the `Events` folder under `DRIVE_URL`. The YouTube URL comes only from that document (language cell, else English cell).
 
 Facebook images live in the same folder:
 

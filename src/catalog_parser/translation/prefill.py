@@ -28,6 +28,7 @@ from catalog_parser.translation.rag_translate import (
     chat_config_from_env,
     requires_all_caps,
     translate_cue_texts,
+    translation_api_key_configured,
     translation_provider_disabled,
 )
 from catalog_parser.translation.srt import Cue, parse_srt, write_srt
@@ -86,7 +87,7 @@ def resolve_record_type(record: dict[str, Any]) -> str | None:
 
 
 def ai_prefill_enabled() -> bool:
-    return not translation_provider_disabled()
+    return not translation_provider_disabled() and translation_api_key_configured()
 
 
 def resolve_context_from_editor_link(

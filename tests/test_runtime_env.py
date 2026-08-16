@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from media_publisher.runtime_env import (
     CANVA_TOKEN_BASELINE,
     CANVA_TOKEN_RELATIVE_PATH,
     CREDENTIAL_ENV_FILES,
+    DAILY_PLAYLIST_SLOTS_RELATIVE_PATH,
     INITIAL_CREDENTIAL_JSON,
     materialize_credentials,
     maybe_persist_canva_token,
@@ -48,6 +50,21 @@ class RuntimeEnvTests(unittest.TestCase):
                 INITIAL_CREDENTIAL_JSON[CREDENTIAL_ENV_FILES["YOUTUBE_TOKEN_JSON"]],
                 payload,
             )
+
+    def test_materialize_daily_playlist_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            payload = '{"playlist_id":"PLdaily","quote":"q1","reel":"r1","lau":"l1"}'
+            with patch.dict(
+                os.environ,
+                {"YOUTUBE_DAILY_PLAYLIST_JSON": payload},
+                clear=False,
+            ):
+                materialize_credentials(root)
+            destination = root / DAILY_PLAYLIST_SLOTS_RELATIVE_PATH
+            written = json.loads(destination.read_text(encoding="utf-8"))
+            self.assertEqual(written["playlist_id"], "PLdaily")
+            self.assertEqual(written["quote"], "q1")
 
     def test_maybe_persist_canva_token_skips_without_sync_pat(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
