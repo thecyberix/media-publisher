@@ -164,7 +164,28 @@ class RuntimeEnvTests(unittest.TestCase):
 
             self.assertEqual(api_mock.call_args.args[0], "copied/media-publisher")
 
-    def test_github_sync_pat_reads_config_sync_pat(self) -> None:
+    def test_maybe_persist_canva_token_warns_instead_of_raising_on_403(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            token_path = root / CANVA_TOKEN_RELATIVE_PATH
+            token_path.parent.mkdir(parents=True)
+            token_path.write_text('{"refresh_token": "new"}', encoding="utf-8")
+            import media_publisher.runtime_env as runtime_env
+
+            runtime_env.CANVA_TOKEN_BASELINE = '{"refresh_token": "old"}'
+
+            with patch.dict(
+                os.environ,
+                {
+                    "CONFIG_SYNC_PAT": "pat",
+                    "GITHUB_REPOSITORY": "owner/repo",
+                },
+                clear=True,
+            ), patch(
+                "media_publisher.runtime_env._set_github_actions_secret_file",
+                side_effect=RuntimeError("GitHub API 403"),
+            ):
+                self.assertIsNone(maybe_persist_canva_token(root))
         with patch.dict(
             os.environ,
             {"CONFIG_SYNC_PAT": "new-pat"},
