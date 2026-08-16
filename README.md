@@ -47,41 +47,85 @@ Workflows live under `.github/workflows/`:
 | `publish.yml` | Manual + external cron publishing (`workflow_dispatch`) |
 | `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync |
 | `reporting.yml` | Snapshots, weekly email, monthly KPIs, prune past events |
+| `publish-event.yml` | Announce a programme and update the events GitHub Pages site |
+| `deploy-events-pages.yml` | Redeploy the `events/` Pages site |
 
 ### Repository secrets
 
-Set these under **Settings → Secrets and variables → Actions → Secrets**:
+Set under **Settings → Secrets and variables → Actions → Secrets**. These are the secrets this repo currently uses:
 
 | Secret | Purpose |
 |--------|---------|
 | `AIRTABLE_TOKEN` | Airtable personal access token |
-| `TRANSLATION_API_KEY` | Anthropic or OpenAI key (matches `TRANSLATION_PROVIDER`) |
-| `AIRTABLE_VIEW` | Optional — leave unset for publishing/audits (uses full table) |
-| `HAPPYSCRIBE_API_KEY` | HappyScribe API key |
 | `CANVA_CLIENT_ID` | Canva OAuth client ID |
 | `CANVA_CLIENT_SECRET` | Canva OAuth client secret |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json` |
-| `CONFIG_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets** and **Variables** Read and write on this repo (syncs Canva/YouTube tokens and `YOUTUBE_DAILY_PLAYLIST_JSON`) |
-| `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
-| `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (shared with catalog-parser; written to `credentials/google-sheets-service-account.json` for channel reports) |
+| `CONFIG_SYNC_PAT` | Fine-grained PAT with **Actions secrets** and **Actions variables** Read and write (syncs Canva/YouTube tokens and `YOUTUBE_DAILY_PLAYLIST_JSON`) |
+| `GMAIL_SMTP_USER` | Gmail address for workflow alert mail |
+| `GMAIL_SMTP_APP_PASSWORD` | Gmail app password (not the account login password) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full service account key JSON (Sheets, Drive, channel reports) |
+| `HAPPYSCRIBE_API_KEY` | HappyScribe API key |
+| `META_ACCESS_TOKEN` | Long-lived Meta page access token |
 | `META_APP_ID` | Meta app ID |
 | `META_APP_SECRET` | Meta app secret |
-| `META_ACCESS_TOKEN` | Long-lived Meta page access token |
+| `SMARTCAT_STORAGE_STATE_JSON` | Full contents of `smartcat-state.json` (Playwright session) |
+| `TRANSLATION_API_KEY` | Anthropic or OpenAI key (matches `TRANSLATION_PROVIDER`) |
+| `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
+| `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
+
+`WORKFLOW_PROFILES_JSON` may also be stored as a secret; this repo keeps it as a variable.
 
 ### Repository variables
 
-Set under **Settings → Secrets and variables → Actions → Variables**:
+Set under **Settings → Secrets and variables → Actions → Variables**. These are the variables this repo currently uses:
 
-| Variable | Example |
+| Variable | Purpose |
 |----------|---------|
-| `AIRTABLE_URL` | `https://airtable.com/app.../tbl...` |
-| `CANVA_URL` | `https://www.canva.com/folder/FAHSXg0enw4` |
-| `TRANSLATION_PROVIDER` | `anthropic` (or `none` to skip AI translation) |
-| `HAPPYSCRIBE_URL` | `https://www.happyscribe.com/v2/.../library/...` |
-| `PUBLISH_JSON` | `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}` |
-| `YOUTUBE_PLAYLIST_ID` | `PLpP5d0BDr0xaGn6QSPyQjG6GhK-dcm3Lm` |
-| `YOUTUBE_DAILY_PLAYLIST_JSON` | `{"playlist_id":"PLKM1FUqZWv28","quote":"...","reel":"...","lau":"..."}` |
+| `AIRTABLE_URL` | Live catalog table URL (`app…` / `tbl…` are parsed; the view segment is ignored) |
+| `CANVA_URL` | Parent Canva folder; catalog thumbs use child folders `Long videos` and `Short videos` |
+| `DRIVE_URL` | Parent Drive folder (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`) |
+| `GENERATED_QUOTES_NOTIFY_EMAIL` | Recipients for generated-quotes Drive sync mail (comma-separated) |
+| `HAPPYSCRIBE_URL` | HappyScribe library URL |
+| `META_INSTAGRAM_USERNAME` | Instagram username for the linked business account |
+| `META_PAGE_USERNAME` | Facebook Page username |
+| `NOTIFY_EMAIL` | Recipients for catalog / auth / workflow failure mail |
+| `PUBLISH_JSON` | Publish schedule, e.g. `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}` |
+| `SMARTLINK_URL` | Metricool Smartlink URL used in captions |
+| `TARGET_LANGUAGE` | Language name for channel-report sheet tab and related copy (e.g. `Bulgarian`) |
+| `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes |
+| `TRANSLATION_PROVIDER` | `anthropic` or `openai` (case-insensitive); `none` skips AI translation |
+| `WORKFLOW_PROFILES_JSON` | JSON with `translators`, `editors`, and `timing_editors` arrays |
+| `YOUTUBE_CHANNEL_HANDLE` | YouTube channel handle (no `@`) |
+| `YOUTUBE_DAILY_PLAYLIST_JSON` | Daily playlist id plus quote/reel/lau slot video ids (and optional `pending`) |
+| `YOUTUBE_PLAYLIST_ID` | Archive playlist id for published catalog videos and quotes |
+
+Optional (read by workflows when set; currently unset in this repo):
+
+| Variable | Purpose |
+|----------|---------|
+| `TRANSLATION_MODEL` | Override the default translation model |
+| `TRANSLATION_BASE_URL` | Proxy or OpenAI-compatible gateway; leave unset for the official API host |
+
+### Add a new language
+
+The running language is `TARGET_LANGUAGE` (GitHub variable and local `.env`). It must match a top-level key in `config/languages.json` (this repo uses `Bulgarian`). Copy that object and fill in the new language.
+
+Required on every language:
+
+- `alias` — short code used for Smartcat, HappyScribe filename suffixes, and HTML `lang` (for example `bg`)
+- `country` — default country for event announcements
+- `months` — twelve month names in that language
+- `date_year_suffix` — optional text after the year in dates (Bulgarian uses ` г.`)
+- `events` — programme page and Facebook copy (`program_word`, headings, registration CTA, empty state, and so on)
+- `ingest` — Smartcat language id, extra aliases, quotation marks, letter regex, and title-case small words
+- `publish` — display name, hashtags, YouTube title suffix, tags, and “learn more” label
+
+Ingest mix of Reels vs long videos is also in `config/workflow_config.json`:
+
+| Field | Meaning |
+|-------|---------|
+| `target_reel_to_video_ratio` | Prefer Reels until there are this many Reels per Video (this repo uses `6`) |
+| `max_video_seconds` | Skip catalog Videos longer than this during ingest (this repo uses `900`, 15 minutes) |
 
 ### How CI credentials work
 
@@ -146,6 +190,8 @@ config/workflow_config.example.json
   publish.yml
   catalog-daily-workflow.yml
   reporting.yml
+  publish-event.yml
+  deploy-events-pages.yml
 ```
 
 ## API credentials (local)
