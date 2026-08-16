@@ -78,15 +78,22 @@ def _load_profiles_json(project_root: Path) -> dict:
 def load_catalog_id(project_root: Path, *, file_data: dict | None = None) -> str:
     from catalog_parser.parser import extract_sheet_id
 
-    data = file_data
-    if data is None:
-        config_path = project_root / "workflow_config.json"
-        data = {}
-        if config_path.exists():
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-    raw = str(data.get("catalog_id", "")).strip()
+    raw = (
+        os.getenv("CATALOG_URL", "").strip()
+        or os.getenv("CATALOG_ID", "").strip()
+    )
     if not raw:
-        raise RuntimeError("workflow_config.json catalog_id is required")
+        data = file_data
+        if data is None:
+            config_path = project_root / "workflow_config.json"
+            data = {}
+            if config_path.exists():
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+        raw = str(data.get("catalog_id", "")).strip()
+    if not raw:
+        raise RuntimeError(
+            "CATALOG_URL (or CATALOG_ID) env var or workflow_config.json catalog_id is required"
+        )
     return extract_sheet_id(raw)
 
 

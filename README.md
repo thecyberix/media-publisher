@@ -76,6 +76,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 | Variable | Example |
 |----------|---------|
 | `AIRTABLE_URL` | `https://airtable.com/app.../tbl...` |
+| `CATALOG_URL` | `https://docs.google.com/spreadsheets/d/...` |
 | `CANVA_URL` | `https://www.canva.com/folder/FAHSXg0enw4` |
 | `TRANSLATION_PROVIDER` | `anthropic` (or `none` to skip AI translation) |
 | `HAPPYSCRIBE_URL` | `https://www.happyscribe.com/v2/.../library/...` |

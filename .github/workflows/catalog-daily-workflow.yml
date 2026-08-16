@@ -173,6 +173,7 @@ jobs:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
           DRIVE_URL: ${{ vars.DRIVE_URL }}
+          CATALOG_URL: ${{ vars.CATALOG_URL }}
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
@@ -211,6 +212,7 @@ jobs:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
           DRIVE_URL: ${{ vars.DRIVE_URL }}
+          CATALOG_URL: ${{ vars.CATALOG_URL }}
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json

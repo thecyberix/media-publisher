@@ -132,7 +132,7 @@ Local equivalent:
 python -m catalog_parser ingest --unassigned --type reel --count 4
 ```
 
-Ingest reads the catalog spreadsheet from `catalog_id` in `workflow_config.json` (first sheet tab). It is not a GitHub secret or variable.
+Ingest reads the catalog spreadsheet from `CATALOG_URL` (or `workflow_config.json` `catalog_id`). The first sheet tab is used.
 
 ## Airtable backups and status history
 
@@ -194,6 +194,7 @@ These live under **Settings → Secrets and variables → Actions → Variables*
 | `TRANSLATION_BASE_URL` | Optional. Leave unset for the official API host. Set only for a proxy or OpenAI-compatible gateway. |
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
 | `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg` in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
+| `CATALOG_URL` | Catalog Google Sheet URL or id. Ingest uses the first tab. Example: `https://docs.google.com/spreadsheets/d/1BGxTfnvs3zezyJVTSXroy9N0l7j5QHbzPzRj_TSjO-c/edit`. |
 | `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |
 
 ### Required when ingest runs (web session mode)
@@ -395,7 +396,7 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 1. Create a service account in [Google Cloud Console](https://console.cloud.google.com/) for the same project as your APIs.
 2. Enable **Google Sheets API**, **Google Drive API**, and **Google Docs API**.
 3. Create a JSON key and store the entire file contents in `GOOGLE_SERVICE_ACCOUNT_JSON`.
-4. Share the catalog Google Sheet (`catalog_id` in `workflow_config.json`) with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
+4. Share the catalog Google Sheet (`CATALOG_URL`) with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
 5. Share the `DRIVE_URL` parent folder (and any source video folders outside it) with that email as **Editor**. Combined media writes into `Combined Media Files`. Translated SAVE SOIL stills are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in `Overrides/Images`.
 
 OAuth `credentials.json` / `token.json` are for local development only; CI uses the service account.
