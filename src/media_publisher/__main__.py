@@ -316,7 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--time",
         default="",
-        help="Event time for --publish-event (HH:MM in PUBLISH_TIMEZONE).",
+        help="Event time for --publish-event (HH:MM in PUBLISH_JSON timezone).",
     )
     parser.add_argument(
         "--registration-link",
@@ -1131,19 +1131,19 @@ def youtube_settings_complete(settings) -> bool:
 
 def require_publish_timezone(settings) -> str:
     if not settings.publish_timezone:
-        raise RuntimeError("PUBLISH_TIMEZONE is required")
+        raise RuntimeError("PUBLISH_JSON timezone is required")
     return settings.publish_timezone
 
 
 def require_quotes_publish_hour(settings) -> int:
     if settings.quotes_publish_hour is None:
-        raise RuntimeError("QUOTES_PUBLISH_HOUR is required")
+        raise RuntimeError("PUBLISH_JSON quotes_hour is required")
     return settings.quotes_publish_hour
 
 
 def require_videos_publish_hour(settings) -> int:
     if settings.videos_publish_hour is None:
-        raise RuntimeError("VIDEOS_PUBLISH_HOUR is required")
+        raise RuntimeError("PUBLISH_JSON videos_hour is required")
     return settings.videos_publish_hour
 
 

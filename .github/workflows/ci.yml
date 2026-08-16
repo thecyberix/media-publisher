@@ -26,4 +26,7 @@ jobs:
         run: pip install -e .
 
       - name: Run tests
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+        env:
+          TARGET_LANGUAGE: Bulgarian
+          PUBLISH_JSON: '{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}'
+        run: python -m unittest discover -s tests -t . -p "test_*.py" -v

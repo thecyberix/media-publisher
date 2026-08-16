@@ -79,9 +79,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 | `CANVA_URL` | `https://www.canva.com/folder/FAHSXg0enw4` |
 | `TRANSLATION_PROVIDER` | `anthropic` (or `none` to skip AI translation) |
 | `HAPPYSCRIBE_URL` | `https://www.happyscribe.com/v2/.../library/...` |
-| `PUBLISH_TIMEZONE` | `Europe/Sofia` |
-| `VIDEOS_PUBLISH_HOUR` | `18` |
-| `QUOTES_PUBLISH_HOUR` | `8` |
+| `PUBLISH_JSON` | `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}` |
 | `YOUTUBE_PLAYLIST_ID` | `PLpP5d0BDr0xaGn6QSPyQjG6GhK-dcm3Lm` |
 | `YOUTUBE_DAILY_PLAYLIST_JSON` | `{"playlist_id":"PLKM1FUqZWv28","quote":"...","reel":"...","lau":"..."}` |
 

@@ -161,9 +161,7 @@ The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render 
 | `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes. Required for quote publish. |
 | `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts. Unset: skip those emails. |
 | `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails. Unset: skip those emails. |
-| `PUBLISH_TIMEZONE` | IANA timezone for scheduling. Required. |
-| `QUOTES_PUBLISH_HOUR` | Local hour for quote slots. Required. |
-| `VIDEOS_PUBLISH_HOUR` | Local hour for video slots. Required. |
+| `PUBLISH_JSON` | Timezone and local hours: `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}`. Required. |
 
 Also uses secrets `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD` when sending email. If those or `NOTIFY_EMAIL` are unset, email is skipped.
 

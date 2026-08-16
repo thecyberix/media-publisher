@@ -17,6 +17,7 @@ from media_publisher.runtime_env import (
     maybe_persist_canva_token,
     note_canva_token_baseline,
     parse_github_owner_repo,
+    load_publish_timing,
 )
 
 
@@ -65,6 +66,21 @@ class RuntimeEnvTests(unittest.TestCase):
             written = json.loads(destination.read_text(encoding="utf-8"))
             self.assertEqual(written["playlist_id"], "PLdaily")
             self.assertEqual(written["quote"], "q1")
+
+    def test_load_publish_timing(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "PUBLISH_JSON": (
+                    '{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}'
+                )
+            },
+            clear=False,
+        ):
+            timing = load_publish_timing()
+        self.assertEqual(timing.timezone, "Europe/Sofia")
+        self.assertEqual(timing.quotes_hour, 8)
+        self.assertEqual(timing.videos_hour, 18)
 
     def test_maybe_persist_canva_token_skips_without_sync_pat(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
@@ -11,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from media_publisher.events.templates import RenderedEvent
 from media_publisher.languages import selected_language
+from media_publisher.runtime_env import load_publish_timing
 
 EVENTS_DIR_NAME = "events"
 EVENTS_DATA_RELATIVE = Path("data") / "events.json"
@@ -18,9 +18,9 @@ EVENTS_INDEX_NAME = "index.html"
 
 
 def events_timezone() -> ZoneInfo:
-    name = os.getenv("PUBLISH_TIMEZONE", "").strip()
+    name = load_publish_timing().timezone
     if not name:
-        raise RuntimeError("PUBLISH_TIMEZONE is required")
+        raise RuntimeError("PUBLISH_JSON timezone is required")
     return ZoneInfo(name)
 # Metricool SmartLink page colors (caption URL is SMARTLINK_URL, not this page).
 SMARTLINK_BACKGROUND = "#F9F4F3"
@@ -154,7 +154,7 @@ def prune_past_events(
     now: datetime | None = None,
     write: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Remove events whose start datetime is in the past (PUBLISH_TIMEZONE).
+    """Remove events whose start datetime is in the past (PUBLISH_JSON timezone).
 
     Returns ``(kept, removed)``.
     """

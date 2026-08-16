@@ -9,6 +9,7 @@ from media_publisher.runtime_env import (
     DAILY_PLAYLIST_JSON_VARIABLE,
     DAILY_PLAYLIST_SLOTS_RELATIVE_PATH,
     daily_playlist_id_from_payload,
+    load_publish_timing,
     materialize_credentials,
     parse_daily_playlist_payload,
 )
@@ -153,6 +154,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
     )
     language = selected_language()
     daily_playlist_id, daily_playlist_slots = _youtube_daily_playlist_settings(root)
+    publish_timing = load_publish_timing()
 
     return Settings(
         airtable_token=os.getenv("AIRTABLE_TOKEN", "").strip(),
@@ -199,7 +201,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
         or "downloads/canva",
         canva_url=os.getenv("CANVA_URL", "").strip(),
         canva_quotes_design_id=optional("CANVA_QUOTES_DESIGN_ID"),
-        quotes_publish_hour=optional_int("QUOTES_PUBLISH_HOUR"),
+        quotes_publish_hour=publish_timing.quotes_hour,
         quotes_sources_config=os.getenv(
             "QUOTES_SOURCES_CONFIG", "config/quotes_sources.json"
         ).strip()
@@ -207,8 +209,8 @@ def load_settings(project_root: Path | None = None) -> Settings:
         translated_quotes_url=os.getenv("TRANSLATED_QUOTES_URL", "").strip(),
         quotes_work_dir=os.getenv("QUOTES_WORK_DIR", "downloads/quotes").strip()
         or "downloads/quotes",
-        publish_timezone=os.getenv("PUBLISH_TIMEZONE", "").strip(),
-        videos_publish_hour=optional_int("VIDEOS_PUBLISH_HOUR"),
+        publish_timezone=publish_timing.timezone,
+        videos_publish_hour=publish_timing.videos_hour,
         youtube_client_secrets=os.getenv(
             "YOUTUBE_CLIENT_SECRETS", "credentials/youtube-client.json"
         ).strip()
@@ -308,12 +310,12 @@ def missing_required_publish_settings(settings: Settings) -> list[str]:
         missing.append("META_PAGE_USERNAME")
     if not settings.meta_instagram_username:
         missing.append("META_INSTAGRAM_USERNAME")
-    if not settings.publish_timezone:
-        missing.append("PUBLISH_TIMEZONE")
-    if settings.quotes_publish_hour is None:
-        missing.append("QUOTES_PUBLISH_HOUR")
-    if settings.videos_publish_hour is None:
-        missing.append("VIDEOS_PUBLISH_HOUR")
+    if (
+        not settings.publish_timezone
+        or settings.quotes_publish_hour is None
+        or settings.videos_publish_hour is None
+    ):
+        missing.append("PUBLISH_JSON")
     if not settings.translated_quotes_url:
         missing.append("TRANSLATED_QUOTES_URL")
     if not settings.smartlink_url:

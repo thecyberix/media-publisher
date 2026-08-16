@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ CANVA_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["CANVA_TOKEN_JSON"]
 YOUTUBE_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["YOUTUBE_TOKEN_JSON"]
 DAILY_PLAYLIST_SLOTS_RELATIVE_PATH = "data/youtube_daily_playlist_slots.json"
 DAILY_PLAYLIST_JSON_VARIABLE = "YOUTUBE_DAILY_PLAYLIST_JSON"
+PUBLISH_JSON_VARIABLE = "PUBLISH_JSON"
 CONFIG_SYNC_PAT_VARIABLE = "CONFIG_SYNC_PAT"
 GITHUB_API_VERSION = "2022-11-28"
 _GITHUB_OWNER_REPO_RE = re.compile(
@@ -128,6 +130,40 @@ def daily_playlist_id_from_payload(payload: dict[str, Any] | None) -> str | None
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+@dataclass(frozen=True)
+class PublishTiming:
+    timezone: str = ""
+    quotes_hour: int | None = None
+    videos_hour: int | None = None
+
+
+def _parse_publish_hour(value: Any, *, field: str) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        hour = int(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"PUBLISH_JSON {field} must be an integer 0-23") from exc
+    if hour < 0 or hour > 23:
+        raise RuntimeError(f"PUBLISH_JSON {field} must be an integer 0-23")
+    return hour
+
+
+def load_publish_timing() -> PublishTiming:
+    raw = os.getenv(PUBLISH_JSON_VARIABLE, "").strip()
+    if not raw:
+        return PublishTiming()
+    payload = parse_daily_playlist_payload(raw)
+    if payload is None:
+        raise RuntimeError("PUBLISH_JSON must be a JSON object")
+    timezone = str(payload.get("timezone", "")).strip()
+    return PublishTiming(
+        timezone=timezone,
+        quotes_hour=_parse_publish_hour(payload.get("quotes_hour"), field="quotes_hour"),
+        videos_hour=_parse_publish_hour(payload.get("videos_hour"), field="videos_hour"),
+    )
 
 
 def _materialize_daily_playlist_slots(project_root: Path) -> None:

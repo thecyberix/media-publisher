@@ -47,13 +47,14 @@ class ScheduleTomorrowResult:
 
 
 def _publish_settings() -> tuple[str, int]:
-    timezone = os.getenv("PUBLISH_TIMEZONE", "").strip()
-    hour_raw = os.getenv("VIDEOS_PUBLISH_HOUR", "").strip()
-    if not timezone:
-        raise RuntimeError("PUBLISH_TIMEZONE is required")
-    if not hour_raw:
-        raise RuntimeError("VIDEOS_PUBLISH_HOUR is required")
-    return timezone, int(hour_raw)
+    from media_publisher.runtime_env import load_publish_timing
+
+    timing = load_publish_timing()
+    if not timing.timezone:
+        raise RuntimeError("PUBLISH_JSON timezone is required")
+    if timing.videos_hour is None:
+        raise RuntimeError("PUBLISH_JSON videos_hour is required")
+    return timing.timezone, timing.videos_hour
 
 
 def _field_text(value: Any) -> str | None:

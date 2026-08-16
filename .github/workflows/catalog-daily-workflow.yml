@@ -184,8 +184,7 @@ jobs:
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
           CANVA_URL: ${{ vars.CANVA_URL }}
-          PUBLISH_TIMEZONE: ${{ vars.PUBLISH_TIMEZONE }}
-          VIDEOS_PUBLISH_HOUR: ${{ vars.VIDEOS_PUBLISH_HOUR }}
+          PUBLISH_JSON: ${{ vars.PUBLISH_JSON }}
           CONFIG_SYNC_PAT: ${{ secrets.CONFIG_SYNC_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
@@ -224,8 +223,7 @@ jobs:
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
           CANVA_URL: ${{ vars.CANVA_URL }}
-          PUBLISH_TIMEZONE: ${{ vars.PUBLISH_TIMEZONE }}
-          VIDEOS_PUBLISH_HOUR: ${{ vars.VIDEOS_PUBLISH_HOUR }}
+          PUBLISH_JSON: ${{ vars.PUBLISH_JSON }}
           # Do not rematerialize CANVA_TOKEN_JSON here: the Restore step already
           # wrote credentials/canva-token.json, and re-injecting the job-scoped
           # (possibly stale) secret after a refresh revokes Canva's single-use
