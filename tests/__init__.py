@@ -1,7 +1,7 @@
 """Load TARGET_LANGUAGE and PUBLISH_JSON before language-aware modules import.
 
-`python -m unittest discover -s tests -t .` loads this package. CI does not inject
-those values; they are read from GitHub Actions repository variables.
+`python -m unittest discover -s tests -t .` loads this package. CI injects the
+repository variables into the job env; locally they come from `.env` or fallbacks.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def _ensure_test_env() -> None:
             "Could not read "
             + " and ".join(missing)
             + " from GitHub Actions repository variables. "
-            "Grant the GITHUB_TOKEN actions:read and set those variables on the repo."
+            "Set them on the repo and inject them into the CI job env."
         )
 
     if need_language:
