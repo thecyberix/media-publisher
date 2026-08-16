@@ -47,7 +47,6 @@ class Settings:
     youtube_channel_handle: str = "SadhguruBulgarian"
     youtube_channel_url: str = "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q"
     youtube_short_cover_intro_seconds: float = 5.0
-    youtube_playlist_title: str = "Съзнателна Планета"
     youtube_playlist_id: str | None = None
     youtube_daily_playlist_id: str | None = None
     youtube_daily_playlist_slots: str = "data/youtube_daily_playlist_slots.json"
@@ -200,10 +199,6 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q",
         youtube_short_cover_intro_seconds=float(intro_seconds_raw),
-        youtube_playlist_title=os.getenv(
-            "YOUTUBE_PLAYLIST_TITLE", "Съзнателна Планета"
-        ).strip()
-        or "Съзнателна Планета",
         youtube_playlist_id=optional("YOUTUBE_PLAYLIST_ID"),
         youtube_daily_playlist_id=optional("YOUTUBE_DAILY_PLAYLIST_ID"),
         youtube_daily_playlist_slots=os.getenv(

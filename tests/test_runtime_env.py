@@ -14,10 +14,22 @@ from media_publisher.runtime_env import (
     materialize_credentials,
     maybe_persist_canva_token,
     note_canva_token_baseline,
+    parse_github_owner_repo,
 )
 
 
 class RuntimeEnvTests(unittest.TestCase):
+    def test_parse_github_owner_repo(self) -> None:
+        self.assertEqual(
+            parse_github_owner_repo("git@github.com:org/media-publisher.git"),
+            "org/media-publisher",
+        )
+        self.assertEqual(
+            parse_github_owner_repo("https://github.com/org/media-publisher.git"),
+            "org/media-publisher",
+        )
+        self.assertIsNone(parse_github_owner_repo("https://example.com/org/repo.git"))
+
     def test_materialize_credentials_writes_json_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -83,6 +95,7 @@ class RuntimeEnvTests(unittest.TestCase):
                 os.environ,
                 {
                     "CONFIG_SYNC_PAT": "pat",
+                    "GITHUB_REPOSITORY": "owner/repo",
                 },
                 clear=True,
             ), patch(
@@ -101,10 +114,10 @@ class RuntimeEnvTests(unittest.TestCase):
             )
             self.assertEqual(
                 api_mock.call_args.args[0],
-                "thecyberix/media-publisher",
+                "owner/repo",
             )
 
-    def test_maybe_persist_canva_token_uses_default_repository(self) -> None:
+    def test_maybe_persist_canva_token_skips_without_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             token_path = root / CANVA_TOKEN_RELATIVE_PATH
@@ -119,11 +132,37 @@ class RuntimeEnvTests(unittest.TestCase):
                 {"CONFIG_SYNC_PAT": "pat"},
                 clear=True,
             ), patch(
+                "media_publisher.runtime_env._github_repository_from_git_origin",
+                return_value=None,
+            ), patch(
+                "media_publisher.runtime_env._set_github_actions_secret_file_api"
+            ) as api_mock:
+                self.assertIsNone(maybe_persist_canva_token(root))
+            api_mock.assert_not_called()
+
+    def test_maybe_persist_canva_token_uses_git_origin_when_env_unset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            token_path = root / CANVA_TOKEN_RELATIVE_PATH
+            token_path.parent.mkdir(parents=True)
+            token_path.write_text('{"refresh_token": "new"}', encoding="utf-8")
+            import media_publisher.runtime_env as runtime_env
+
+            runtime_env.CANVA_TOKEN_BASELINE = '{"refresh_token": "old"}'
+
+            with patch.dict(
+                os.environ,
+                {"CONFIG_SYNC_PAT": "pat"},
+                clear=True,
+            ), patch(
+                "media_publisher.runtime_env._github_repository_from_git_origin",
+                return_value="copied/media-publisher",
+            ), patch(
                 "media_publisher.runtime_env._set_github_actions_secret_file_api"
             ) as api_mock:
                 maybe_persist_canva_token(root)
 
-            self.assertEqual(api_mock.call_args.args[0], "thecyberix/media-publisher")
+            self.assertEqual(api_mock.call_args.args[0], "copied/media-publisher")
 
     def test_github_sync_pat_reads_config_sync_pat(self) -> None:
         with patch.dict(

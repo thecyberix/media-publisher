@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from media_publisher.runtime_env import github_repository
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_CANDIDATES = (
     PROJECT_ROOT / "config" / "github_workflows.json",
@@ -298,11 +300,13 @@ def run_workflow(
     log_tail_lines: int,
 ) -> int:
     defaults = config.get("defaults", {})
-    repo = str(config.get("repository", "")).strip()
+    repo = str(config.get("repository", "")).strip() or (github_repository() or "")
     ref = str(config.get("ref", "master")).strip()
     api_version = str(config.get("api_version", "2022-11-28"))
     if not repo:
-        raise ValueError("repository is required in workflow config")
+        raise ValueError(
+            "Set repository in workflow config, GITHUB_REPOSITORY, or git remote origin"
+        )
 
     timeout_seconds = int(defaults.get("wait_timeout_seconds", 2700))
     poll_interval_seconds = int(defaults.get("poll_interval_seconds", 15))

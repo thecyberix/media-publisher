@@ -23,13 +23,11 @@ from catalog_parser.translation.srt import Cue
 
 class GateTests(unittest.TestCase):
     def test_ai_prefill_disabled_when_provider_is_none(self) -> None:
-        env = {"SMARTCAT_AI_PREFILL": "true", "TRANSLATION_PROVIDER": "none"}
-        with patch.dict(os.environ, env, clear=False):
+        with patch.dict(os.environ, {"TRANSLATION_PROVIDER": "none"}, clear=False):
             self.assertFalse(ai_prefill_enabled())
 
-    def test_ai_prefill_enabled_when_prefill_on_and_provider_set(self) -> None:
-        env = {"SMARTCAT_AI_PREFILL": "true", "TRANSLATION_PROVIDER": "anthropic"}
-        with patch.dict(os.environ, env, clear=False):
+    def test_ai_prefill_enabled_when_provider_set(self) -> None:
+        with patch.dict(os.environ, {"TRANSLATION_PROVIDER": "anthropic"}, clear=False):
             self.assertTrue(ai_prefill_enabled())
 
     def test_needs_translation_vs_fully_done(self) -> None:

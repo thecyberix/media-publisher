@@ -193,11 +193,8 @@ These live under **Settings → Secrets and variables → Actions → Variables*
 | `TRANSLATION_MODEL` | Optional. Defaults to `claude-sonnet-4-6` or `gpt-4o-mini` from the provider. |
 | `TRANSLATION_BASE_URL` | Optional. Leave unset for the official API host. Set only for a proxy or OpenAI-compatible gateway. |
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
-| `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
+| `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg` in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
 | `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |
-| `SAVE_SOIL_IMAGE_DRIVE_FOLDER` | Optional override for the translated SAVE SOIL end-card folder. Default: `https://drive.google.com/drive/folders/1IRF64Wpotz1OuO2dvSZNJjC167Qkq5-q` (`SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg`). |
-
-`SAVE_SOIL_IMAGE_DRIVE_FOLDER` may also be set as a secret; the workflow checks **Variables first**, then **Secrets**. It is optional; Combined Media generation uses the default folder when it is unset.
 
 ### Required when ingest runs (web session mode)
 
@@ -399,7 +396,7 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 2. Enable **Google Sheets API**, **Google Drive API**, and **Google Docs API**.
 3. Create a JSON key and store the entire file contents in `GOOGLE_SERVICE_ACCOUNT_JSON`.
 4. Share the catalog Google Sheet (`catalog_id` in `workflow_config.json`) with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
-5. Share each Drive folder used by the workflow (video folders, output folder, and the SAVE SOIL stills folder) with that email as **Editor** (upload/delete needed for combined media; Viewer is enough for the SAVE SOIL stills). The translated end cards are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in [this folder](https://drive.google.com/drive/folders/1IRF64Wpotz1OuO2dvSZNJjC167Qkq5-q).
+5. Share the `DRIVE_URL` parent folder (and any source video folders outside it) with that email as **Editor**. Combined media writes into `Combined Media Files`. Translated SAVE SOIL stills are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in `Overrides/Images`.
 
 OAuth `credentials.json` / `token.json` are for local development only; CI uses the service account.
 

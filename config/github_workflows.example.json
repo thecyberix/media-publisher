@@ -1,5 +1,5 @@
 {
-  "repository": "thecyberix/media-publisher",
+  "repository": "",
   "ref": "master",
   "token_env": "GITHUB_DISPATCH_TOKEN",
   "api_version": "2022-11-28",

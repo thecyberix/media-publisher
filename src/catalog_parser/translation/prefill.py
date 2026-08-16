@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -87,9 +86,7 @@ def resolve_record_type(record: dict[str, Any]) -> str | None:
 
 
 def ai_prefill_enabled() -> bool:
-    if translation_provider_disabled():
-        return False
-    return os.getenv("SMARTCAT_AI_PREFILL", "").strip().lower() in {"1", "true", "yes"}
+    return not translation_provider_disabled()
 
 
 def resolve_context_from_editor_link(

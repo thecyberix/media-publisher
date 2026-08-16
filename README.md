@@ -82,6 +82,8 @@ Set under **Settings → Secrets and variables → Actions → Variables**:
 | `PUBLISH_TIMEZONE` | `Europe/Sofia` |
 | `VIDEOS_PUBLISH_HOUR` | `18` |
 | `QUOTES_PUBLISH_HOUR` | `8` |
+| `YOUTUBE_PLAYLIST_ID` | `PLpP5d0BDr0xaGn6QSPyQjG6GhK-dcm3Lm` |
+| `YOUTUBE_DAILY_PLAYLIST_ID` | `PLKM1FUqZWv28` |
 
 ### How CI credentials work
 

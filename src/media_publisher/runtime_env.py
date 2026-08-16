@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import urllib.error
@@ -26,8 +27,11 @@ YOUTUBE_TOKEN_RELATIVE_PATH = CREDENTIAL_ENV_FILES["YOUTUBE_TOKEN_JSON"]
 DAILY_PLAYLIST_SLOTS_RELATIVE_PATH = "data/youtube_daily_playlist_slots.json"
 DAILY_PLAYLIST_SLOTS_VARIABLE = "YOUTUBE_DAILY_PLAYLIST_SLOTS_JSON"
 CONFIG_SYNC_PAT_VARIABLE = "CONFIG_SYNC_PAT"
-DEFAULT_GITHUB_REPOSITORY = "thecyberix/media-publisher"
 GITHUB_API_VERSION = "2022-11-28"
+_GITHUB_OWNER_REPO_RE = re.compile(
+    r"github\.com[:/](?P<owner>[^/\s]+)/(?P<repo>[^/\s]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
+)
 INITIAL_CREDENTIAL_JSON: dict[str, str] = {}
 CANVA_TOKEN_BASELINE: str | None = None
 YOUTUBE_TOKEN_BASELINE: str | None = None
@@ -137,12 +141,43 @@ def _canva_token_baseline() -> str | None:
     return None
 
 
-def _github_repository() -> str | None:
+def parse_github_owner_repo(remote_url: str) -> str | None:
+    text = (remote_url or "").strip()
+    if not text:
+        return None
+    match = _GITHUB_OWNER_REPO_RE.search(text)
+    if match is None:
+        return None
+    return f"{match.group('owner')}/{match.group('repo')}"
+
+
+def _github_repository_from_git_origin() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return parse_github_owner_repo(result.stdout)
+
+
+def github_repository() -> str | None:
+    """owner/repo from env, then git origin. None if unknown (no hardcoded fallback)."""
     for env_name in ("GITHUB_REPOSITORY", "GITHUB_REPO"):
         value = os.getenv(env_name, "").strip()
         if value:
             return value
-    return DEFAULT_GITHUB_REPOSITORY
+    return _github_repository_from_git_origin()
+
+
+def _github_repository() -> str | None:
+    return github_repository()
 
 
 def _github_api_request(
@@ -295,7 +330,7 @@ def maybe_persist_canva_token(project_root: Path) -> str | None:
     """Write a rotated Canva token back to GitHub Secrets after local/CI refresh.
 
     Set CONFIG_SYNC_PAT to a PAT with repository secret and variable write access.
-    GITHUB_REPOSITORY defaults to thecyberix/media-publisher when unset locally.
+    Target repo is GITHUB_REPOSITORY / GITHUB_REPO, else git remote origin.
     """
     sync_pat = github_sync_pat()
     if not sync_pat:

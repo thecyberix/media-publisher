@@ -95,7 +95,6 @@ class PublishPipelineSettings:
     youtube_client_secrets: Path
     youtube_token: Path
     youtube_channel_handle: str
-    youtube_playlist_title: str
     youtube_playlist_id: str | None
     template_urls: dict[str, str]
     meta_page_id: str
@@ -156,7 +155,6 @@ def publish_platform_task(
             ffmpeg_path=settings.ffmpeg_path,
             cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
             playlist_id=settings.youtube_playlist_id,
-            playlist_title=settings.youtube_playlist_title,
             daily_playlist_id=settings.youtube_daily_playlist_id,
             daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
             **settings.template_urls,

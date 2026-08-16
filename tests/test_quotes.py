@@ -196,7 +196,6 @@ class QuotesPipelineTests(unittest.TestCase):
             "youtube_client_secrets": Path("auth/youtube-client.json"),
             "youtube_token": Path("auth/youtube-token.json"),
             "youtube_channel_handle": "SadhguruBulgarian",
-            "youtube_playlist_title": "Съзнателна Планета",
             "youtube_playlist_id": None,
             "youtube_daily_playlist_id": None,
             "ffmpeg_path": "ffmpeg",

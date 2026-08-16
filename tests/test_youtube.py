@@ -479,7 +479,7 @@ class YouTubeClientTests(unittest.TestCase):
 
         self.assertEqual(video_id, "vid123")
         client_cls.return_value.resolve_playlist_id.assert_called_once_with(
-            "Съзнателна Планета",
+            "",
             playlist_id="PLtest123",
         )
         client_cls.return_value.add_video_to_playlist.assert_called_once_with(

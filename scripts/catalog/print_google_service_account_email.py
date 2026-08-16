@@ -10,7 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from catalog_parser.__main__ import load_env_file
+from media_publisher.config import load_env_file
 from catalog_parser.auth import ENV_SERVICE_ACCOUNT_JSON, get_service_account_email
 from catalog_parser.runtime_env import materialize_credentials
 

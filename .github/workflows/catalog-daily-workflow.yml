@@ -176,7 +176,6 @@ jobs:
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
-          SMARTCAT_AI_PREFILL: ${{ vars.SMARTCAT_AI_PREFILL || secrets.SMARTCAT_AI_PREFILL || 'true' }}
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || 'anthropic' }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
@@ -213,10 +212,8 @@ jobs:
           AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
           DRIVE_URL: ${{ vars.DRIVE_URL }}
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
-          SAVE_SOIL_IMAGE_DRIVE_FOLDER: ${{ vars.SAVE_SOIL_IMAGE_DRIVE_FOLDER || secrets.SAVE_SOIL_IMAGE_DRIVE_FOLDER }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
-          SMARTCAT_AI_PREFILL: ${{ vars.SMARTCAT_AI_PREFILL || secrets.SMARTCAT_AI_PREFILL || 'true' }}
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER || 'anthropic' }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}

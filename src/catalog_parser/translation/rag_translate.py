@@ -179,7 +179,7 @@ def chat_config_from_env() -> ChatConfig:
     OpenAI hosts are defaults — TRANSLATION_BASE_URL is only for a proxy or
     OpenAI-compatible gateway.
 
-    TRANSLATION_PROVIDER=none disables AI translation (see ai_prefill_enabled).
+    TRANSLATION_PROVIDER=none disables AI translation and prefill.
     """
     provider_raw = _env("TRANSLATION_PROVIDER").casefold()
     if translation_provider_disabled():

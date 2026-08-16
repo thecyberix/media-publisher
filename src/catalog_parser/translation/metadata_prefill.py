@@ -109,8 +109,8 @@ def translate_record_metadata_if_needed(
     """
     Translate EN title/description into bgTitle / bgDescription on the record.
 
-    Gated by SMARTCAT_AI_PREFILL and TRANSLATION_PROVIDER (``none`` skips all AI)
-    unless ``enabled`` is passed explicitly.
+    Gated by TRANSLATION_PROVIDER (``none`` skips all AI) unless ``enabled`` is
+    passed explicitly.
     """
     if enabled is None:
         enabled = ai_prefill_enabled()

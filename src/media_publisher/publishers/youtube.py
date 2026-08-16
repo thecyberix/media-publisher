@@ -34,7 +34,6 @@ DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/yt-analytics.readonly",
 )
 DEFAULT_CHANNEL_HANDLE = "SadhguruBulgarian"
-DEFAULT_YOUTUBE_PLAYLIST_TITLE = "Съзнателна Планета"
 DEFAULT_DAILY_PLAYLIST_SLOTS_PATH = "data/youtube_daily_playlist_slots.json"
 DAILY_PLAYLIST_SLOTS = ("quote", "reel", "lau")
 DailyPlaylistSlot = Literal["quote", "reel", "lau"]
@@ -1460,7 +1459,6 @@ def publish_to_youtube(
     ffmpeg_path: str | None = None,
     cover_intro_seconds: float | None = None,
     playlist_id: str | None = None,
-    playlist_title: str | None = DEFAULT_YOUTUBE_PLAYLIST_TITLE,
     daily_playlist_id: str | None = None,
     daily_playlist_slots_path: Path | None = None,
 ) -> str:
@@ -1544,9 +1542,9 @@ def publish_to_youtube(
                 raise
             # Shorts often reject API thumbnails; upload still succeeds.
 
-    if playlist_title or playlist_id:
+    if playlist_id:
         resolved_playlist_id = client.resolve_playlist_id(
-            playlist_title or "",
+            "",
             playlist_id=playlist_id,
         )
         client.add_video_to_playlist(video_id, resolved_playlist_id)

@@ -13,6 +13,7 @@ FOLDER_EVENTS = "Events"
 FOLDER_OVERRIDES = "Overrides"
 FOLDER_QUOTES = "Quotes"
 FOLDER_THUMBNAILS_FOR_APPROVAL = "Thumbnails for approval"
+FOLDER_IMAGES = "Images"
 
 DRIVE_FOLDER_PATTERN = re.compile(r"/folders/([a-zA-Z0-9_-]+)")
 
@@ -53,6 +54,20 @@ def as_drive_client(drive: GoogleDriveClient | Any) -> GoogleDriveClient:
     return GoogleDriveClient(drive)
 
 
+def resolve_named_child_folder(
+    drive: GoogleDriveClient | Any,
+    parent_id: str,
+    folder_name: str,
+) -> str:
+    client = as_drive_client(drive)
+    found = client.find_child_folder(parent_id, folder_name)
+    if found is None:
+        raise GoogleDriveError(
+            f"Drive folder {folder_name!r} not found under {parent_id}"
+        )
+    return found.id
+
+
 def resolve_named_folder(
     drive: GoogleDriveClient | Any,
     folder_name: str,
@@ -60,14 +75,13 @@ def resolve_named_folder(
     drive_url: str = "",
 ) -> str:
     """Return a child folder id under DRIVE_URL."""
-    client = as_drive_client(drive)
     root_id = require_drive_root_id(drive_url)
-    found = client.find_child_folder(root_id, folder_name)
-    if found is None:
+    try:
+        return resolve_named_child_folder(drive, root_id, folder_name)
+    except GoogleDriveError as exc:
         raise GoogleDriveError(
             f"Drive folder {folder_name!r} not found under DRIVE_URL ({root_id})"
-        )
-    return found.id
+        ) from exc
 
 
 def resolve_combined_media_files_id(
@@ -112,3 +126,13 @@ def resolve_thumbnails_for_approval_id(
     return resolve_named_folder(
         drive, FOLDER_THUMBNAILS_FOR_APPROVAL, drive_url=drive_url
     )
+
+
+def resolve_save_soil_folder_id(
+    drive: GoogleDriveClient | Any,
+    *,
+    drive_url: str = "",
+) -> str:
+    """Return the Images child of Overrides under DRIVE_URL."""
+    overrides_id = resolve_overrides_folder_id(drive, drive_url=drive_url)
+    return resolve_named_child_folder(drive, overrides_id, FOLDER_IMAGES)

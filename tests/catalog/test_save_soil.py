@@ -9,7 +9,6 @@ from PIL import Image
 
 from catalog_parser.drive_combine import DriveMediaFile
 from catalog_parser.save_soil import (
-    DEFAULT_SAVE_SOIL_IMAGE_DRIVE_FOLDER_ID,
     end_card_start_from_samples,
     find_save_soil_image,
     frame_looks_like_save_soil,
@@ -17,7 +16,6 @@ from catalog_parser.save_soil import (
     overlay_end_card_command,
     pick_save_soil_image,
     replace_save_soil_end_card_if_present,
-    save_soil_image_folder_id,
     save_soil_image_kind,
 )
 
@@ -94,24 +92,6 @@ class SaveSoilImageSelectionTests(unittest.TestCase):
         self.assertEqual(orientation_for_video_type("Video"), "horizontal")
         self.assertIsNone(orientation_for_video_type("other"))
 
-    def test_default_folder_id(self) -> None:
-        with patch.dict("os.environ", {"SAVE_SOIL_IMAGE_DRIVE_FOLDER": ""}):
-            self.assertEqual(
-                save_soil_image_folder_id(),
-                DEFAULT_SAVE_SOIL_IMAGE_DRIVE_FOLDER_ID,
-            )
-
-    def test_folder_id_from_env_url(self) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                "SAVE_SOIL_IMAGE_DRIVE_FOLDER": (
-                    "https://drive.google.com/drive/folders/abcDriveFolderId01"
-                )
-            },
-        ):
-            self.assertEqual(save_soil_image_folder_id(), "abcDriveFolderId01")
-
     def test_find_save_soil_image_picks_reel_file(self) -> None:
         drive = MagicMock()
         with patch(
@@ -132,7 +112,9 @@ class SaveSoilImageSelectionTests(unittest.TestCase):
             "catalog_parser.save_soil.resolve_drive_item",
             side_effect=lambda _drive, item: item,
         ):
-            picked = find_save_soil_image(drive, orientation="vertical")
+            picked = find_save_soil_image(
+                drive, orientation="vertical", folder_id="save-soil-id"
+            )
         self.assertIsNotNone(picked)
         assert picked is not None
         self.assertEqual(picked.id, "reel-img")

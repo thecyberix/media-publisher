@@ -19,7 +19,8 @@ import sys
 import urllib.error
 import urllib.request
 
-DEFAULT_REPO = "thecyberix/media-publisher"
+from media_publisher.runtime_env import github_repository
+
 DEFAULT_REF = "master"
 DEFAULT_API_VERSION = "2022-11-28"
 
@@ -75,8 +76,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--repo",
-        default=os.getenv("GITHUB_REPOSITORY", DEFAULT_REPO),
-        help=f"owner/repo (default: {DEFAULT_REPO})",
+        default=os.getenv("GITHUB_REPOSITORY") or github_repository() or "",
+        help="owner/repo (default: GITHUB_REPOSITORY or git remote origin)",
     )
     parser.add_argument(
         "--ref",
@@ -111,6 +112,12 @@ def main() -> int:
     if not token:
         print(
             "GITHUB_DISPATCH_TOKEN is required (fine-grained PAT with Actions: Read and write).",
+            file=sys.stderr,
+        )
+        return 1
+    if not args.repo:
+        print(
+            "Set --repo, GITHUB_REPOSITORY, or git remote origin (owner/repo).",
             file=sys.stderr,
         )
         return 1

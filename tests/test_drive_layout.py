@@ -6,8 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from media_publisher.sources.drive_layout import (
     FOLDER_COMBINED_MEDIA_FILES,
+    FOLDER_OVERRIDES,
+    FOLDER_IMAGES,
     extract_drive_folder_id,
     resolve_named_folder,
+    resolve_save_soil_folder_id,
     require_drive_root_id,
 )
 from media_publisher.sources.google_drive import DriveFile, GoogleDriveError
@@ -63,6 +66,34 @@ class DriveLayoutTests(unittest.TestCase):
                 FOLDER_COMBINED_MEDIA_FILES,
                 drive_url="parent",
             )
+
+    def test_resolve_save_soil_folder_under_overrides(self) -> None:
+        drive = MagicMock()
+        drive.find_child_folder.side_effect = [
+            DriveFile(
+                id="overrides-id",
+                name=FOLDER_OVERRIDES,
+                mime_type="application/vnd.google-apps.folder",
+            ),
+            DriveFile(
+                id="save-soil-id",
+                name=FOLDER_IMAGES,
+                mime_type="application/vnd.google-apps.folder",
+            ),
+        ]
+        folder_id = resolve_save_soil_folder_id(
+            drive,
+            drive_url="https://drive.google.com/drive/folders/parent",
+        )
+        self.assertEqual(folder_id, "save-soil-id")
+        self.assertEqual(
+            drive.find_child_folder.call_args_list[0].args,
+            ("parent", FOLDER_OVERRIDES),
+        )
+        self.assertEqual(
+            drive.find_child_folder.call_args_list[1].args,
+            ("overrides-id", FOLDER_IMAGES),
+        )
 
 
 if __name__ == "__main__":

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import tempfile
@@ -18,20 +17,21 @@ from catalog_parser.drive_combine import (
     download_drive_file,
     resolve_ffmpeg_path,
 )
-from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.drive_media import (
     FOLDER_MIME_TYPE,
     list_folder_children,
     resolve_drive_item,
 )
 from catalog_parser.parser import TYPE_VIDEO, parse_video_type
+from media_publisher.sources.drive_layout import (
+    FOLDER_IMAGES,
+    resolve_save_soil_folder_id,
+)
 from media_publisher.video_duration import (
     probe_local_video_duration_seconds,
     probe_local_video_size,
 )
 
-DEFAULT_SAVE_SOIL_IMAGE_DRIVE_FOLDER_ID = "1IRF64Wpotz1OuO2dvSZNJjC167Qkq5-q"
-ENV_SAVE_SOIL_IMAGE_DRIVE_FOLDER = "SAVE_SOIL_IMAGE_DRIVE_FOLDER"
 SAVE_SOIL_REEL_STEM = "savesoilreel"
 SAVE_SOIL_VIDEO_STEM = "savesoilvideo"
 _STEM_RE = re.compile(r"[^a-z0-9]+")
@@ -42,15 +42,6 @@ VideoOrientation = Literal["horizontal", "vertical"]
 _DETECT_WINDOW_SECONDS = 20.0
 _MIN_END_CARD_SECONDS = 1.0
 _FRAME_SCALE = 180
-
-
-def save_soil_image_folder_id() -> str:
-    raw = os.getenv(ENV_SAVE_SOIL_IMAGE_DRIVE_FOLDER, "").strip()
-    if raw:
-        parsed = extract_drive_folder_id(raw)
-        if parsed:
-            return parsed
-    return DEFAULT_SAVE_SOIL_IMAGE_DRIVE_FOLDER_ID
 
 
 def _normalize_stem(name: str) -> str:
@@ -150,7 +141,7 @@ def find_save_soil_image(
     orientation: VideoOrientation,
     folder_id: str | None = None,
 ) -> DriveMediaFile | None:
-    target_folder = folder_id or save_soil_image_folder_id()
+    target_folder = folder_id or resolve_save_soil_folder_id(drive_service)
     images = list_save_soil_images(drive_service, target_folder)
     return pick_save_soil_image(images, orientation=orientation)
 
@@ -475,8 +466,8 @@ def replace_save_soil_end_card_if_present(
     if image is None:
         print(
             "SAVE SOIL end card found, but no translated image "
-            f"(need SaveSoilReel.jpeg or SaveSoilVideo.jpeg) in folder "
-            f"{save_soil_image_folder_id()!r}"
+            f"(need SaveSoilReel.jpeg or SaveSoilVideo.jpeg) in Overrides/"
+            f"{FOLDER_IMAGES!r}"
         )
         return video_path
 

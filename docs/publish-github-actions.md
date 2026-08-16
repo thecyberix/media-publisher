@@ -46,7 +46,7 @@ $body = @{
 
 Invoke-RestMethod `
   -Method POST `
-  -Uri "https://api.github.com/repos/thecyberix/media-publisher/actions/workflows/publish.yml/dispatches" `
+  -Uri "https://api.github.com/repos/OWNER/REPO/actions/workflows/publish.yml/dispatches" `
   -Headers $headers `
   -Body $body `
   -ContentType "application/json"
@@ -63,7 +63,7 @@ python scripts/trigger_github_workflow_dispatch.py publish.yml --timing schedule
 
 ### Preset runner (dispatch + wait + failed logs)
 
-Copy `config/github_workflows.example.json` to `config/github_workflows.json` if you want local overrides (repo, ref, presets). The token stays in `GITHUB_DISPATCH_TOKEN`, not in the JSON file.
+Copy `config/github_workflows.example.json` to `config/github_workflows.json` if you want local overrides (repo, ref, presets). Leave `repository` empty to use `GITHUB_REPOSITORY` or git `origin`. The token stays in `GITHUB_DISPATCH_TOKEN`, not in the JSON file.
 
 ```powershell
 $env:GITHUB_DISPATCH_TOKEN = "YOUR_TOKEN"
@@ -81,7 +81,7 @@ Create separate cron jobs per content type. Reuse the same GitHub token and head
 
 Suggested schedule: `0 18 * * *`, time zone **Europe/Sofia**.
 
-**URL:** `https://api.github.com/repos/thecyberix/media-publisher/actions/workflows/publish.yml/dispatches`
+**URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/publish.yml/dispatches`
 
 **Body:**
 
