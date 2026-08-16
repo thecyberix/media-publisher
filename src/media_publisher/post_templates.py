@@ -6,7 +6,7 @@ from dataclasses import replace
 from media_publisher.models import PlatformName, PublishJob, VideoFormat
 from media_publisher.sources.airtable import FIELD_ORIGINAL_VIDEO, FIELD_TITLE
 
-DEFAULT_YOUTUBE_CHANNEL_URL = "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q"
+DEFAULT_YOUTUBE_CHANNEL_URL = "https://www.youtube.com/@SadhguruBulgarian"
 DEFAULT_FACEBOOK_PAGE_URL = "https://www.facebook.com/SadhguruBulgarian"
 DEFAULT_INSTAGRAM_PROFILE_URL = "https://www.instagram.com/sadhguru.bulgarian/"
 

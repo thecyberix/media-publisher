@@ -93,6 +93,7 @@ def publish_event(
     page_id: str | None = None,
     drive_client: GoogleDriveClient | None = None,
     image_id: str | None = None,
+    language: str = "bg",
 ) -> EventPublishResult:
     try:
         event_date = parse_event_date(date_text)
@@ -112,6 +113,7 @@ def publish_event(
             event_time=event_time,
             registration_link=registration_link,
             program=program,
+            language=language,
         )
     except (ValueError, EventTemplateError) as exc:
         raise EventPublishError(str(exc)) from exc

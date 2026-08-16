@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, time
 
-from media_publisher.events.format import format_bulgarian_datetime, format_iso_local
+from media_publisher.events.format import format_event_datetime, format_iso_local
 
 EVENT_TYPE_SURYA_KRIYA = "surya_kriya"
 EVENT_TYPE_BHUTA_SHUDDHI = "bhuta_shuddhi"
@@ -181,6 +181,7 @@ def render_event(
     event_time: time,
     registration_link: str,
     program: ProgramTemplate | None = None,
+    language: str = "bg",
 ) -> RenderedEvent:
     program = program or get_program(event_type)
 
@@ -194,7 +195,9 @@ def render_event(
     if not link:
         raise ValueError("registration_link is required")
 
-    datetime_display = format_bulgarian_datetime(event_date, event_time)
+    datetime_display = format_event_datetime(
+        event_date, event_time, language=language
+    )
     datetime_iso = format_iso_local(event_date, event_time)
     prep = city_preposition(city_text)
     emoji = program.title_emoji

@@ -45,7 +45,9 @@ class Settings:
     youtube_client_secrets: str = "credentials/youtube-client.json"
     youtube_token: str = "credentials/youtube-token.json"
     youtube_channel_handle: str = "SadhguruBulgarian"
-    youtube_channel_url: str = "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q"
+    target_language: str = "bg"
+    target_language_name: str = "Bulgarian"
+    target_country: str = "България"
     youtube_short_cover_intro_seconds: float = 5.0
     youtube_playlist_id: str | None = None
     youtube_daily_playlist_id: str | None = None
@@ -193,11 +195,10 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "YOUTUBE_CHANNEL_HANDLE", "SadhguruBulgarian"
         ).strip()
         or "SadhguruBulgarian",
-        youtube_channel_url=os.getenv(
-            "YOUTUBE_CHANNEL_URL",
-            "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q",
-        ).strip()
-        or "https://www.youtube.com/channel/UCg8jXnEr8ZKmuwm3S9J4e-Q",
+        target_language=os.getenv("TARGET_LANGUAGE", "bg").strip() or "bg",
+        target_language_name=os.getenv("TARGET_LANGUAGE_NAME", "Bulgarian").strip()
+        or "Bulgarian",
+        target_country=os.getenv("TARGET_COUNTRY", "България").strip() or "България",
         youtube_short_cover_intro_seconds=float(intro_seconds_raw),
         youtube_playlist_id=optional("YOUTUBE_PLAYLIST_ID"),
         youtube_daily_playlist_id=optional("YOUTUBE_DAILY_PLAYLIST_ID"),

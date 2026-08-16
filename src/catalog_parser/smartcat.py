@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import urllib.parse
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from typing import Any, Protocol
 
 DEFAULT_UI_BASE = "https://ea.smartcat.com"
 DEFAULT_TARGET_LANGUAGE = "bg"
+DEFAULT_TARGET_LANGUAGE_NAME = "Bulgarian"
 
 PKG_SM_LINK_PATTERN = re.compile(
     r"https?://[^/]+/projects/(?P<project_id>[a-f0-9-]+)/files",
@@ -19,6 +21,30 @@ LANGUAGE_ID_BY_CODE = {
     "bul": BULGARIAN_LANGUAGE_ID,
     "bulgarian": BULGARIAN_LANGUAGE_ID,
 }
+
+
+def _env_or_default(name: str, default: str) -> str:
+    return os.getenv(name, "").strip() or default
+
+
+def configured_target_language() -> str:
+    return _env_or_default("TARGET_LANGUAGE", DEFAULT_TARGET_LANGUAGE)
+
+
+def configured_target_language_name() -> str:
+    return _env_or_default("TARGET_LANGUAGE_NAME", DEFAULT_TARGET_LANGUAGE_NAME)
+
+
+def configured_language_aliases() -> frozenset[str]:
+    aliases = {
+        configured_target_language().lower(),
+        configured_target_language_name().lower(),
+    }
+    if aliases & {code.lower() for code in BULGARIAN_LANGUAGE_ALIASES}:
+        aliases |= {code.lower() for code in BULGARIAN_LANGUAGE_ALIASES}
+    return frozenset(aliases)
+
+
 SRT_NAME_PATTERN = re.compile(r"\.srt$", re.IGNORECASE)
 BULGARIAN_NAME_PATTERN = re.compile(
     r"(^|[._-])(bg|bul)([._-]|$)|bulgarian",
@@ -386,15 +412,18 @@ def language_matches(value: str | None, language: str) -> bool:
         return False
 
     normalized = _normalize_text(value)
-    aliases = {language.strip().lower()}
-    if language.strip().lower() in BULGARIAN_LANGUAGE_ALIASES:
-        aliases |= {code.lower() for code in BULGARIAN_LANGUAGE_ALIASES}
+    language_norm = language.strip().lower()
+    aliases = {language_norm}
+    configured = configured_language_aliases()
+    if language_norm in configured:
+        aliases |= {code.lower() for code in configured}
 
     if normalized in aliases:
         return True
     if any(alias in normalized for alias in aliases):
         return True
-    return "bulgarian" in normalized and language.strip().lower() in BULGARIAN_LANGUAGE_ALIASES
+    name = configured_target_language_name().lower()
+    return name in normalized and language_norm in configured
 
 
 def pick_document_download_url(document: dict[str, Any]) -> str | None:

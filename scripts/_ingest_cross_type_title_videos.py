@@ -45,7 +45,7 @@ from catalog_parser.parser import (  # noqa: E402
     type_duration_bounds,
 )
 from catalog_parser.runtime_env import materialize_credentials  # noqa: E402
-from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE  # noqa: E402
+from catalog_parser.smartcat import DEFAULT_UI_BASE, configured_target_language  # noqa: E402
 from catalog_parser.smartcat_web import DEFAULT_STORAGE_STATE, SmartcatWebClient  # noqa: E402
 from catalog_parser.workflow.config import load_catalog_id  # noqa: E402
 from catalog_parser.workflow.table_cache import TableCache  # noqa: E402
@@ -160,7 +160,7 @@ def main() -> int:
     drive = get_drive_service(DEFAULT_CREDENTIALS, DEFAULT_TOKEN, use_console=False)
     docs = get_docs_service(DEFAULT_CREDENTIALS, DEFAULT_TOKEN, use_console=False)
     canva = build_canva_client_from_env(project_root=PROJECT_ROOT)
-    smartcat_language = os.getenv("SMARTCAT_TARGET_LANGUAGE") or DEFAULT_TARGET_LANGUAGE
+    smartcat_language = configured_target_language()
     web_client = SmartcatWebClient(
         ui_base=os.getenv("SMARTCAT_UI_BASE", DEFAULT_UI_BASE).strip() or DEFAULT_UI_BASE,
         storage_state_path=Path(os.getenv("SMARTCAT_STORAGE_STATE", DEFAULT_STORAGE_STATE)),

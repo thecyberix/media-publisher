@@ -13,7 +13,7 @@ Manual workflow that announces a Bulgarian **Surya Kriya**, **Bhuta Shuddhi**, o
 |-------|----------|--------|
 | `event_type` | yes | `Surya Kriya`, `Bhuta Shuddhi`, or `Yogasanas` |
 | `city` | yes | Fills `[град]` |
-| `country` | yes | Default `България` |
+| `country` | no | Blank uses repository variable `TARGET_COUNTRY` (default `България`) |
 | `date` | yes | `YYYY-MM-DD` |
 | `time` | yes | `HH:MM` |
 | `registration_link` | yes | Full URL |

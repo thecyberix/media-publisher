@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import date, datetime, time
 
@@ -42,12 +43,23 @@ def parse_event_time(value: str) -> time:
     return time(hour, minute)
 
 
+def format_event_datetime(
+    event_date: date,
+    event_time: time,
+    *,
+    language: str = "bg",
+) -> str:
+    clock = f"{event_time.hour:02d}:{event_time.minute:02d}"
+    code = language.strip().lower()
+    if code in {"bg", "bul", "bulgarian"}:
+        month_name = _BG_MONTHS[event_date.month - 1]
+        return f"{event_date.day} {month_name} {event_date.year} г., {clock}"
+    month_name = calendar.month_name[event_date.month]
+    return f"{event_date.day} {month_name} {event_date.year}, {clock}"
+
+
 def format_bulgarian_datetime(event_date: date, event_time: time) -> str:
-    month_name = _BG_MONTHS[event_date.month - 1]
-    return (
-        f"{event_date.day} {month_name} {event_date.year} г., "
-        f"{event_time.hour:02d}:{event_time.minute:02d}"
-    )
+    return format_event_datetime(event_date, event_time, language="bg")
 
 
 def format_iso_local(event_date: date, event_time: time) -> str:

@@ -51,21 +51,6 @@ class ChannelReportError(RuntimeError):
     pass
 
 
-BULGARIAN_MONTHS = {
-    "януари": 1,
-    "февруари": 2,
-    "март": 3,
-    "април": 4,
-    "май": 5,
-    "юни": 6,
-    "юли": 7,
-    "август": 8,
-    "септември": 9,
-    "октомври": 10,
-    "ноември": 11,
-    "декември": 12,
-}
-
 ENGLISH_MONTHS = {
     "january": 1,
     "february": 2,
@@ -1199,7 +1184,7 @@ def parse_month_cell(value: str) -> tuple[int, int] | None:
         month_name = words[0]
         year_text = words[-1]
         if year_text.isdigit():
-            month = BULGARIAN_MONTHS.get(month_name) or ENGLISH_MONTHS.get(month_name)
+            month = ENGLISH_MONTHS.get(month_name)
             if month is not None:
                 return _valid_month(int(year_text), month)
 

@@ -38,11 +38,9 @@ class ParseMonthCellTests(unittest.TestCase):
     def test_european_month(self) -> None:
         self.assertEqual(parse_month_cell("03/2024"), (2024, 3))
 
-    def test_bulgarian_month(self) -> None:
-        self.assertEqual(parse_month_cell("март 2024"), (2024, 3))
-
     def test_english_month(self) -> None:
         self.assertEqual(parse_month_cell("March 2025"), (2025, 3))
+        self.assertIsNone(parse_month_cell("март 2024"))
 
     def test_short_month_year(self) -> None:
         self.assertEqual(parse_month_cell("Jan/26"), (2026, 1))

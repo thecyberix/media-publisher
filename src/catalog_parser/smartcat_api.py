@@ -317,12 +317,13 @@ def _extract_task_id(payload: Any) -> str | None:
 
 
 def resolve_target_language_id(project: dict[str, Any], language: str) -> str:
-    from catalog_parser.smartcat import BULGARIAN_LANGUAGE_ALIASES
+    from catalog_parser.smartcat import configured_language_aliases
 
     language_norm = language.strip().lower()
     aliases = {language_norm}
-    if language_norm in BULGARIAN_LANGUAGE_ALIASES:
-        aliases |= {code.lower() for code in BULGARIAN_LANGUAGE_ALIASES}
+    configured = configured_language_aliases()
+    if language_norm in configured:
+        aliases |= {code.lower() for code in configured}
 
     for key in ("targetLanguages", "languages"):
         raw = project.get(key)

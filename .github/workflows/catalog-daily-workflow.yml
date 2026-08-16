@@ -41,6 +41,9 @@ permissions:
 
 env:
   NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
+  TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
+  TARGET_LANGUAGE_NAME: ${{ vars.TARGET_LANGUAGE_NAME }}
+  TARGET_COUNTRY: ${{ vars.TARGET_COUNTRY }}
 
 jobs:
   workflow:

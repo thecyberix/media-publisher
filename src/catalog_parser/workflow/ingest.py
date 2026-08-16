@@ -34,7 +34,7 @@ from catalog_parser.__main__ import (
     build_eligible_catalog_records,
 )
 from catalog_parser.canva import build_canva_client_from_env
-from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE
+from catalog_parser.smartcat import DEFAULT_UI_BASE, configured_target_language
 from catalog_parser.smartcat_web import DEFAULT_STORAGE_STATE, SmartcatWebClient
 from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.workflow.table_cache import TableCache
@@ -153,7 +153,7 @@ def ingest_batch(
             f"then {len(candidates) - marked} unmarked."
         )
 
-    smartcat_language = os.getenv("SMARTCAT_TARGET_LANGUAGE") or DEFAULT_TARGET_LANGUAGE
+    smartcat_language = configured_target_language()
     smartcat_api = os.getenv("SMARTCAT_API", "").strip().lower() in {"1", "true", "yes"}
     storage_state_path = Path(os.getenv("SMARTCAT_STORAGE_STATE", DEFAULT_STORAGE_STATE))
 

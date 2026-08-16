@@ -15,6 +15,7 @@ from media_publisher.events.drive_copy import (
 )
 from media_publisher.events.format import (
     format_bulgarian_datetime,
+    format_event_datetime,
     parse_event_date,
     parse_event_time,
 )
@@ -62,6 +63,10 @@ class EventFormatTests(unittest.TestCase):
         self.assertEqual(
             format_bulgarian_datetime(date(2026, 9, 15), time(18, 0)),
             "15 септември 2026 г., 18:00",
+        )
+        self.assertEqual(
+            format_event_datetime(date(2026, 9, 15), time(18, 0), language="en"),
+            "15 September 2026, 18:00",
         )
 
     def test_rejects_invalid_date_and_time(self) -> None:

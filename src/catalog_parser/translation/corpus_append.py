@@ -9,8 +9,8 @@ from typing import Any, TextIO
 
 from catalog_parser.airtable import AirtableClient
 from catalog_parser.smartcat import (
-    DEFAULT_TARGET_LANGUAGE,
     SmartcatError,
+    configured_target_language,
     parse_pkg_sm_link,
     parse_smartcat_resource_link,
     resolve_language_id,
@@ -318,11 +318,7 @@ def append_subtitle_pairs_for_record(
         else _resolve_path(project_root, DEFAULT_HOLDOUT_PATH)
     )
     year = current_year or os.getenv("CORPUS_CURRENT_YEAR", "").strip() or default_current_year()
-    language = (
-        target_language
-        or os.getenv("SMARTCAT_TARGET_LANGUAGE", "").strip()
-        or DEFAULT_TARGET_LANGUAGE
-    )
+    language = target_language or configured_target_language()
 
     candidates = records_to_candidates(
         [record],

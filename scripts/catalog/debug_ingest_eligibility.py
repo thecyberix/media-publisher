@@ -19,6 +19,7 @@ from catalog_parser.auth import get_docs_service, get_drive_service, get_sheets_
 from catalog_parser.drive_docs import enrich_records_with_yt_titles
 from catalog_parser.eligibility import explain_catalog_eligibility
 from catalog_parser.parser import parse_catalog, type_duration_bounds
+from catalog_parser.smartcat import configured_target_language
 from catalog_parser.smartcat_web import DEFAULT_STORAGE_STATE, SmartcatWebClient, SmartcatWebSession
 from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.workflow.table_cache import TableCache
@@ -103,7 +104,7 @@ def main() -> int:
 
     drive_service = get_drive_service(DEFAULT_CREDENTIALS, DEFAULT_TOKEN, use_console=False)
     docs_service = get_docs_service(DEFAULT_CREDENTIALS, DEFAULT_TOKEN, use_console=False)
-    smartcat_language = os.getenv("SMARTCAT_TARGET_LANGUAGE", "bg")
+    smartcat_language = configured_target_language()
     storage_state_path = Path(os.getenv("SMARTCAT_STORAGE_STATE", DEFAULT_STORAGE_STATE))
     web_client = SmartcatWebClient(
         ui_base=os.getenv("SMARTCAT_UI_BASE", "https://ea.smartcat.com").strip() or "https://ea.smartcat.com",

@@ -8,10 +8,10 @@ from typing import Any, Protocol
 
 from catalog_parser.smartcat_cookie import SmartcatCookieClient
 from catalog_parser.smartcat import (
-    DEFAULT_TARGET_LANGUAGE,
     DEFAULT_UI_BASE,
     SmartcatError,
     build_pkg_sm_link,
+    configured_target_language,
     find_document_by_id,
     find_matching_document,
     get_language_target,
@@ -325,8 +325,7 @@ def build_web_client_from_env(*, project_root: Path | None = None) -> SmartcatWe
     return SmartcatWebClient(
         ui_base=os.getenv("SMARTCAT_UI_BASE", DEFAULT_UI_BASE).strip() or DEFAULT_UI_BASE,
         storage_state_path=storage_state,
-        language=os.getenv("SMARTCAT_TARGET_LANGUAGE", DEFAULT_TARGET_LANGUAGE).strip()
-        or DEFAULT_TARGET_LANGUAGE,
+        language=configured_target_language(),
     )
 
 

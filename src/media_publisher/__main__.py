@@ -54,6 +54,7 @@ from media_publisher.publishers.youtube import (
     YouTubeClient,
     YouTubePublishError,
     publish_to_youtube,
+    youtube_channel_url_from_handle,
     youtube_video_url,
 )
 from media_publisher.analytics.channel_report import (
@@ -299,8 +300,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--country",
-        default="България",
-        help="Country for --publish-event (default: България).",
+        default="",
+        help="Country for --publish-event (default: TARGET_COUNTRY / България).",
     )
     parser.add_argument(
         "--date",
@@ -425,11 +426,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--quotes",
         action="store_true",
         help=(
-            "Schedule or publish today's quote from the monthly Canva PDF in "
-            "downloads/canva. The design is resolved by title in the DMQ templates "
-            "folder, e.g. 'Юли 2026 FB/YT DMQ Template Final' (Instagram uses "
-            "'Юли 2026 IG DMQ Template Final'). "
-            "Each PDF page is one day of the month (page N = day N). Images become short "
+            "Schedule or publish today's quote from the monthly Drive/Sheets "
+            "render pipeline. Each day is one rendered image. Images become short "
             "videos for YouTube (scheduled Short with image thumbnail). Facebook and "
             "Instagram use the rendered page image (Instagram is published automatically "
             "near the scheduled time with --watch). Use --platform to limit platforms."
@@ -810,7 +808,7 @@ def run_publish_event(settings, args) -> int:
         result = publish_event(
             event_type=args.event_type,
             city=args.city,
-            country=args.country,
+            country=args.country.strip() or settings.target_country,
             date_text=args.date,
             time_text=args.time,
             registration_link=args.registration_link,
@@ -822,6 +820,7 @@ def run_publish_event(settings, args) -> int:
             page_id=page_id,
             drive_client=drive_client,
             image_id=(args.image_id.strip() or None),
+            language=settings.target_language,
         )
     except EventPublishError as exc:
         print(f"Publish event failed: {exc}")
@@ -912,7 +911,9 @@ def template_urls_from_settings(settings) -> dict[str, str]:
     return {
         "facebook_url": meta_facebook_url(settings),
         "instagram_url": meta_instagram_url(settings),
-        "youtube_channel_url": settings.youtube_channel_url,
+        "youtube_channel_url": youtube_channel_url_from_handle(
+            settings.youtube_channel_handle
+        ),
     }
 
 
@@ -1184,13 +1185,12 @@ def google_sheets_client_from_settings(settings) -> GoogleSheetsClient:
     )
 
 
-def youtube_channel_id_from_settings(settings) -> str | None:
-    url = settings.youtube_channel_url.strip()
-    marker = "/channel/"
-    if marker in url:
-        channel_id = url.rsplit(marker, 1)[-1].split("/", 1)[0].split("?", 1)[0]
-        return channel_id or None
-    return None
+def youtube_channel_id_from_client(youtube_client: YouTubeClient | None) -> str | None:
+    if youtube_client is None or not youtube_client.expected_channel_handle:
+        return None
+    return youtube_client.get_channel_by_handle(
+        youtube_client.expected_channel_handle
+    ).id
 
 
 def channel_report_snapshot_path(settings) -> Path:
@@ -1245,7 +1245,7 @@ def run_capture_channel_report_snapshots(settings) -> int:
             meta_page_id=page_id or None,
             meta_instagram_account_id=instagram_account_id or None,
             youtube_client=youtube_client,
-            youtube_channel_id=youtube_channel_id_from_settings(settings),
+            youtube_channel_id=youtube_channel_id_from_client(youtube_client),
         )
     except (ChannelReportSnapshotError, MetaError, YouTubePublishError) as exc:
         print(f"Channel report snapshot failed: {exc}")
@@ -1317,7 +1317,7 @@ def run_update_channel_report(
             mapping=mapping,
             sheets_client=sheets,
             youtube_client=youtube_client,
-            youtube_channel_id=youtube_channel_id_from_settings(settings),
+            youtube_channel_id=youtube_channel_id_from_client(youtube_client),
             meta_client=meta_client,
             meta_page_id=page_id or None,
             meta_instagram_account_id=instagram_account_id or None,
@@ -1854,6 +1854,8 @@ def main() -> int:
         print(f"  YouTube: {'yes' if youtube_settings_complete(settings) else 'no'}")
         if settings.youtube_channel_handle:
             print(f"    Channel: @{settings.youtube_channel_handle}")
+        print(f"  Language: {settings.target_language_name} ({settings.target_language})")
+        print(f"  Country: {settings.target_country}")
         print(f"  Meta: {'yes' if settings.meta_access_token else 'no'}")
         print(f"    Facebook: {meta_facebook_url(settings)}")
         print(f"    Instagram: {meta_instagram_url(settings)}")

@@ -67,7 +67,29 @@ class SmartcatLinkParsingTests(unittest.TestCase):
     def test_language_matches_bulgarian_aliases(self) -> None:
         self.assertTrue(language_matches("Bulgarian", "bg"))
         self.assertTrue(language_matches("title.bg.srt", "bg"))
+        self.assertTrue(language_matches("bul", "bg"))
         self.assertFalse(language_matches("German", "bg"))
+
+    def test_language_matches_uses_configured_aliases(self) -> None:
+        from unittest.mock import patch
+
+        from catalog_parser.smartcat import configured_language_aliases
+
+        with patch.dict(
+            "os.environ",
+            {
+                "TARGET_LANGUAGE": "de",
+                "TARGET_LANGUAGE_NAME": "German",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                configured_language_aliases(),
+                frozenset({"de", "german"}),
+            )
+            self.assertTrue(language_matches("German", "de"))
+            self.assertTrue(language_matches("title.de.srt", "de"))
+            self.assertFalse(language_matches("Bulgarian", "de"))
 
     def test_pick_bulgarian_srt_href(self) -> None:
         href = pick_bulgarian_srt_href(

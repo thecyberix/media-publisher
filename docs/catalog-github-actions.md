@@ -389,7 +389,9 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 | `WORKFLOW_REEL_TO_VIDEO_RATIO` | `6` | Target reel:video ratio for ingest. |
 | `WORKFLOW_MAX_VIDEO_SECONDS` | `900` | Prefer videos under 15 minutes during ingest. |
 | `VIDEO_TYPE` | `Reel` | Default video type when not driven by workflow rules. |
-| `SMARTCAT_TARGET_LANGUAGE` | `bg` | Smartcat language for subtitle checks. |
+| `TARGET_LANGUAGE` | `bg` | Language code used for Smartcat subtitle checks. |
+| `TARGET_LANGUAGE_NAME` | `Bulgarian` | Display / Smartcat UI name matched with the code. |
+| `TARGET_COUNTRY` | `България` | Default country for event announcements. |
 
 ## Google service account setup
 

@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from catalog_parser.airtable import AirtableClient
-from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, SmartcatError, resolve_language_id
+from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, SmartcatError, configured_target_language, resolve_language_id
 from catalog_parser.smartcat_export import (
     SmartcatDocumentContext,
     build_cookie_client_from_env,
@@ -255,7 +255,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--language",
-        default=os.getenv("SMARTCAT_TARGET_LANGUAGE", DEFAULT_TARGET_LANGUAGE),
+        default=configured_target_language(),
     )
     parser.add_argument(
         "--current-year",

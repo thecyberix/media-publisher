@@ -102,6 +102,10 @@ def parse_channel_handle(value: str) -> str:
     return text
 
 
+def youtube_channel_url_from_handle(handle: str) -> str:
+    return f"https://www.youtube.com/@{parse_channel_handle(handle)}"
+
+
 def channel_handle_from_snippet(snippet: dict[str, Any]) -> str | None:
     custom_url = snippet.get("customUrl")
     if not isinstance(custom_url, str) or not custom_url.strip():
@@ -512,7 +516,6 @@ class YouTubeClient:
             else None
         )
         self._secrets: YouTubeClientSecrets | None = None
-        self._playlist_id_cache: dict[str, str] = {}
 
     @property
     def secrets(self) -> YouTubeClientSecrets:
@@ -736,68 +739,6 @@ class YouTubeClient:
         if not isinstance(items, list):
             return []
         return [item for item in items if isinstance(item, dict)]
-
-    def list_my_playlists(self) -> list[dict[str, Any]]:
-        playlists: list[dict[str, Any]] = []
-        page_token: str | None = None
-        while True:
-            query_items = {
-                "part": "snippet",
-                "mine": "true",
-                "maxResults": "50",
-            }
-            if page_token:
-                query_items["pageToken"] = page_token
-            query = urllib.parse.urlencode(query_items)
-            url = f"{API_BASE}/playlists?{query}"
-            status, _, payload = self._request("GET", url)
-            if status != 200:
-                detail = payload.decode("utf-8", errors="replace").strip()
-                raise YouTubePublishError(
-                    f"YouTube playlist lookup failed with HTTP {status}: {detail}"
-                )
-            items = self._parse_playlist_items(payload)
-            playlists.extend(items)
-            data = json.loads(payload.decode("utf-8"))
-            next_token = data.get("nextPageToken") if isinstance(data, dict) else None
-            if not isinstance(next_token, str) or not next_token.strip():
-                break
-            page_token = next_token.strip()
-        return playlists
-
-    def resolve_playlist_id(
-        self,
-        title: str,
-        *,
-        playlist_id: str | None = None,
-    ) -> str:
-        if playlist_id and playlist_id.strip():
-            return playlist_id.strip()
-
-        normalized_title = title.strip()
-        if not normalized_title:
-            raise YouTubePublishError("YouTube playlist title is empty")
-
-        cached = self._playlist_id_cache.get(normalized_title.casefold())
-        if cached:
-            return cached
-
-        target = normalized_title.casefold()
-        for item in self.list_my_playlists():
-            playlist_key = item.get("id")
-            snippet = item.get("snippet")
-            if not isinstance(playlist_key, str) or not playlist_key:
-                continue
-            if not isinstance(snippet, dict):
-                continue
-            item_title = snippet.get("title")
-            if isinstance(item_title, str) and item_title.strip().casefold() == target:
-                self._playlist_id_cache[normalized_title.casefold()] = playlist_key
-                return playlist_key
-
-        raise YouTubePublishError(
-            f"YouTube playlist {normalized_title!r} was not found on the authorized channel"
-        )
 
     def add_video_to_playlist(
         self,
@@ -1035,7 +976,7 @@ class YouTubeClient:
         state_path: Path,
         now: datetime | None = None,
     ) -> list[str]:
-        """Add pending slot videos to Днес once they are public/unlisted.
+        """Add pending slot videos to the daily playlist once they are public/unlisted.
 
         Returns the slot names that were synced on this call.
         """
@@ -1314,7 +1255,7 @@ def job_ready_for_daily_playlist(
 def should_queue_daily_playlist(
     job: PublishJob, *, now: datetime | None = None
 ) -> bool:
-    """True when a scheduled private upload should wait for go-live before Днес."""
+    """True when a scheduled private upload should wait for go-live before the daily playlist."""
     return job.publish_at is not None and not job_ready_for_daily_playlist(
         job, now=now
     )
@@ -1543,17 +1484,10 @@ def publish_to_youtube(
             # Shorts often reject API thumbnails; upload still succeeds.
 
     if playlist_id:
-        resolved_playlist_id = client.resolve_playlist_id(
-            "",
-            playlist_id=playlist_id,
-        )
-        client.add_video_to_playlist(video_id, resolved_playlist_id)
+        client.add_video_to_playlist(video_id, playlist_id.strip())
 
     if daily_playlist_id:
-        resolved_daily_id = client.resolve_playlist_id(
-            "",
-            playlist_id=daily_playlist_id,
-        )
+        resolved_daily_id = daily_playlist_id.strip()
         slots_path = daily_playlist_slots_path or Path(DEFAULT_DAILY_PLAYLIST_SLOTS_PATH)
         client.flush_pending_daily_playlist_slots(
             resolved_daily_id,
@@ -1597,11 +1531,7 @@ def flush_configured_daily_playlist(
         token_path,
         expected_channel_handle=expected_channel_handle,
     )
-    resolved_daily_id = client.resolve_playlist_id(
-        "",
-        playlist_id=daily_playlist_id,
-    )
     return client.flush_pending_daily_playlist_slots(
-        resolved_daily_id,
+        daily_playlist_id.strip(),
         state_path=slots_path,
     )

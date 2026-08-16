@@ -19,10 +19,10 @@ on:
         type: string
         required: true
       country:
-        description: Country (държава)
+        description: Country (blank = TARGET_COUNTRY)
         type: string
-        required: true
-        default: България
+        required: false
+        default: ""
       date:
         description: Event date (YYYY-MM-DD)
         type: string
@@ -59,6 +59,11 @@ env:
   META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
   GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
   DRIVE_URL: ${{ vars.DRIVE_URL }}
+  META_PAGE_USERNAME: ${{ vars.META_PAGE_USERNAME }}
+  META_INSTAGRAM_USERNAME: ${{ vars.META_INSTAGRAM_USERNAME }}
+  TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
+  TARGET_LANGUAGE_NAME: ${{ vars.TARGET_LANGUAGE_NAME }}
+  TARGET_COUNTRY: ${{ vars.TARGET_COUNTRY }}
 
 jobs:
   publish:
@@ -94,11 +99,13 @@ jobs:
             --publish-event
             --event-type "$EVENT_TYPE"
             --city "$EVENT_CITY"
-            --country "$EVENT_COUNTRY"
             --date "$EVENT_DATE"
             --time "$EVENT_TIME"
             --registration-link "$EVENT_REGISTRATION_LINK"
           )
+          if [ -n "${EVENT_COUNTRY:-}" ]; then
+            args+=(--country "$EVENT_COUNTRY")
+          fi
           if [ -n "${EVENT_IMAGE_ID:-}" ]; then
             args+=(--image-id "$EVENT_IMAGE_ID")
           fi

@@ -40,7 +40,12 @@ from catalog_parser.parser import (
 )
 from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.runtime_env import materialize_credentials, maybe_persist_canva_token
-from catalog_parser.smartcat import DEFAULT_TARGET_LANGUAGE, DEFAULT_UI_BASE, SmartcatError
+from catalog_parser.smartcat import (
+    DEFAULT_TARGET_LANGUAGE,
+    DEFAULT_UI_BASE,
+    SmartcatError,
+    configured_target_language,
+)
 from catalog_parser.smartcat_api import SmartcatApiClient
 from catalog_parser.smartcat_web import (
     DEFAULT_STORAGE_STATE,
@@ -694,7 +699,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Target language for SRT lookup "
-            f"(default: {DEFAULT_TARGET_LANGUAGE} or SMARTCAT_TARGET_LANGUAGE)."
+            f"(default: TARGET_LANGUAGE, else {DEFAULT_TARGET_LANGUAGE})."
         ),
     )
     ingest_parser.add_argument(
@@ -880,8 +885,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     if args.sheet_only:
         smartcat_language = (
             args.smartcat_language
-            or os.getenv("SMARTCAT_TARGET_LANGUAGE")
-            or DEFAULT_TARGET_LANGUAGE
+            or configured_target_language()
         )
         if smartcat_enabled:
             storage_state_path = Path(
@@ -951,8 +955,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     else:
         smartcat_language = (
             args.smartcat_language
-            or os.getenv("SMARTCAT_TARGET_LANGUAGE")
-            or DEFAULT_TARGET_LANGUAGE
+            or configured_target_language()
         )
         storage_state_path = Path(
             os.getenv("SMARTCAT_STORAGE_STATE", str(DEFAULT_SMARTCAT_STATE))

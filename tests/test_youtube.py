@@ -29,6 +29,7 @@ from media_publisher.publishers.youtube import (
     save_token,
     should_queue_daily_playlist,
     validate_schedule_time,
+    youtube_channel_url_from_handle,
 )
 
 
@@ -105,6 +106,10 @@ class YouTubeHelperTests(unittest.TestCase):
     def test_parse_channel_handle_from_url(self) -> None:
         handle = parse_channel_handle("https://www.youtube.com/@SadhguruBulgarian")
         self.assertEqual(handle, "SadhguruBulgarian")
+        self.assertEqual(
+            youtube_channel_url_from_handle("@SadhguruBulgarian"),
+            "https://www.youtube.com/@SadhguruBulgarian",
+        )
 
     def test_video_is_ready_for_thumbnail_when_processed(self) -> None:
         item = {"status": {"uploadStatus": "processed"}}
@@ -469,7 +474,6 @@ class YouTubeClientTests(unittest.TestCase):
             )
             with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
                 client_cls.return_value.upload_video.return_value = "vid123"
-                client_cls.return_value.resolve_playlist_id.return_value = "PLtest123"
                 video_id = publish_to_youtube(
                     job,
                     client_secrets_path=secrets_path,
@@ -478,10 +482,6 @@ class YouTubeClientTests(unittest.TestCase):
                 )
 
         self.assertEqual(video_id, "vid123")
-        client_cls.return_value.resolve_playlist_id.assert_called_once_with(
-            "",
-            playlist_id="PLtest123",
-        )
         client_cls.return_value.add_video_to_playlist.assert_called_once_with(
             "vid123",
             "PLtest123",
@@ -502,10 +502,6 @@ class YouTubeClientTests(unittest.TestCase):
             )
             with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
                 client_cls.return_value.upload_video.return_value = "vid123"
-                client_cls.return_value.resolve_playlist_id.side_effect = [
-                    "PLarchive",
-                    "PLdaily",
-                ]
                 video_id = publish_to_youtube(
                     job,
                     client_secrets_path=secrets_path,
@@ -544,10 +540,6 @@ class YouTubeClientTests(unittest.TestCase):
             )
             with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
                 client_cls.return_value.upload_video.return_value = "vid123"
-                client_cls.return_value.resolve_playlist_id.side_effect = [
-                    "PLarchive",
-                    "PLdaily",
-                ]
                 video_id = publish_to_youtube(
                     job,
                     client_secrets_path=secrets_path,

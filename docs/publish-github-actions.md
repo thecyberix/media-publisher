@@ -151,8 +151,14 @@ The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render 
 |----------|----------|
 | `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval` |
 | `CANVA_URL` | Parent Canva folder; catalog thumbnails use `Long videos` and `Short videos` |
-| `YOUTUBE_PLAYLIST_ID` | Channel playlist for published catalog videos and quotes (`Съзнателна Планета`) |
-| `YOUTUBE_DAILY_PLAYLIST_ID` | Smartlink daily playlist (`Днес`) |
+| `YOUTUBE_CHANNEL_HANDLE` | YouTube handle (default `SadhguruBulgarian`). Empty uses the code default. |
+| `YOUTUBE_PLAYLIST_ID` | Channel playlist for published catalog videos and quotes |
+| `YOUTUBE_DAILY_PLAYLIST_ID` | Daily Smartlink playlist |
+| `META_PAGE_USERNAME` | Facebook Page username (default `SadhguruBulgarian`). |
+| `META_INSTAGRAM_USERNAME` | Instagram username (default `sadhguru.bulgarian`). |
+| `TARGET_LANGUAGE` | Language code for Smartcat / locale (`bg`). |
+| `TARGET_LANGUAGE_NAME` | Language display name (`Bulgarian`). |
+| `TARGET_COUNTRY` | Default country for event announcements (`България`). |
 | `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes, e.g. `https://docs.google.com/spreadsheets/d/13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec/edit` |
 | `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts (also set on catalog workflows) |
 | `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails; comma-separated list supported |
