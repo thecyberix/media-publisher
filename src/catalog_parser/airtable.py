@@ -25,6 +25,7 @@ FIELD_ORIGINAL_VIDEO_THUMBNAIL = "Original Video Thumbnail"
 FIELD_TYPE = "Type"
 FIELD_VIDEO_FOLDER = "Video Folder"
 FIELD_TRANSLATION_RESOURCES = "Translation resources"
+FIELD_TRANSLATED_SUBTITLES = "Translated subtitles"
 FIELD_COMBINED_MEDIA_FILE = "Combined Media File"
 FIELD_STATUS = "Status"
 FIELD_TRANSLATOR = "Translator"
@@ -648,6 +649,39 @@ class AirtableClient:
         if not isinstance(response, dict):
             raise AirtableError("Unexpected Airtable response while uploading attachment")
         return response
+
+    def ensure_url_field(self, field_name: str) -> bool:
+        """Create a URL field if it is missing. Returns True when a field was created."""
+        name = field_name.strip()
+        if not name:
+            raise AirtableError("field_name is required")
+        tables = self.list_base_tables(self.base_id)
+        table = next(
+            (
+                item
+                for item in tables
+                if item.get("name") == self.table_name or item.get("id") == self.table_name
+            ),
+            None,
+        )
+        if not isinstance(table, dict):
+            raise AirtableError(f"Airtable table {self.table_name!r} was not found")
+        fields = table.get("fields")
+        if isinstance(fields, list):
+            for item in fields:
+                if isinstance(item, dict) and item.get("name") == name:
+                    return False
+        table_id = table.get("id")
+        if not isinstance(table_id, str) or not table_id:
+            raise AirtableError(f"Airtable table {self.table_name!r} has no id")
+        encoded_base = urllib.parse.quote(self.base_id, safe="")
+        encoded_table = urllib.parse.quote(table_id, safe="")
+        self._request(
+            "POST",
+            f"{self.api_base}/meta/bases/{encoded_base}/tables/{encoded_table}/fields",
+            body={"name": name, "type": "url"},
+        )
+        return True
 
     def create_record_comment(self, record_id: str, text: str) -> None:
         self._request("POST", self._record_comments_url(record_id), body={"text": text})

@@ -149,6 +149,23 @@ class WorkflowRuleTests(unittest.TestCase):
         action_types = [action.action_type.value for action in actions]
         self.assertEqual(action_types, ["combine_media"])
 
+    def test_combine_when_editing_done_without_aligned_subtitles(self) -> None:
+        record = {
+            "id": "rec1d",
+            "fields": {
+                FIELD_TITLE: "Test Video",
+                "Type": "Reel",
+                "Status": STATUS_EDITING_DONE,
+                "Combined Media File": "https://drive.google.com/file/d/abc/view",
+                FIELD_TIMING_EDITOR: "Already Assigned",
+                "Translation resources": "https://ea.smartcat.com/projects/x",
+            },
+        }
+        actions = plan_record_actions(record)
+        action_types = [action.action_type.value for action in actions]
+        self.assertEqual(action_types, ["combine_media"])
+        self.assertEqual(actions[0].reason, "Editing done; aligned subtitles missing")
+
     def test_assign_timing_editor_when_editing_done_without_timing_editor(self) -> None:
         record = {
             "id": "rec1b",

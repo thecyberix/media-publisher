@@ -14,6 +14,7 @@ FOLDER_OVERRIDES = "Overrides"
 FOLDER_QUOTES = "Quotes"
 FOLDER_THUMBNAILS_FOR_APPROVAL = "Thumbnails for approval"
 FOLDER_IMAGES = "Images"
+FOLDER_SUBTITLES = "Subtitles"
 
 DRIVE_FOLDER_PATTERN = re.compile(r"/folders/([a-zA-Z0-9_-]+)")
 
@@ -126,6 +127,18 @@ def resolve_thumbnails_for_approval_id(
     return resolve_named_folder(
         drive, FOLDER_THUMBNAILS_FOR_APPROVAL, drive_url=drive_url
     )
+
+
+def ensure_named_folder(
+    drive: GoogleDriveClient | Any,
+    folder_name: str,
+    *,
+    drive_url: str = "",
+) -> str:
+    """Create ``folder_name`` under DRIVE_URL if it does not already exist."""
+    root_id = require_drive_root_id(drive_url)
+    created = as_drive_client(drive).ensure_folder(root_id, folder_name)
+    return created.id
 
 
 def resolve_save_soil_folder_id(

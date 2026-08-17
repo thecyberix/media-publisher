@@ -32,6 +32,7 @@ from media_publisher.sources.publish_media import (
     merge_publish_media_cleanup,
     resolve_publish_thumbnail,
     resolve_publish_video,
+    translated_subtitles_cleanup_from_fields,
 )
 from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
 from media_publisher.sources.tn_publish import TnPublishError, TnPublishSettings
@@ -943,7 +944,9 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
             f"requires Status {STATUS_SYNC_DONE!r}, a publish date, and no existing permalink."
         )
     task = tasks[0]
-    cleanup: PublishMediaCleanup | None = None
+    cleanup: PublishMediaCleanup | None = translated_subtitles_cleanup_from_fields(
+        dict(record.fields)
+    )
     lookup_title = str(record.fields.get(FIELD_TITLE) or task.job.title)
     drive_client = None
     service_account = PROJECT_ROOT / settings.google_sheets_service_account

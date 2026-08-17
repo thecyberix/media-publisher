@@ -25,6 +25,7 @@ from media_publisher.sources.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_TITLE,
+    FIELD_TRANSLATED_SUBTITLES,
     has_original_video_thumbnail,
 )
 from media_publisher.sources.canva import (
@@ -68,6 +69,7 @@ class PublishMediaCleanup:
     canva_design_id: str | None = None
     canva_published_folder_id: str | None = None
     combined_media_file_id: str | None = None
+    translated_subtitles_file_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,17 @@ def combined_media_file_id_from_fields(record_fields: dict[str, Any]) -> str | N
     return extract_drive_file_id(combined)
 
 
+def translated_subtitles_file_id_from_fields(record_fields: dict[str, Any]) -> str | None:
+    value = record_fields.get(FIELD_TRANSLATED_SUBTITLES)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    if not value.strip():
+        return None
+    return extract_drive_file_id(value)
+
+
 def combined_media_cleanup_from_fields(
     record_fields: dict[str, Any],
 ) -> PublishMediaCleanup | None:
@@ -123,6 +136,15 @@ def combined_media_cleanup_from_fields(
     if not file_id:
         return None
     return PublishMediaCleanup(combined_media_file_id=file_id)
+
+
+def translated_subtitles_cleanup_from_fields(
+    record_fields: dict[str, Any],
+) -> PublishMediaCleanup | None:
+    file_id = translated_subtitles_file_id_from_fields(record_fields)
+    if not file_id:
+        return None
+    return PublishMediaCleanup(translated_subtitles_file_id=file_id)
 
 
 def resolve_combined_media_for_publish(
@@ -148,7 +170,12 @@ def resolve_combined_media_for_publish(
     return PublishVideoResult(
         path=destination,
         source="combined-media",
-        cleanup=PublishMediaCleanup(combined_media_file_id=existing_id),
+        cleanup=PublishMediaCleanup(
+            combined_media_file_id=existing_id,
+            translated_subtitles_file_id=translated_subtitles_file_id_from_fields(
+                record_fields
+            ),
+        ),
     )
 
 
@@ -169,6 +196,9 @@ def merge_publish_media_cleanup(
         merged.combined_media_file_id = (
             left.combined_media_file_id or merged.combined_media_file_id
         )
+        merged.translated_subtitles_file_id = (
+            left.translated_subtitles_file_id or merged.translated_subtitles_file_id
+        )
     if right is not None:
         merged.drive_file_ids_to_delete.extend(right.drive_file_ids_to_delete)
         merged.drive_file_moves.extend(right.drive_file_moves)
@@ -179,11 +209,15 @@ def merge_publish_media_cleanup(
         merged.combined_media_file_id = (
             right.combined_media_file_id or merged.combined_media_file_id
         )
+        merged.translated_subtitles_file_id = (
+            right.translated_subtitles_file_id or merged.translated_subtitles_file_id
+        )
     if (
         not merged.drive_file_ids_to_delete
         and not merged.drive_file_moves
         and not merged.canva_design_id
         and not merged.combined_media_file_id
+        and not merged.translated_subtitles_file_id
     ):
         return None
     return merged
@@ -665,6 +699,27 @@ def apply_publish_media_cleanup(
                 emit(
                     "  cleanup: failed to remove Combined Media File "
                     f"{cleanup.combined_media_file_id}: {exc}"
+                )
+
+        if cleanup.translated_subtitles_file_id:
+            try:
+                action = drive.remove_file(cleanup.translated_subtitles_file_id)
+                emit(
+                    "  cleanup: "
+                    f"{action} Translated subtitles {cleanup.translated_subtitles_file_id}"
+                )
+                if airtable is not None and record_id:
+                    airtable.update_record(
+                        record_id,
+                        {FIELD_TRANSLATED_SUBTITLES: ""},
+                    )
+                    emit(
+                        f"  cleanup: cleared {FIELD_TRANSLATED_SUBTITLES!r} on {record_id}"
+                    )
+            except GoogleDriveError as exc:
+                emit(
+                    "  cleanup: failed to remove Translated subtitles "
+                    f"{cleanup.translated_subtitles_file_id}: {exc}"
                 )
 
     if (

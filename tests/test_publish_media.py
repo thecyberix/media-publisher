@@ -8,6 +8,7 @@ from media_publisher.sources.canva import CanvaError
 from media_publisher.sources.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_TITLE,
+    FIELD_TRANSLATED_SUBTITLES,
 )
 from media_publisher.sources.google_drive import DriveFile
 from media_publisher.sources.publish_media import (
@@ -79,6 +80,9 @@ class PublishMediaResolutionTests(unittest.TestCase):
                     FIELD_COMBINED_MEDIA_FILE: (
                         "https://drive.google.com/file/d/file123/view"
                     ),
+                    FIELD_TRANSLATED_SUBTITLES: (
+                        "https://drive.google.com/file/d/subs123/view"
+                    ),
                 },
                 drive=drive,
                 download_dir=download_dir,
@@ -88,6 +92,7 @@ class PublishMediaResolutionTests(unittest.TestCase):
             self.assertEqual(result.path.read_bytes(), b"combined")
             assert result.cleanup is not None
             self.assertEqual(result.cleanup.combined_media_file_id, "file123")
+            self.assertEqual(result.cleanup.translated_subtitles_file_id, "subs123")
 
     def test_resolve_combined_media_requires_existing_file(self) -> None:
         drive = MagicMock()
@@ -355,6 +360,7 @@ class PublishMediaResolutionTests(unittest.TestCase):
                 DriveFileMove(file_id="thumb1", destination_folder_id="published1")
             ],
             combined_media_file_id="combined1",
+            translated_subtitles_file_id="subs1",
         )
         apply_publish_media_cleanup(
             cleanup,
@@ -366,13 +372,23 @@ class PublishMediaResolutionTests(unittest.TestCase):
         )
         drive.move_file.assert_called_once_with("thumb1", "published1")
         drive.delete_file.assert_called_once_with("video1")
-        drive.remove_file.assert_called_once_with("combined1")
-        airtable.update_record.assert_called_once_with(
-            "recABC",
-            {FIELD_COMBINED_MEDIA_FILE: ""},
+        self.assertEqual(
+            drive.remove_file.call_args_list,
+            [
+                unittest.mock.call("combined1"),
+                unittest.mock.call("subs1"),
+            ],
+        )
+        self.assertEqual(
+            airtable.update_record.call_args_list,
+            [
+                unittest.mock.call("recABC", {FIELD_COMBINED_MEDIA_FILE: ""}),
+                unittest.mock.call("recABC", {FIELD_TRANSLATED_SUBTITLES: ""}),
+            ],
         )
         self.assertTrue(any("moved Drive override file" in message for message in messages))
         self.assertTrue(any("deleted Combined Media File" in message for message in messages))
+        self.assertTrue(any("deleted Translated subtitles" in message for message in messages))
 
     def test_apply_publish_media_cleanup_deletes_drive_and_moves_canva(self) -> None:
         drive = MagicMock()

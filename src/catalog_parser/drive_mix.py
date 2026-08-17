@@ -46,6 +46,45 @@ class MixMediaCheck:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class MixToDriveResult:
+    uploaded: DriveMediaFile
+    local_audio_paths: tuple[Path, ...] = ()
+
+    @property
+    def id(self) -> str:
+        return self.uploaded.id
+
+    @property
+    def name(self) -> str:
+        return self.uploaded.name
+
+    @property
+    def mime_type(self) -> str:
+        return self.uploaded.mime_type
+
+    @property
+    def parent_id(self) -> str:
+        return self.uploaded.parent_id
+
+
+def pick_dialogue_audio_path(paths: list[Path]) -> Path | None:
+    """Prefer All Dialogue; otherwise the only speech-like audio file."""
+    existing = [path for path in paths if path.is_file()]
+    if not existing:
+        return None
+    for preferred in ("all dialogue.wav", "all dialogue.mp3"):
+        for path in existing:
+            if path.name.casefold() == preferred:
+                return path
+    dialogue = [path for path in existing if "dialogue" in path.name.casefold()]
+    if dialogue:
+        return sorted(dialogue, key=lambda item: item.name.casefold())[0]
+    if len(existing) == 1:
+        return existing[0]
+    return None
+
+
 def _drive_file(item: dict[str, Any], *, parent_id: str) -> DriveMediaFile | None:
     file_id = item.get("id")
     name = item.get("name")
@@ -516,7 +555,7 @@ def mix_folder_media_to_drive(
     ffmpeg_path: str | None = None,
     dry_run: bool = False,
     video_type: str | None = None,
-) -> DriveMediaFile:
+) -> MixToDriveResult:
     if dry_run:
         check = check_mixable_media(
             drive_service,
@@ -528,11 +567,13 @@ def mix_folder_media_to_drive(
         media = check.media
         if media is None:
             raise DriveCombineError("Folder is not mixable")
-        return DriveMediaFile(
-            id="dry-run",
-            name=output_name,
-            mime_type="video/mp4",
-            parent_id=output_parent_id,
+        return MixToDriveResult(
+            uploaded=DriveMediaFile(
+                id="dry-run",
+                name=output_name,
+                mime_type="video/mp4",
+                parent_id=output_parent_id,
+            )
         )
 
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -574,12 +615,16 @@ def mix_folder_media_to_drive(
     )
 
     verify_drive_output_folder_access(drive_service, output_parent_id)
-    return upload_drive_file(
+    uploaded = upload_drive_file(
         drive_service,
         output_parent_id,
         output_path,
         name=output_name,
         mime_type="video/mp4",
+    )
+    return MixToDriveResult(
+        uploaded=uploaded,
+        local_audio_paths=tuple(audio_paths),
     )
 
 

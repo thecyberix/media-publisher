@@ -215,6 +215,23 @@ class SmartcatCookieClient:
             title=title,
         )
 
+    def update_document_source_srt(
+        self,
+        document_id: str,
+        language_id: str | int,
+        source_srt: str,
+        *,
+        filename: str = "source.srt",
+        api_base: str | None = None,
+    ) -> None:
+        del document_id, language_id, source_srt, filename, api_base
+        raise SmartcatError(
+            "Replacing a Smartcat source file requires company API credentials "
+            "(SMARTCAT_ACCOUNT_ID and SMARTCAT_API_KEY from Settings → API). "
+            "The browser session can export subtitles, but Smartcat rejects "
+            "cookie auth on PUT /api/integration/v1/document/update."
+        )
+
     def verify_session(self, *, probe_project_id: str | None = None) -> None:
         status, _ = self.web_request("GET", "/projects")
         if status in {401, 403}:

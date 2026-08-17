@@ -250,6 +250,87 @@ class SmartcatApiClient:
             f"Timed out waiting for Smartcat translate import of {composite_id!r}"
         )
 
+    def update_document_source_srt(
+        self,
+        document_id: str,
+        language_id: str,
+        source_srt: str,
+        *,
+        filename: str = "source.srt",
+    ) -> None:
+        """Replace the source file via PUT /document/update (timings live on source)."""
+        put_document_update(
+            api_base=self.api_base,
+            document_id=document_id,
+            language_id=language_id,
+            source_srt=source_srt,
+            filename=filename,
+            extra_headers={"Authorization": self._auth_header},
+        )
+
+
+def put_document_update(
+    *,
+    api_base: str,
+    document_id: str,
+    language_id: str,
+    source_srt: str,
+    filename: str,
+    extra_headers: dict[str, str],
+) -> None:
+    import uuid
+
+    composite_id = build_document_language_id(document_id, str(language_id))
+    boundary = f"----SmartcatBoundary{uuid.uuid4().hex}"
+    file_bytes = source_srt.encode("utf-8")
+    model = json.dumps(
+        {
+            "bilingualFileImportSetings": {
+                "targetSubstitutionMode": "all",
+                "lockMode": "none",
+                "confirmMode": "none",
+            }
+        }
+    )
+    body = (
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="uploadedFile"; '
+            f'filename="{filename}"\r\n'
+            f"Content-Type: application/x-subrip\r\n\r\n"
+        ).encode("utf-8")
+        + file_bytes
+        + (
+            f"\r\n--{boundary}\r\n"
+            'Content-Disposition: form-data; name="updateDocumentModel"\r\n'
+            "Content-Type: application/json\r\n\r\n"
+            f"{model}\r\n"
+            f"--{boundary}--\r\n"
+        ).encode("utf-8")
+    )
+    url = (
+        f"{api_base.rstrip('/')}/api/integration/v1/document/update?"
+        f"{urllib.parse.urlencode({'documentId': composite_id})}"
+    )
+    request = urllib.request.Request(url, data=body, method="PUT")
+    request.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    request.add_header("Accept", "application/json")
+    for key, value in extra_headers.items():
+        request.add_header(key, value)
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            status = response.status
+            payload = response.read()
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        payload = exc.read()
+    if status >= 400:
+        detail = payload.decode("utf-8", errors="replace")[:500]
+        raise SmartcatError(
+            f"Smartcat document/update failed for {composite_id!r} "
+            f"(HTTP {status}): {detail}"
+        )
+
     def resolve_bulgarian_srt_link(
         self,
         pkg_sm_link: str,

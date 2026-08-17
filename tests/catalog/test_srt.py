@@ -23,6 +23,64 @@ Second cue
         self.assertIn("Hello world", roundtrip)
         self.assertEqual(parse_srt(roundtrip), cues)
 
+    def test_parse_windows_doubled_crlf(self) -> None:
+        doubled = self.SAMPLE.replace("\n", "\r\r\n")
+        cues = parse_srt(doubled)
+        self.assertEqual(len(cues), 2)
+        self.assertEqual(cues[0].text, "Hello world")
+
+    def test_parse_blank_line_between_every_row(self) -> None:
+        spaced = "\n\n".join(self.SAMPLE.splitlines()) + "\n"
+        cues = parse_srt(spaced)
+        self.assertEqual(len(cues), 2)
+        self.assertEqual(cues[0].text, "Hello world")
+        self.assertEqual(cues[1].text, "Second cue")
+
+    def test_compare_cue_timings_within_tolerance(self) -> None:
+        from catalog_parser.translation.srt import compare_cue_timings
+
+        expected = parse_srt(self.SAMPLE)
+        actual = parse_srt(
+            "1\n00:00:01,020 --> 00:00:04,000\nHello world\n\n"
+            "2\n00:00:05,000 --> 00:00:07,500\nSecond cue\n"
+        )
+        self.assertEqual(compare_cue_timings(expected, actual, tolerance_ms=40), [])
+        deltas = compare_cue_timings(expected, actual, tolerance_ms=0)
+        self.assertEqual(len(deltas), 1)
+        self.assertEqual(deltas[0].field, "start")
+        self.assertEqual(deltas[0].delta_ms, 20)
+
+    def test_apply_cue_timings_copies_start_end(self) -> None:
+        from catalog_parser.translation.srt import apply_cue_timings
+
+        timing = parse_srt(self.SAMPLE)
+        text = parse_srt(
+            "1\n01:00:01,000 --> 01:00:04,000\nЗдравей свят\n\n"
+            "2\n01:00:05,000 --> 01:00:07,500\nВтори субтитър\n"
+        )
+        combined = apply_cue_timings(timing, text)
+        self.assertEqual(combined[0].start, "00:00:01,000")
+        self.assertEqual(combined[0].text, "Здравей свят")
+        self.assertEqual(combined[1].end, "00:00:07,500")
+
+    def test_apply_retimed_timings_joins_unequal_cue_counts(self) -> None:
+        from catalog_parser.translation.srt import apply_retimed_timings_to_target
+
+        original = parse_srt(
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n"
+            "2\n00:00:02,000 --> 00:00:04,000\nworld\n"
+        )
+        retimed = parse_srt(
+            "1\n00:00:00,800 --> 00:00:01,900\nHello\n\n"
+            "2\n00:00:02,100 --> 00:00:03,900\nworld\n"
+        )
+        target = parse_srt("1\n00:00:02,000 --> 00:00:04,000\nЗдравей свят\n")
+        combined = apply_retimed_timings_to_target(original, retimed, target)
+        self.assertEqual(len(combined), 1)
+        self.assertEqual(combined[0].start, "00:00:00,800")
+        self.assertEqual(combined[0].end, "00:00:03,900")
+        self.assertEqual(combined[0].text, "Здравей свят")
+
     def test_align_cues_by_timestamp(self) -> None:
         source = parse_srt(self.SAMPLE)
         target = parse_srt(

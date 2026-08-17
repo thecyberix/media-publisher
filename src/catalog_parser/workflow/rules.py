@@ -8,6 +8,8 @@ from catalog_parser.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_STATUS,
     FIELD_DURATION,
+    FIELD_TRANSLATED_SUBTITLES,
+    FIELD_TRANSLATION_RESOURCES,
     FIELD_TRANSLATOR,
     FIELD_EDITOR,
     FIELD_TIMING_EDITOR,
@@ -57,6 +59,10 @@ def _has_combined_media(value: Any) -> bool:
     return bool(value.strip())
 
 
+def _has_translated_subtitles(value: Any) -> bool:
+    return _has_combined_media(value)
+
+
 def plan_record_actions(
     record: dict[str, Any],
 ) -> list[WorkflowAction]:
@@ -72,6 +78,8 @@ def plan_record_actions(
     status = fields.get(FIELD_STATUS)
     record_type = fields.get("Type")
     combined_media = fields.get(FIELD_COMBINED_MEDIA_FILE)
+    translated_subtitles = fields.get(FIELD_TRANSLATED_SUBTITLES)
+    translation_resources = fields.get(FIELD_TRANSLATION_RESOURCES)
     editor = fields.get(FIELD_EDITOR)
     timing_editor = fields.get(FIELD_TIMING_EDITOR)
 
@@ -101,13 +109,22 @@ def plan_record_actions(
             )
         )
 
-    if status == STATUS_EDITING_DONE and not _has_combined_media(combined_media):
+    needs_subtitles = _has_combined_media(
+        translation_resources
+    ) and not _has_translated_subtitles(translated_subtitles)
+    if status == STATUS_EDITING_DONE and (
+        not _has_combined_media(combined_media) or needs_subtitles
+    ):
+        if not _has_combined_media(combined_media):
+            reason = "Editing done; combined media missing"
+        else:
+            reason = "Editing done; aligned subtitles missing"
         actions.append(
             WorkflowAction(
                 action_type=WorkflowActionType.COMBINE_MEDIA,
                 record_id=record_id,
                 title=title_text,
-                reason="Editing done; combined media missing",
+                reason=reason,
             )
         )
 

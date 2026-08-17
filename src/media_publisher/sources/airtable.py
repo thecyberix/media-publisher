@@ -38,6 +38,7 @@ DEFAULT_PUBLISH_HOUR = 18
 FIELD_VIDEO_FOLDER = "Video Folder"
 FIELD_COMBINED_MEDIA_FILE = "Combined Media File"
 FIELD_TRANSLATION_RESOURCES = "Translation resources"
+FIELD_TRANSLATED_SUBTITLES = "Translated subtitles"
 FIELD_STATUS = "Status"
 STATUS_SYNC_DONE = "Synchronization done"
 STATUS_DONE_PUBLISHED = "Done & Published"

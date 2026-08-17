@@ -4,6 +4,7 @@ import json
 import time
 import urllib.parse
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from catalog_parser.smartcat_cookie import SmartcatCookieClient
@@ -334,6 +335,37 @@ def build_cookie_client_from_env(*, project_root: Path | None = None) -> Smartca
     from catalog_parser.smartcat_cookie import build_cookie_client_from_env as _build
 
     return _build(project_root=project_root)
+
+
+def update_document_source_srt_from_env(
+    document_id: str,
+    language_id: str | int,
+    source_srt: str,
+    *,
+    filename: str = "source.srt",
+    project_root: Path | None = None,
+) -> str:
+    """Replace source SRT via company API credentials, else the cookie session."""
+    import os
+
+    account_id = os.getenv("SMARTCAT_ACCOUNT_ID", "").strip()
+    api_key = os.getenv("SMARTCAT_API_KEY", "").strip()
+    if account_id and api_key:
+        build_api_client_from_env().update_document_source_srt(
+            document_id,
+            str(language_id),
+            source_srt,
+            filename=filename,
+        )
+        return "api"
+    cookie_client = build_cookie_client_from_env(project_root=project_root)
+    cookie_client.update_document_source_srt(
+        document_id,
+        language_id,
+        source_srt,
+        filename=filename,
+    )
+    return "cookie"
 
 
 def pkg_sm_link_from_context(

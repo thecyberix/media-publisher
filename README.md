@@ -12,7 +12,7 @@ Google Sheet ──► catalog-parser ingest ──► Airtable ──► media-
 ## Setup (local)
 
 ```powershell
-cd C:\Users\GeorgiUzunov\Projects\media-publisher
+cd $env:USERPROFILE\Projects\media-publisher
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -e .

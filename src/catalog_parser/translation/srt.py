@@ -29,38 +29,144 @@ class AlignedCue:
 
 def parse_srt(content: str) -> list[Cue]:
     """Parse SRT content into cues. Empty or whitespace-only input returns []."""
-    normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not normalized:
+    # Windows text-mode writes can turn CRLF into CRCRLF (\r\r\n). Reading that
+    # back with universal newlines then inserts a blank line between every row.
+    normalized = (
+        content.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+    )
+    raw_lines = [line.strip("\ufeff") for line in normalized.split("\n")]
+    if not any(line.strip() for line in raw_lines):
         return []
 
-    blocks = re.split(r"\n\s*\n", normalized)
+    def skip_empty(index: int) -> int:
+        while index < len(raw_lines) and not raw_lines[index].strip():
+            index += 1
+        return index
+
     cues: list[Cue] = []
-
-    for block in blocks:
-        lines = [line.strip("\ufeff") for line in block.split("\n") if line.strip()]
-        if len(lines) < 2:
-            continue
-
-        index_line = lines[0]
+    index = 0
+    while True:
+        index = skip_empty(index)
+        if index >= len(raw_lines):
+            break
+        index_line = raw_lines[index].strip()
         if not index_line.isdigit():
+            index += 1
             continue
-        index = int(index_line)
-
-        timestamp_match = TIMESTAMP_PATTERN.match(lines[1])
+        cue_index = int(index_line)
+        index = skip_empty(index + 1)
+        if index >= len(raw_lines):
+            break
+        timestamp_match = TIMESTAMP_PATTERN.match(raw_lines[index].strip())
         if timestamp_match is None:
             continue
-
-        text = "\n".join(lines[2:]).strip()
+        index += 1
+        text_lines: list[str] = []
+        while index < len(raw_lines):
+            stripped = raw_lines[index].strip()
+            if not stripped:
+                peeked = skip_empty(index)
+                if peeked >= len(raw_lines):
+                    index = peeked
+                    break
+                if raw_lines[peeked].strip().isdigit():
+                    after_index = skip_empty(peeked + 1)
+                    if after_index < len(raw_lines) and TIMESTAMP_PATTERN.match(
+                        raw_lines[after_index].strip()
+                    ):
+                        index = peeked
+                        break
+                index += 1
+                continue
+            if stripped.isdigit():
+                after_index = skip_empty(index + 1)
+                if after_index < len(raw_lines) and TIMESTAMP_PATTERN.match(
+                    raw_lines[after_index].strip()
+                ):
+                    break
+            text_lines.append(stripped)
+            index += 1
         cues.append(
             Cue(
-                index=index,
+                index=cue_index,
                 start=timestamp_match.group(1),
                 end=timestamp_match.group(2),
-                text=text,
+                text="\n".join(text_lines).strip(),
             )
         )
-
     return cues
+
+
+def apply_cue_timings(timing_cues: list[Cue], text_cues: list[Cue]) -> list[Cue]:
+    """Copy start/end from ``timing_cues`` onto the text of ``text_cues``."""
+    if len(timing_cues) != len(text_cues):
+        raise ValueError(
+            "Cannot copy timings: "
+            f"{len(timing_cues)} timing cue(s) vs {len(text_cues)} text cue(s)"
+        )
+    return [
+        Cue(
+            index=text.index,
+            start=timing.start,
+            end=timing.end,
+            text=text.text,
+        )
+        for timing, text in zip(timing_cues, text_cues)
+    ]
+
+
+def apply_retimed_timings_to_target(
+    original_timing: list[Cue],
+    retimed_timing: list[Cue],
+    target: list[Cue],
+) -> list[Cue]:
+    """Map retimed EN cues onto BG cues, joining EN fragments when counts differ."""
+    if len(original_timing) != len(retimed_timing):
+        raise ValueError(
+            "Original and retimed cue counts must match: "
+            f"{len(original_timing)} vs {len(retimed_timing)}"
+        )
+    if len(original_timing) == len(target):
+        return apply_cue_timings(retimed_timing, target)
+
+    retimed_by_index = {
+        original.index: retimed
+        for original, retimed in zip(original_timing, retimed_timing)
+    }
+    sources_sorted = sorted(original_timing, key=_cue_sort_key)
+    targets_sorted = sorted(target, key=_cue_sort_key)
+    out: list[Cue] = []
+    for index, target_cue in enumerate(targets_sorted):
+        prev_start_ms = (
+            timestamp_to_ms(targets_sorted[index - 1].start) if index > 0 else -1
+        )
+        cur_start_ms = timestamp_to_ms(target_cue.start)
+        matched_sources = [
+            source_cue
+            for source_cue in sources_sorted
+            if prev_start_ms < timestamp_to_ms(source_cue.start) <= cur_start_ms
+        ]
+        retimed_matched = [
+            retimed_by_index[source_cue.index]
+            for source_cue in matched_sources
+            if source_cue.index in retimed_by_index
+        ]
+        if not retimed_matched:
+            out.append(target_cue)
+            continue
+        start_ms = min(timestamp_to_ms(item.start) for item in retimed_matched)
+        end_ms = max(timestamp_to_ms(item.end) for item in retimed_matched)
+        if end_ms < start_ms:
+            end_ms = start_ms
+        out.append(
+            Cue(
+                index=target_cue.index,
+                start=ms_to_timestamp(start_ms),
+                end=ms_to_timestamp(end_ms),
+                text=target_cue.text,
+            )
+        )
+    return out
 
 
 def write_srt(cues: list[Cue]) -> str:
@@ -83,8 +189,74 @@ def timestamp_to_ms(value: str) -> int:
     )
 
 
+def ms_to_timestamp(value: int) -> str:
+    millis = max(0, int(value))
+    hours, rem = divmod(millis, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    seconds, millis = divmod(rem, 1_000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"
+
+
 def cue_interval_ms(cue: Cue) -> tuple[int, int]:
     return timestamp_to_ms(cue.start), timestamp_to_ms(cue.end)
+
+
+@dataclass(frozen=True)
+class CueTimingDelta:
+    cue_index: int
+    field: str
+    expected: str
+    actual: str
+    delta_ms: int
+
+
+def compare_cue_timings(
+    expected: list[Cue],
+    actual: list[Cue],
+    *,
+    tolerance_ms: int = 0,
+) -> list[CueTimingDelta]:
+    """Return start/end mismatches beyond tolerance. Empty list means a match."""
+    deltas: list[CueTimingDelta] = []
+    if len(expected) != len(actual):
+        deltas.append(
+            CueTimingDelta(
+                cue_index=0,
+                field="count",
+                expected=str(len(expected)),
+                actual=str(len(actual)),
+                delta_ms=abs(len(actual) - len(expected)),
+            )
+        )
+        return deltas
+    for left, right in zip(expected, actual):
+        if left.index != right.index:
+            deltas.append(
+                CueTimingDelta(
+                    cue_index=left.index,
+                    field="index",
+                    expected=str(left.index),
+                    actual=str(right.index),
+                    delta_ms=0,
+                )
+            )
+            continue
+        for field, exp, act in (
+            ("start", left.start, right.start),
+            ("end", left.end, right.end),
+        ):
+            delta = timestamp_to_ms(act) - timestamp_to_ms(exp)
+            if abs(delta) > tolerance_ms:
+                deltas.append(
+                    CueTimingDelta(
+                        cue_index=left.index,
+                        field=field,
+                        expected=exp,
+                        actual=act,
+                        delta_ms=delta,
+                    )
+                )
+    return deltas
 
 
 def _join_cue_texts(cues: list[Cue]) -> str:

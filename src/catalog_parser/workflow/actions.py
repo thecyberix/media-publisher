@@ -12,8 +12,11 @@ from catalog_parser.airtable import (
     FIELD_EDITOR,
     FIELD_TIMING_EDITOR,
     FIELD_TITLE,
+    FIELD_TRANSLATED_SUBTITLES,
+    FIELD_TRANSLATION_RESOURCES,
     FIELD_TRANSLATOR,
     FIELD_TYPE,
+    FIELD_VIDEO_FOLDER,
 )
 from catalog_parser.auth import get_drive_service_noninteractive
 from catalog_parser.drive_docs import extract_drive_folder_id
@@ -21,6 +24,7 @@ from catalog_parser.drive_mix import (
     check_mixable_media,
     format_mix_media_check,
     mix_folder_media_to_drive,
+    pick_dialogue_audio_path,
 )
 from catalog_parser.workflow.config import WorkflowConfig, combined_media_output_folder_id
 from catalog_parser.workflow.ingest import ingest_batch_for_translator
@@ -61,6 +65,7 @@ def execute_action(
             config=config,
             dry_run=dry_run,
             table_cache=table_cache,
+            project_root=project_root,
         )
     if action.action_type == WorkflowActionType.INGEST_FOR_TRANSLATOR:
         return _ingest_for_translator(
@@ -102,6 +107,7 @@ def _combine_media(
     config: WorkflowConfig,
     dry_run: bool,
     table_cache: TableCache | None = None,
+    project_root: Path | None = None,
 ) -> ActionResult:
     if not action.record_id:
         return ActionResult(action=action, success=False, message="Missing record_id")
@@ -113,7 +119,7 @@ def _combine_media(
     if not isinstance(fields, dict):
         return ActionResult(action=action, success=False, message="Record has no fields")
 
-    drive_link = fields.get("Video Folder")
+    drive_link = fields.get(FIELD_VIDEO_FOLDER)
     title = fields.get(FIELD_TITLE)
     if not isinstance(drive_link, str) or not drive_link.strip():
         return ActionResult(action=action, success=False, message="Missing Video Folder")
@@ -136,45 +142,119 @@ def _combine_media(
     output_name = title if title.casefold().endswith(".mp4") else f"{title}.mp4"
     record_type = fields.get(FIELD_TYPE)
     video_type = record_type if isinstance(record_type, str) and record_type.strip() else None
+    combined_existing = fields.get(FIELD_COMBINED_MEDIA_FILE)
+    has_combined = isinstance(combined_existing, str) and bool(combined_existing.strip())
+    subtitles_existing = fields.get(FIELD_TRANSLATED_SUBTITLES)
+    has_subtitles = isinstance(subtitles_existing, str) and bool(subtitles_existing.strip())
     if dry_run:
-        check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)
-        if not check.ok:
+        if has_combined and has_subtitles:
+            return ActionResult(action=action, success=True, message="Already combined")
+        if not has_combined:
+            check = check_mixable_media(drive, pkg_folder_id, video_type=video_type)
+            if not check.ok:
+                return ActionResult(
+                    action=action,
+                    success=False,
+                    message=format_mix_media_check(check),
+                )
             return ActionResult(
                 action=action,
-                success=False,
-                message=format_mix_media_check(check),
+                success=True,
+                message=(
+                    f"Would combine media -> {output_name} and align subtitles; "
+                    f"{format_mix_media_check(check)}"
+                ),
             )
         return ActionResult(
             action=action,
             success=True,
-            message=f"Would combine media -> {output_name}; {format_mix_media_check(check)}",
+            message="Would align Bulgarian subtitles using existing combined media",
         )
 
     work_dir = config.work_dir / action.record_id
-    created = mix_folder_media_to_drive(
-        drive,
-        pkg_folder_id=pkg_folder_id,
-        output_parent_id=output_parent_id,
-        output_name=output_name,
-        work_dir=work_dir,
-        dry_run=False,
-        video_type=video_type,
-    )
-    drive_url = f"https://drive.google.com/file/d/{created.id}/view"
-    airtable.update_record_fields(
-        action.record_id,
-        {FIELD_COMBINED_MEDIA_FILE: drive_url},
-    )
-    if table_cache is not None:
-        table_cache.update_fields(
+    messages: list[str] = []
+    audio_paths: list[Path] = []
+    if not has_combined:
+        created = mix_folder_media_to_drive(
+            drive,
+            pkg_folder_id=pkg_folder_id,
+            output_parent_id=output_parent_id,
+            output_name=output_name,
+            work_dir=work_dir,
+            dry_run=False,
+            video_type=video_type,
+        )
+        audio_paths = list(created.local_audio_paths)
+        drive_url = f"https://drive.google.com/file/d/{created.id}/view"
+        airtable.update_record_fields(
             action.record_id,
             {FIELD_COMBINED_MEDIA_FILE: drive_url},
         )
-    return ActionResult(
-        action=action,
-        success=True,
-        message=f"Combined media uploaded: {drive_url} (local: {work_dir / output_name})",
-    )
+        if table_cache is not None:
+            table_cache.update_fields(
+                action.record_id,
+                {FIELD_COMBINED_MEDIA_FILE: drive_url},
+            )
+        messages.append(
+            f"Combined media uploaded: {drive_url} (local: {work_dir / output_name})"
+        )
+    else:
+        messages.append("Combined media already present")
+
+    if has_subtitles:
+        return ActionResult(action=action, success=True, message="; ".join(messages))
+
+    smartcat_link = fields.get(FIELD_TRANSLATION_RESOURCES)
+    if not isinstance(smartcat_link, str) or not smartcat_link.strip():
+        messages.append("Skipped aligned subtitles (no Translation resources)")
+        return ActionResult(action=action, success=True, message="; ".join(messages))
+
+    dialogue = pick_dialogue_audio_path(audio_paths)
+    if dialogue is None:
+        if audio_paths:
+            messages.append(
+                "Aligned subtitles failed: mixed stems have no dialogue audio file"
+            )
+            return ActionResult(action=action, success=False, message="; ".join(messages))
+        from catalog_parser.drive_combine import download_drive_file, find_stems_media
+
+        stems = find_stems_media(drive, drive_link)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        dialogue = download_drive_file(
+            drive,
+            stems.audio.id,
+            work_dir / stems.audio.name,
+        )
+        messages.append(f"Downloaded dialogue audio {stems.audio.name!r} for subtitle align")
+
+    from catalog_parser.smartcat import SmartcatError
+    from catalog_parser.translation.aligned_subtitles import generate_aligned_subtitles
+    from catalog_parser.translation.srt_retime import SrtRetimeError
+    from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
+
+    root = project_root if project_root is not None else config.work_dir.parent
+    try:
+        subtitle_url = generate_aligned_subtitles(
+            airtable=airtable,
+            record_id=action.record_id,
+            title=title,
+            smartcat_link=smartcat_link,
+            audio_path=dialogue,
+            work_dir=work_dir,
+            project_root=root,
+            drive=GoogleDriveClient(drive),
+        )
+    except (SrtRetimeError, SmartcatError, GoogleDriveError, ValueError) as exc:
+        messages.append(f"Aligned subtitles failed: {exc}")
+        return ActionResult(action=action, success=False, message="; ".join(messages))
+
+    if table_cache is not None:
+        table_cache.update_fields(
+            action.record_id,
+            {FIELD_TRANSLATED_SUBTITLES: subtitle_url},
+        )
+    messages.append(f"Aligned subtitles uploaded: {subtitle_url}")
+    return ActionResult(action=action, success=True, message="; ".join(messages))
 
 
 def _ingest_for_translator(
