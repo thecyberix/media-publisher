@@ -48,7 +48,6 @@ Workflows live under `.github/workflows/`:
 | `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync |
 | `reporting.yml` | Snapshots, weekly email, monthly KPIs, prune past events |
 | `publish-event.yml` | Announce a programme and update the events GitHub Pages site |
-| `deploy-events-pages.yml` | Redeploy the `events/` Pages site |
 
 ### Repository secrets
 
@@ -191,7 +190,7 @@ config/workflow_config.example.json
   catalog-daily-workflow.yml
   reporting.yml
   publish-event.yml
-  deploy-events-pages.yml
+.github/workflow-backups/   inactive workflow YAML (not run)
 ```
 
 ## API credentials (local)

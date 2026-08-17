@@ -1,5 +1,8 @@
 name: Deploy events pages
 
+# BACKUP — not active. This file lives outside .github/workflows/ so GitHub
+# does not run it. Restore: copy to .github/workflows/deploy-events-pages.yml
+#
 # Redeploy the events/ GitHub Pages site without publishing a new event.
 on:
   workflow_dispatch:
