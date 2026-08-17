@@ -286,6 +286,8 @@ If the Smartcat check fails:
 
 Python dependencies and Playwright Chromium are cached between runs via `.github/actions/setup-python-env` (pip cache + browser cache keyed on `pyproject.toml`).
 
+WhisperX alignment models (~360 MB English wav2vec2) are **not** installed on the CI test matrix. Warm them once with **Actions → Warm WhisperX align cache** (`workflow_dispatch`, or a push that touches `pyproject.toml`). That job installs the `[align]` extra with CPU PyTorch and saves `TORCH_HOME` / `HF_HOME` under the `align-models-` cache key. A later alignment job should use the same setup-python-env inputs (`extras: align`, `cache-align: true`, `torch-cpu: true`) so the first real run restores the model instead of downloading it.
+
 Renew Smartcat locally:
 
 ```powershell

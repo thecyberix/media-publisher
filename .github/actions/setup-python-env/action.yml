@@ -1,5 +1,5 @@
 name: Setup Python environment
-description: Python 3.12 with pip cache, optional Playwright Chromium cache, optional ffmpeg
+description: Python 3.12 with pip cache, optional Playwright Chromium cache, optional ffmpeg, optional WhisperX model cache
 
 inputs:
   install-playwright:
@@ -11,9 +11,17 @@ inputs:
     required: false
     default: "false"
   extras:
-    description: Optional pip extras from pyproject.toml (e.g. thumbnails, sheets)
+    description: Optional pip extras from pyproject.toml (e.g. thumbnails, sheets, align)
     required: false
     default: ""
+  cache-align:
+    description: Restore/save WhisperX torch and Hugging Face model caches
+    required: false
+    default: "false"
+  torch-cpu:
+    description: Install CPU PyTorch before extras (for ubuntu runners without a GPU)
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -35,6 +43,31 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+
+    - name: Export WhisperX cache locations
+      if: inputs.cache-align == 'true'
+      shell: bash
+      run: |
+        mkdir -p "$GITHUB_WORKSPACE/.cache/torch" "$GITHUB_WORKSPACE/.cache/huggingface"
+        echo "TORCH_HOME=$GITHUB_WORKSPACE/.cache/torch" >> "$GITHUB_ENV"
+        echo "HF_HOME=$GITHUB_WORKSPACE/.cache/huggingface" >> "$GITHUB_ENV"
+        echo "HUGGINGFACE_HUB_CACHE=$GITHUB_WORKSPACE/.cache/huggingface/hub" >> "$GITHUB_ENV"
+
+    - name: Cache WhisperX models
+      if: inputs.cache-align == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ github.workspace }}/.cache/torch
+          ${{ github.workspace }}/.cache/huggingface
+        key: align-models-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: |
+          align-models-${{ runner.os }}-
+
+    - name: Install CPU PyTorch
+      if: inputs.torch-cpu == 'true'
+      shell: bash
+      run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
     - name: Install Python package
       shell: bash
