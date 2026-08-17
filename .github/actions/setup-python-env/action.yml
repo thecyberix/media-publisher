@@ -1,5 +1,5 @@
 name: Setup Python environment
-description: Python 3.12 with pip cache, optional Playwright Chromium cache, optional ffmpeg, optional WhisperX model cache
+description: Python 3.12 with pip cache, optional Playwright Chromium cache, optional ffmpeg
 
 inputs:
   install-playwright:
@@ -14,10 +14,6 @@ inputs:
     description: Optional pip extras from pyproject.toml (e.g. thumbnails, sheets, align)
     required: false
     default: ""
-  cache-align:
-    description: Restore/save WhisperX torch, pip, and Hugging Face caches (separate from CI pip cache)
-    required: false
-    default: "false"
   torch-cpu:
     description: Install CPU PyTorch 2.8 before extras (matches whisperx; for ubuntu runners without a GPU)
     required: false
@@ -27,25 +23,10 @@ runs:
   using: composite
   steps:
     - uses: actions/setup-python@v5
-      if: inputs.cache-align != 'true'
       with:
         python-version: "3.12"
         cache: pip
         cache-dependency-path: pyproject.toml
-
-    - uses: actions/setup-python@v5
-      if: inputs.cache-align == 'true'
-      with:
-        python-version: "3.12"
-
-    - name: Cache pip wheels for align extras
-      if: inputs.cache-align == 'true'
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-align-${{ runner.os }}-py3.12-${{ hashFiles('pyproject.toml', 'constraints/whisperx-cpu.txt') }}
-        restore-keys: |
-          pip-align-${{ runner.os }}-py3.12-
 
     - name: Install ffmpeg
       if: inputs.install-ffmpeg == 'true'
@@ -58,26 +39,6 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
-
-    - name: Export WhisperX cache locations
-      if: inputs.cache-align == 'true'
-      shell: bash
-      run: |
-        mkdir -p "$GITHUB_WORKSPACE/.cache/torch" "$GITHUB_WORKSPACE/.cache/huggingface"
-        echo "TORCH_HOME=$GITHUB_WORKSPACE/.cache/torch" >> "$GITHUB_ENV"
-        echo "HF_HOME=$GITHUB_WORKSPACE/.cache/huggingface" >> "$GITHUB_ENV"
-        echo "HUGGINGFACE_HUB_CACHE=$GITHUB_WORKSPACE/.cache/huggingface/hub" >> "$GITHUB_ENV"
-
-    - name: Cache WhisperX models
-      if: inputs.cache-align == 'true'
-      uses: actions/cache@v4
-      with:
-        path: |
-          ${{ github.workspace }}/.cache/torch
-          ${{ github.workspace }}/.cache/huggingface
-        key: align-models-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
-        restore-keys: |
-          align-models-${{ runner.os }}-
 
     - name: Install CPU PyTorch
       if: inputs.torch-cpu == 'true'
