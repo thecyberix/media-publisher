@@ -15,6 +15,7 @@ on:
       - .github/workflows/warm-align-cache.yml
       - .github/actions/setup-python-env/action.yml
       - scripts/warm_align_cache.py
+      - constraints/whisperx-cpu.txt
 
 concurrency:
   group: warm-align-cache

@@ -1,0 +1,7 @@
+# CPU wheels that satisfy whisperx 3.8 (torch~=2.8.0) on GitHub-hosted ubuntu.
+# Install from https://download.pytorch.org/whl/cpu *before* pip install ".[align]".
+# Do not use the latest CPU Torch: 2.13 does not satisfy ~=2.8.0, so pip then
+# downloads the 800+ MB CUDA torch from PyPI instead.
+torch==2.8.0
+torchaudio==2.8.0
+torchvision==0.23.0

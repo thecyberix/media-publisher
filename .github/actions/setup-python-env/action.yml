@@ -15,11 +15,11 @@ inputs:
     required: false
     default: ""
   cache-align:
-    description: Restore/save WhisperX torch and Hugging Face model caches
+    description: Restore/save WhisperX torch, pip, and Hugging Face caches (separate from CI pip cache)
     required: false
     default: "false"
   torch-cpu:
-    description: Install CPU PyTorch before extras (for ubuntu runners without a GPU)
+    description: Install CPU PyTorch 2.8 before extras (matches whisperx; for ubuntu runners without a GPU)
     required: false
     default: "false"
 
@@ -27,10 +27,25 @@ runs:
   using: composite
   steps:
     - uses: actions/setup-python@v5
+      if: inputs.cache-align != 'true'
       with:
         python-version: "3.12"
         cache: pip
         cache-dependency-path: pyproject.toml
+
+    - uses: actions/setup-python@v5
+      if: inputs.cache-align == 'true'
+      with:
+        python-version: "3.12"
+
+    - name: Cache pip wheels for align extras
+      if: inputs.cache-align == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-align-${{ runner.os }}-py3.12-${{ hashFiles('pyproject.toml', 'constraints/whisperx-cpu.txt') }}
+        restore-keys: |
+          pip-align-${{ runner.os }}-py3.12-
 
     - name: Install ffmpeg
       if: inputs.install-ffmpeg == 'true'
@@ -67,7 +82,9 @@ runs:
     - name: Install CPU PyTorch
       if: inputs.torch-cpu == 'true'
       shell: bash
-      run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+      run: |
+        pip install --upgrade pip
+        pip install -r constraints/whisperx-cpu.txt --index-url https://download.pytorch.org/whl/cpu
 
     - name: Install Python package
       shell: bash
@@ -76,10 +93,23 @@ runs:
       run: |
         python -m pip install --upgrade pip
         if [ -n "$PIP_EXTRAS" ]; then
-          pip install -e ".[$PIP_EXTRAS]"
+          pip install -e ".[$PIP_EXTRAS]" --upgrade-strategy only-if-needed
         else
           pip install -e .
         fi
+
+    - name: Verify CPU Torch
+      if: inputs.torch-cpu == 'true'
+      shell: bash
+      run: |
+        python - <<'PY'
+        import torch
+        print("torch", torch.__version__)
+        if "+cpu" not in torch.__version__:
+            raise SystemExit(
+                f"expected a CPU Torch wheel (+cpu), got {torch.__version__!r}"
+            )
+        PY
 
     - name: Install Playwright Chromium
       if: inputs.install-playwright == 'true'
