@@ -46,7 +46,7 @@ env:
 jobs:
   workflow:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +55,8 @@ jobs:
         with:
           install-playwright: "true"
           install-ffmpeg: "true"
-          extras: thumbnails
+          extras: thumbnails,align
+          torch-cpu: "true"
 
       - name: Restore translation corpus
         run: |

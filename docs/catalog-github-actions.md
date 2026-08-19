@@ -286,7 +286,7 @@ If the Smartcat check fails:
 
 Python dependencies and Playwright Chromium are cached between runs via `.github/actions/setup-python-env` (pip cache + browser cache keyed on `pyproject.toml`).
 
-WhisperX (`[align]`) is **not** installed on the CI test matrix. A job that aligns subtitles should use `extras: align` and `torch-cpu: true` so CPU Torch 2.8 is installed from `download.pytorch.org` (WhisperX wants `torch~=2.8.0`; latest CPU Torch would be replaced by PyPI’s CUDA 2.8 wheel). The first `whisperx.load_align_model` in that job downloads ~360 MB wav2vec2 weights; that is not cached.
+WhisperX (`[align]`) is **not** installed on the CI test matrix. The **daily catalog** job installs it every run (`extras: thumbnails,align` and `torch-cpu: true`) so CPU Torch 2.8 comes from `download.pytorch.org` (WhisperX wants `torch~=2.8.0`; latest CPU Torch would be replaced by PyPI’s CUDA 2.8 wheel). Alignment model weights (~360 MB wav2vec2) are downloaded on first `whisperx.load_align_model` in that job; they are not cached between runs.
 
 Renew Smartcat locally:
 
