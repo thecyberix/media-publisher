@@ -190,8 +190,7 @@ These live under **Settings → Secrets and variables → Actions → Variables*
 |----------|-------------|
 | `AIRTABLE_URL` | Share URL for the live catalog table, e.g. `https://airtable.com/appbIH4wzW6ZRUnF5/tblji1RaFztkeDn04/viw2Xz3EENcDEmarw`. Base (`app…`) and table (`tbl…`) ids are parsed from it; the view segment is ignored. |
 | `TRANSLATION_PROVIDER` | `anthropic`, `openai`, or `none`. Unset: skip all AI translation. |
-| `TRANSLATION_MODEL` | Optional. Defaults to `claude-sonnet-4-6` or `gpt-4o-mini` from the provider. |
-| `TRANSLATION_BASE_URL` | Optional. Leave unset for the official API host. Set only for a proxy or OpenAI-compatible gateway. |
+| `TRANSLATION_MODEL` | Optional. Defaults to `claude-sonnet-4-6` (Anthropic) or `gpt-4o-mini` (OpenAI). |
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
 | `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg` in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
 | `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |

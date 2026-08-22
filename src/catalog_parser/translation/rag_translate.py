@@ -239,11 +239,10 @@ def chat_config_from_env() -> ChatConfig:
     Resolve chat provider from env.
 
     Shared names (preferred): TRANSLATION_PROVIDER, TRANSLATION_API_KEY,
-    TRANSLATION_MODEL, TRANSLATION_BASE_URL.
+    TRANSLATION_MODEL.
 
-    Provider-prefixed names still work as fallbacks. Official Anthropic and
-    OpenAI hosts are defaults — TRANSLATION_BASE_URL is only for a proxy or
-    OpenAI-compatible gateway.
+    Provider-prefixed names still work as fallbacks. Requests always go to
+    the official Anthropic or OpenAI host.
 
     TRANSLATION_PROVIDER=none disables AI translation and prefill.
     """
@@ -272,10 +271,6 @@ def chat_config_from_env() -> ChatConfig:
             raise RuntimeError(
                 "TRANSLATION_API_KEY is required for Anthropic translation"
             )
-        base_url = (
-            _first_env("TRANSLATION_BASE_URL", "ANTHROPIC_BASE_URL")
-            or DEFAULT_ANTHROPIC_BASE_URL
-        )
         model = (
             _first_env("TRANSLATION_MODEL", "ANTHROPIC_MODEL")
             or DEFAULT_ANTHROPIC_MODEL
@@ -283,7 +278,7 @@ def chat_config_from_env() -> ChatConfig:
         return ChatConfig(
             api_key=api_key,
             provider="anthropic",
-            base_url=base_url.rstrip("/"),
+            base_url=DEFAULT_ANTHROPIC_BASE_URL,
             model=model,
         )
 
@@ -292,15 +287,11 @@ def chat_config_from_env() -> ChatConfig:
         raise RuntimeError(
             "TRANSLATION_API_KEY is required for OpenAI-compatible translation"
         )
-    base_url = (
-        _first_env("TRANSLATION_BASE_URL", "OPENAI_BASE_URL")
-        or DEFAULT_OPENAI_BASE_URL
-    )
     model = _first_env("TRANSLATION_MODEL", "OPENAI_MODEL") or DEFAULT_OPENAI_MODEL
     return ChatConfig(
         api_key=api_key,
         provider="openai",
-        base_url=base_url.rstrip("/"),
+        base_url=DEFAULT_OPENAI_BASE_URL,
         model=model,
     )
 

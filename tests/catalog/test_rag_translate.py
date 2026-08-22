@@ -561,7 +561,6 @@ class RagTranslateTests(unittest.TestCase):
             "TRANSLATION_PROVIDER": "anthropic",
             "TRANSLATION_API_KEY": "shared-key",
             "TRANSLATION_MODEL": "claude-sonnet-4-6",
-            "TRANSLATION_BASE_URL": "",
             "ANTHROPIC_API_KEY": "",
             "OPENAI_API_KEY": "",
         }
@@ -572,22 +571,32 @@ class RagTranslateTests(unittest.TestCase):
         self.assertEqual(config.model, "claude-sonnet-4-6")
         self.assertEqual(config.base_url, "https://api.anthropic.com")
 
-    def test_chat_config_openai_defaults_without_custom_base_url(self) -> None:
+    def test_chat_config_openai_uses_official_host(self) -> None:
         env = {
             "TRANSLATION_PROVIDER": "openai",
             "TRANSLATION_API_KEY": "sk-test",
             "TRANSLATION_MODEL": "",
-            "TRANSLATION_BASE_URL": "",
             "ANTHROPIC_API_KEY": "",
             "OPENAI_API_KEY": "",
             "OPENAI_MODEL": "",
-            "OPENAI_BASE_URL": "",
         }
         with patch.dict(os.environ, env, clear=False):
             config = chat_config_from_env()
         self.assertEqual(config.provider, "openai")
         self.assertEqual(config.model, "gpt-4o-mini")
         self.assertEqual(config.base_url, "https://api.openai.com/v1")
+
+    def test_chat_config_ignores_translation_base_url(self) -> None:
+        env = {
+            "TRANSLATION_PROVIDER": "anthropic",
+            "TRANSLATION_API_KEY": "shared-key",
+            "TRANSLATION_BASE_URL": "https://proxy.example/v1",
+            "ANTHROPIC_API_KEY": "",
+            "OPENAI_API_KEY": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            config = chat_config_from_env()
+        self.assertEqual(config.base_url, "https://api.anthropic.com")
 
     def test_chat_config_prefers_anthropic_when_key_set(self) -> None:
         env = {

@@ -102,8 +102,7 @@ Optional (read by workflows when set; currently unset in this repo):
 
 | Variable | Purpose |
 |----------|---------|
-| `TRANSLATION_MODEL` | Override the default translation model |
-| `TRANSLATION_BASE_URL` | Proxy or OpenAI-compatible gateway; leave unset for the official API host |
+| `TRANSLATION_MODEL` | Override the default model (`claude-sonnet-4-6` for Anthropic, `gpt-4o-mini` for OpenAI) |
 
 ### Add a new language
 

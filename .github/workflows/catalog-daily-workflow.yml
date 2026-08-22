@@ -181,7 +181,6 @@ jobs:
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
-          TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL || '' }}
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
           CANVA_URL: ${{ vars.CANVA_URL }}
@@ -220,7 +219,6 @@ jobs:
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
-          TRANSLATION_BASE_URL: ${{ vars.TRANSLATION_BASE_URL || '' }}
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
           CANVA_URL: ${{ vars.CANVA_URL }}
