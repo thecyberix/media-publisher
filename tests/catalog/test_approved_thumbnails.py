@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from catalog_parser.workflow.approved_thumbnails import (
     process_approved_review_thumbnails_in_workflow,
+    process_pending_review_thumbnails_in_workflow,
 )
 
 
@@ -73,6 +74,67 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
             process_approved.assert_called_once()
             self.assertTrue(process_approved.call_args.kwargs["apply"])
             self.assertEqual(process_approved.call_args.kwargs["project_root"], root)
+
+    @patch("media_publisher.sources.drive_layout.resolve_thumbnails_for_approval_id", return_value="folder-id")
+    @patch("media_publisher.sources.thumbnail_review.process_pending_review_thumbnails")
+    @patch("media_publisher.sources.google_drive.GoogleDriveClient.from_service_account")
+    @patch("catalog_parser.translation.prefill.ai_prefill_enabled", return_value=True)
+    @patch("media_publisher.config.load_settings")
+    def test_auto_sorts_pending_review_files(
+        self,
+        load_settings,
+        _ai_enabled,
+        from_service_account,
+        process_pending,
+        _resolve_review_folder,
+    ) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_account = root / "credentials" / "google-sheets-service-account.json"
+            service_account.parent.mkdir(parents=True)
+            service_account.write_text("{}", encoding="utf-8")
+            load_settings.return_value = SimpleNamespace(
+                google_sheets_service_account="credentials/google-sheets-service-account.json",
+                drive_url="https://drive.google.com/drive/folders/parent",
+                thumbnail_review_approved_subfolder="Approved",
+            )
+            process_pending.return_value = [
+                SimpleNamespace(
+                    drive_file="Titled.review.jpg",
+                    decision="approve",
+                    action="moved-approved",
+                    reason="has title",
+                )
+            ]
+            result = process_pending_review_thumbnails_in_workflow(
+                project_root=root,
+                dry_run=False,
+                log=lambda *_args, **_kwargs: None,
+            )
+            self.assertEqual(result.sorted_count, 1)
+            self.assertEqual(result.approved, 1)
+            process_pending.assert_called_once()
+            self.assertTrue(process_pending.call_args.kwargs["apply"])
+            self.assertNotIn("rejected_subfolder", process_pending.call_args.kwargs)
+
+    @patch("catalog_parser.translation.prefill.ai_prefill_enabled", return_value=False)
+    @patch("media_publisher.config.load_settings")
+    def test_auto_sort_skips_when_ai_disabled(self, load_settings, _ai_enabled) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service_account = root / "credentials" / "google-sheets-service-account.json"
+            service_account.parent.mkdir(parents=True)
+            service_account.write_text("{}", encoding="utf-8")
+            load_settings.return_value = SimpleNamespace(
+                google_sheets_service_account="credentials/google-sheets-service-account.json",
+            )
+            result = process_pending_review_thumbnails_in_workflow(
+                project_root=root,
+                dry_run=False,
+                log=lambda *_args, **_kwargs: None,
+            )
+            self.assertTrue(result.skipped_run)
+            self.assertEqual(result.sorted_count, 0)
 
 
 if __name__ == "__main__":

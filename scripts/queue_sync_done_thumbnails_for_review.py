@@ -95,9 +95,11 @@ def existing_review_names(drive: GoogleDriveClient, review_folder_id: str) -> se
     for item in drive.list_children(review_folder_id):
         if item.mime_type.startswith("image/"):
             names.add(item.name.casefold())
-    approved = drive.find_child_folder(review_folder_id, "Approved")
-    if approved is not None:
-        for item in drive.list_children(approved.id):
+    for subfolder_name in ("Approved", "Rejected"):
+        subfolder = drive.find_child_folder(review_folder_id, subfolder_name)
+        if subfolder is None:
+            continue
+        for item in drive.list_children(subfolder.id):
             if item.mime_type.startswith("image/"):
                 names.add(item.name.casefold())
     return names

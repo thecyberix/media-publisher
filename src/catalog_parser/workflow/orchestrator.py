@@ -24,6 +24,7 @@ from catalog_parser.workflow.rules import (
 )
 from catalog_parser.workflow.approved_thumbnails import (
     process_approved_review_thumbnails_in_workflow,
+    process_pending_review_thumbnails_in_workflow,
 )
 from catalog_parser.workflow.editing_done_thumbnails import (
     notify_editing_done_missing_prepared_thumbnails,
@@ -207,6 +208,11 @@ def run_workflow(
         dry_run=dry_run,
         log=print,
     )
+    sort_result = process_pending_review_thumbnails_in_workflow(
+        project_root=project_root,
+        dry_run=dry_run,
+        log=print,
+    )
 
     schedule_result = schedule_tomorrow_publish(
         airtable=airtable,
@@ -222,6 +228,13 @@ def run_workflow(
         return 1
     if approved_result.processed:
         print(f"Approved thumbnails: {approved_result.processed} file(s) handled")
+    if sort_result.sorted_count:
+        print(
+            "Review auto-sort: "
+            f"{sort_result.sorted_count} file(s) "
+            f"(approve={sort_result.approved}, "
+            f"reject={sort_result.rejected}, skip={sort_result.skipped})"
+        )
     return 0
 
 

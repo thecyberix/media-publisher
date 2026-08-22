@@ -88,3 +88,76 @@ def process_approved_review_thumbnails_in_workflow(
             caption = f"{item.caption_action} ({item.caption_detail})"
         log(f"  - {item.title}: {item.action} ({item.drive_file}); caption={caption}")
     return ApprovedThumbnailRunResult(processed=len(results))
+
+
+@dataclass(frozen=True)
+class PendingReviewSortRunResult:
+    sorted_count: int
+    approved: int = 0
+    rejected: int = 0
+    skipped: int = 0
+    skipped_run: bool = False
+
+    @property
+    def success(self) -> bool:
+        return True
+
+
+def process_pending_review_thumbnails_in_workflow(
+    *,
+    project_root: Path,
+    dry_run: bool,
+    log: LogFn = print,
+) -> PendingReviewSortRunResult:
+    from catalog_parser.translation.prefill import ai_prefill_enabled
+    from media_publisher.config import load_settings
+    from media_publisher.sources.google_drive import GoogleDriveClient
+    from media_publisher.sources.thumbnail_review import process_pending_review_thumbnails
+
+    settings = load_settings(project_root)
+    service_account_path = project_root / settings.google_sheets_service_account
+    if not service_account_path.is_file():
+        log(
+            "Review auto-sort: skipped "
+            "(google-sheets-service-account.json not available)"
+        )
+        return PendingReviewSortRunResult(sorted_count=0, skipped_run=True)
+
+    if not ai_prefill_enabled():
+        log("Review auto-sort: skipped (AI vision not configured)")
+        return PendingReviewSortRunResult(sorted_count=0, skipped_run=True)
+
+    drive = GoogleDriveClient.from_service_account(service_account_path)
+    from media_publisher.sources.drive_layout import resolve_thumbnails_for_approval_id
+
+    review_folder_id = resolve_thumbnails_for_approval_id(
+        drive,
+        drive_url=getattr(settings, "drive_url", "") or "",
+    )
+    results = process_pending_review_thumbnails(
+        drive,
+        review_folder_id=review_folder_id,
+        approved_subfolder=settings.thumbnail_review_approved_subfolder,
+        apply=not dry_run,
+    )
+    if not results:
+        log("Review auto-sort: no pending original backgrounds in review folder")
+        return PendingReviewSortRunResult(sorted_count=0)
+
+    approved = sum(1 for item in results if item.decision == "approve")
+    rejected = sum(1 for item in results if item.decision in {"reject", "empty"})
+    skipped = sum(1 for item in results if item.decision == "placeholder")
+    label = "planned" if dry_run else "sorted"
+    log(
+        f"Review auto-sort: {label} {len(results)} file(s) "
+        f"(approve={approved}, reject={rejected}, skip={skipped})"
+    )
+    for item in sorted(results, key=lambda row: row.drive_file.casefold()):
+        detail = f" ({item.reason})" if item.reason else ""
+        log(f"  - {item.drive_file}: {item.action}{detail}")
+    return PendingReviewSortRunResult(
+        sorted_count=len(results),
+        approved=approved,
+        rejected=rejected,
+        skipped=skipped,
+    )

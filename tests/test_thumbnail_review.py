@@ -14,7 +14,9 @@ from media_publisher.sources.airtable import (
 from media_publisher.sources.google_drive import DriveFile
 from media_publisher.sources.thumbnail_review import (
     format_review_email,
+    parse_background_review_decision,
     process_approved_review_thumbnails,
+    process_pending_review_thumbnails,
     review_drive_filename,
     sanitize_review_stem,
     title_from_review_filename,
@@ -68,6 +70,84 @@ class ThumbnailReviewTests(unittest.TestCase):
         self.assertIn("1 video", subject)
         self.assertIn("Sample Video", body)
         self.assertIn("Approved", body)
+        self.assertIn("Rejected", body)
+
+    def test_parse_background_review_decision(self) -> None:
+        decision, reason = parse_background_review_decision(
+            '{"decision": "approve", "reason": "headline at top"}'
+        )
+        self.assertEqual(decision, "approve")
+        self.assertEqual(reason, "headline at top")
+        decision, _reason = parse_background_review_decision(
+            "```json\n{\"decision\": \"reject\", \"reason\": \"captions only\"}\n```"
+        )
+        self.assertEqual(decision, "reject")
+        decision, _reason = parse_background_review_decision("[]")
+        self.assertEqual(decision, "placeholder")
+
+    def test_process_pending_moves_approve_reject_and_empty(self) -> None:
+        drive = MagicMock()
+        drive.list_children.return_value = [
+            DriveFile(id="a1", name="Titled.review.jpg", mime_type="image/jpeg"),
+            DriveFile(id="r1", name="Captions.review.jpg", mime_type="image/jpeg"),
+            DriveFile(id="s1", name="Empty.review.jpg", mime_type="image/jpeg"),
+            DriveFile(id="p1", name="Canva.review.jpg", mime_type="image/jpeg"),
+            DriveFile(id="x1", name="ignore.jpg", mime_type="image/jpeg"),
+        ]
+        drive.find_child_folder.return_value = SimpleNamespace(id="rejected-id")
+        drive.download_file.side_effect = lambda _fid, dest: dest.write_bytes(b"x")
+        drive.ensure_folder.side_effect = lambda _parent, name: SimpleNamespace(
+            id=f"{name.casefold()}-id"
+        )
+
+        def classify(path: Path) -> tuple[str, str]:
+            name = path.name
+            if name.startswith("Titled"):
+                return "approve", "has title"
+            if name.startswith("Captions"):
+                return "reject", "subtitles only"
+            if name.startswith("Empty"):
+                return "empty", "no overlay text"
+            return "placeholder", "canva download placeholder"
+
+        results = process_pending_review_thumbnails(
+            drive,
+            review_folder_id="review-id",
+            apply=True,
+            classify=classify,
+        )
+
+        by_file = {item.drive_file: item for item in results}
+        self.assertEqual(len(results), 4)
+        self.assertEqual(by_file["Titled.review.jpg"].action, "moved-approved")
+        self.assertEqual(by_file["Captions.review.jpg"].action, "moved-rejected")
+        self.assertEqual(by_file["Empty.review.jpg"].action, "moved-rejected")
+        self.assertEqual(by_file["Canva.review.jpg"].action, "kept")
+        drive.move_file.assert_any_call("a1", "approved-id")
+        drive.move_file.assert_any_call("r1", "rejected-id")
+        drive.move_file.assert_any_call("s1", "rejected-id")
+        self.assertEqual(drive.move_file.call_count, 3)
+        drive.find_child_folder.assert_called_with("review-id", "Rejected")
+        drive.ensure_folder.assert_called_once_with("review-id", "Approved")
+
+    def test_process_pending_skips_rejected_moves_when_folder_missing(self) -> None:
+        drive = MagicMock()
+        drive.list_children.return_value = [
+            DriveFile(id="r1", name="Captions.review.jpg", mime_type="image/jpeg"),
+        ]
+        drive.find_child_folder.return_value = None
+        drive.download_file.side_effect = lambda _fid, dest: dest.write_bytes(b"x")
+
+        results = process_pending_review_thumbnails(
+            drive,
+            review_folder_id="review-id",
+            apply=True,
+            classify=lambda _path: ("reject", "subtitles only"),
+        )
+
+        self.assertEqual(results[0].action, "skipped-rejected-folder-missing")
+        drive.move_file.assert_not_called()
+        drive.ensure_folder.assert_not_called()
 
     def test_process_approved_translates_empty_caption(self) -> None:
         airtable = MagicMock()
