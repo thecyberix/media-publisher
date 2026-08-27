@@ -139,6 +139,23 @@ class DriveMixStructureTests(unittest.TestCase):
                 )
         self.assertIn("horizontal", str(ctx.exception))
 
+    def test_pick_merge_video_accepts_pillarboxed_landscape_for_reel(self) -> None:
+        drive = MagicMock()
+
+        with patch(
+            "catalog_parser.drive_video_size.video_size_from_drive_file",
+            return_value=(1920, 1080),
+        ), patch(
+            "catalog_parser.drive_video_crop.drive_video_has_orientation_crop",
+            return_value=True,
+        ):
+            picked = _pick_merge_video(
+                [self._media("All Video.mp4", file_id="pillar")],
+                drive_service=drive,
+                required_orientation="vertical",
+            )
+        self.assertEqual(picked.id, "pillar")
+
     def test_pick_merge_video_uses_probe_fallback_when_metadata_missing(self) -> None:
         drive = MagicMock()
 

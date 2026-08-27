@@ -137,15 +137,12 @@ def apply_retimed_timings_to_target(
     targets_sorted = sorted(target, key=_cue_sort_key)
     out: list[Cue] = []
     for index, target_cue in enumerate(targets_sorted):
-        prev_start_ms = (
-            timestamp_to_ms(targets_sorted[index - 1].start) if index > 0 else -1
+        previous = targets_sorted[index - 1] if index > 0 else None
+        matched_sources = source_cues_for_target(
+            sources_sorted,
+            target_cue,
+            previous_target=previous,
         )
-        cur_start_ms = timestamp_to_ms(target_cue.start)
-        matched_sources = [
-            source_cue
-            for source_cue in sources_sorted
-            if prev_start_ms < timestamp_to_ms(source_cue.start) <= cur_start_ms
-        ]
         retimed_matched = [
             retimed_by_index[source_cue.index]
             for source_cue in matched_sources
@@ -273,6 +270,22 @@ def _cue_sort_key(cue: Cue) -> tuple[int, int, int]:
     return start_ms, end_ms, cue.index
 
 
+def source_cues_for_target(
+    source: list[Cue],
+    target_cue: Cue,
+    *,
+    previous_target: Cue | None,
+) -> list[Cue]:
+    """EN cues owned by a BG cue (starts after the previous BG start, up to this one)."""
+    prev_start_ms = timestamp_to_ms(previous_target.start) if previous_target else -1
+    cur_start_ms = timestamp_to_ms(target_cue.start)
+    return [
+        source_cue
+        for source_cue in sorted(source, key=_cue_sort_key)
+        if prev_start_ms < timestamp_to_ms(source_cue.start) <= cur_start_ms
+    ]
+
+
 def align_cues(
     source: list[Cue],
     target: list[Cue],
@@ -305,15 +318,12 @@ def align_cues(
             issues.append(f"target cue {target_cue.index}: empty text")
             continue
 
-        prev_start_ms = (
-            timestamp_to_ms(targets_sorted[index - 1].start) if index > 0 else -1
+        previous = targets_sorted[index - 1] if index > 0 else None
+        matched_sources = source_cues_for_target(
+            sources_sorted,
+            target_cue,
+            previous_target=previous,
         )
-        cur_start_ms = timestamp_to_ms(target_cue.start)
-        matched_sources = [
-            source_cue
-            for source_cue in sources_sorted
-            if prev_start_ms < timestamp_to_ms(source_cue.start) <= cur_start_ms
-        ]
 
         if not matched_sources:
             unmatched_target += 1

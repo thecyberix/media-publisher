@@ -290,11 +290,24 @@ def _filter_videos_by_orientation(
     videos: list[DriveMediaFile],
     required_orientation: VideoOrientation,
 ) -> list[DriveMediaFile]:
-    matching: list[DriveMediaFile] = []
+    from catalog_parser.drive_video_crop import drive_video_has_orientation_crop
+
+    native: list[DriveMediaFile] = []
+    croppable: list[DriveMediaFile] = []
     for video in videos:
         if _video_orientation(drive_service, video) == required_orientation:
-            matching.append(video)
-    return matching
+            native.append(video)
+            continue
+        try:
+            if drive_video_has_orientation_crop(
+                drive_service,
+                video,
+                required_orientation,
+            ):
+                croppable.append(video)
+        except Exception:
+            continue
+    return native or croppable
 
 
 def _pick_preferred_video(
@@ -588,6 +601,22 @@ def mix_folder_media_to_drive(
         inputs.video.id,
         work_dir / _sanitize_local_filename(inputs.video.name),
     )
+    required_orientation = (
+        required_orientation_for_video_type(video_type) if video_type else None
+    )
+    from catalog_parser.drive_video_crop import prepare_merge_video_orientation
+
+    video_path, crop = prepare_merge_video_orientation(
+        video_path,
+        required_orientation,
+        work_dir,
+        ffmpeg_path=ffmpeg_path,
+    )
+    if crop is not None:
+        print(
+            f"Cropped encoded bars {crop.ffmpeg_filter()} to {required_orientation} "
+            f"for {inputs.video.name!r}"
+        )
 
     audio_paths: list[Path] = []
     for audio in inputs.audios:
@@ -703,6 +732,22 @@ def upload_package_video_to_drive(
         video.id,
         work_dir / _sanitize_local_filename(video.name),
     )
+    required_orientation = (
+        required_orientation_for_video_type(video_type) if video_type else None
+    )
+    from catalog_parser.drive_video_crop import prepare_merge_video_orientation
+
+    local_source, crop = prepare_merge_video_orientation(
+        local_source,
+        required_orientation,
+        work_dir,
+        ffmpeg_path=ffmpeg_path,
+    )
+    if crop is not None:
+        print(
+            f"Cropped encoded bars {crop.ffmpeg_filter()} to {required_orientation} "
+            f"for {video.name!r}"
+        )
     output_path = work_dir / _sanitize_local_filename(output_name)
     if output_path.resolve() != local_source.resolve():
         output_path.write_bytes(local_source.read_bytes())

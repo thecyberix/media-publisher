@@ -25,7 +25,12 @@ from catalog_parser.smartcat_export import (
     build_cookie_client_from_env,
     export_document_srt_via_web_api,
 )
-from catalog_parser.translation.srt import Cue, apply_cue_timings, parse_srt, write_srt
+from catalog_parser.translation.srt import (
+    Cue,
+    apply_retimed_timings_to_target,
+    parse_srt,
+    write_srt,
+)
 from catalog_parser.translation.srt_retime import (
     SrtRetimeError,
     align_words_whisperx,
@@ -133,11 +138,14 @@ def upload_aligned_bulgarian_srt(
     bulgarian_srt: str,
     srt_path: Path,
     drive: GoogleDriveClient,
+    original_cues: list[Cue],
 ) -> str:
     bg_cues = parse_srt(bulgarian_srt)
     if not bg_cues:
         raise SrtRetimeError("Bulgarian SRT parsed to zero cues")
-    aligned = apply_cue_timings(retimed_cues, bg_cues)
+    if not original_cues:
+        raise SrtRetimeError("English SRT parsed to zero cues")
+    aligned = apply_retimed_timings_to_target(original_cues, retimed_cues, bg_cues)
     srt_path.write_text(write_srt(aligned), encoding="utf-8", newline="\n")
 
     filename = f"{slug_title(title)}.bg.srt"
@@ -178,6 +186,7 @@ def generate_aligned_subtitles(
         export_type=WEB_EXPORT_TYPE_SOURCE,
         segment_export_mode=WEB_SEGMENT_EXPORT_MODE_SOURCE,
     )
+    original_cues = parse_srt(english_srt)
     retimed = retime_english_cues_to_audio(english_srt, audio_path)
     bulgarian_srt = export_smartcat_srt(
         title=title,
@@ -194,4 +203,5 @@ def generate_aligned_subtitles(
         bulgarian_srt=bulgarian_srt,
         srt_path=work_dir / "bulgarian.aligned.srt",
         drive=drive,
+        original_cues=original_cues,
     )
