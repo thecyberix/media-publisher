@@ -797,37 +797,47 @@ class PublisherWrapperTests(unittest.TestCase):
             )
         )
 
-    def test_publish_to_instagram_skips_long_form_video_with_url(self) -> None:
+    def test_publish_to_instagram_uploads_long_form_video_with_url(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_url="https://cdn.example.com/video.mp4",
             video_format="post",
         )
-        with self.assertRaises(InstagramPublishError) as raised:
-            publish_to_instagram(
+        with patch("media_publisher.publishers.instagram.MetaClient") as client_cls:
+            client_cls.return_value.schedule_instagram_feed_video.return_value = "ig_media_1"
+            media_id = publish_to_instagram(
                 job,
                 instagram_account_id="ig123",
                 access_token="token",
             )
-        self.assertIn("Type is Video", str(raised.exception))
+        self.assertEqual(media_id, "ig_media_1")
+        client_cls.return_value.schedule_instagram_feed_video.assert_called_once()
 
-    def test_publish_to_instagram_skips_long_form_local_video(self) -> None:
+    def test_publish_to_instagram_uploads_long_form_local_video(self) -> None:
         job = PublishJob(
             title="Launch",
             description="Caption text",
             video_path="downloads/happyscribe/sample.mp4",
             video_format="post",
         )
-        with self.assertRaises(InstagramPublishError) as raised:
-            publish_to_instagram(
+        with (
+            patch("media_publisher.publishers.instagram.MetaClient") as client_cls,
+            patch(
+                "media_publisher.publishers.instagram.ensure_instagram_upload_video",
+                side_effect=self._passthrough_instagram_video,
+            ),
+        ):
+            client_cls.return_value.schedule_instagram_reel.return_value = "ig_media_1"
+            media_id = publish_to_instagram(
                 job,
                 instagram_account_id="ig123",
                 access_token="token",
                 app_id="app123",
                 page_id="page123",
             )
-        self.assertIn("Type is Video", str(raised.exception))
+        self.assertEqual(media_id, "ig_media_1")
+        client_cls.return_value.schedule_instagram_reel.assert_called_once()
 
     def test_publish_to_instagram_uses_local_file_with_app_id(self) -> None:
         job = PublishJob(

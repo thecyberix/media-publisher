@@ -646,7 +646,7 @@ class PublishPipelineTests(unittest.TestCase):
         for call in update_mock.call_args_list:
             self.assertNotIn("Status", call.args[1])
 
-    def test_run_publish_pipeline_skips_instagram_for_video_type(self) -> None:
+    def test_run_publish_pipeline_publishes_instagram_for_video_type(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")
         location = HappyScribeLibraryLocation("1", "2")
@@ -717,11 +717,10 @@ class PublishPipelineTests(unittest.TestCase):
             )
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].platform, "youtube")
-        self.assertEqual(publish_mock.call_count, 1)
-        self.assertTrue(any("instagram: skipped" in message for message in messages))
-        self.assertTrue(any("Type is Video" in message for message in messages))
+        self.assertEqual(len(results), 2)
+        self.assertEqual({result.platform for result in results}, {"youtube", "instagram"})
+        self.assertEqual(publish_mock.call_count, 2)
+        self.assertFalse(any("instagram: skipped" in message for message in messages))
 
     def test_run_publish_pipeline_publishes_instagram_for_reel(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

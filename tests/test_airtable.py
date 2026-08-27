@@ -252,12 +252,17 @@ class CatalogScheduleTests(unittest.TestCase):
         }
         self.assertTrue(record_publish_platforms_complete(long_form_fields))
 
-        # Stale IG date on a Video must not keep requiring Instagram.
+        # A manually set IG date on a Video still requires Instagram.
         long_form_with_ig_date = {
             **long_form_fields,
             FIELD_SG_IG_DATE: "2026-07-05",
         }
-        self.assertTrue(record_publish_platforms_complete(long_form_with_ig_date))
+        self.assertFalse(record_publish_platforms_complete(long_form_with_ig_date))
+        long_form_with_ig_done = {
+            **long_form_with_ig_date,
+            FIELD_SG_IG_PUBLISHED: "https://instagram.com/p/1",
+        }
+        self.assertTrue(record_publish_platforms_complete(long_form_with_ig_done))
 
     def test_mark_record_done_and_published_if_complete(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

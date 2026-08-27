@@ -350,7 +350,9 @@ def record_publish_platforms_complete(
 ) -> bool:
     """Return True when every scheduled platform has a published permalink."""
     excluded = set(excluded_platforms or frozenset())
-    if catalog_instagram_schedule_excluded(record_fields):
+    if catalog_instagram_schedule_excluded(record_fields) and not _field_text(
+        record_fields.get(FIELD_SG_IG_DATE)
+    ):
         excluded.add("instagram")
     scheduled_any = False
     for config in PLATFORM_FIELD_CONFIGS:
@@ -365,8 +367,9 @@ def record_publish_platforms_complete(
     if not scheduled_any:
         return False
 
-    # Catalog videos scheduled on YouTube or Facebook also require Instagram
-    # unless Type is Video (long-form skips Instagram).
+    # Catalog Reels/Shorts scheduled on YouTube or Facebook also require Instagram.
+    # Type=Video is not auto-scheduled for Instagram, but a manually set IG date
+    # is required like any other platform (handled in the loop above).
     if "instagram" not in excluded and not is_quote_record(record_fields):
         yt_or_fb_scheduled = any(
             _field_text(record_fields.get(config.date_field))

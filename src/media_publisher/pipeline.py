@@ -9,9 +9,7 @@ from typing import Callable
 from media_publisher.models import PlatformName, PlatformScheduleTask
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import (
-    INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE,
     InstagramPublishError,
-    instagram_skips_video_type,
     publish_to_instagram,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
@@ -476,18 +474,6 @@ def run_publish_pipeline(
                         )
                     )
                 continue
-
-        if any(instagram_skips_video_type(task.job) for task in ready_tasks):
-            skipped_instagram = [
-                task for task in ready_tasks if task.platform == "instagram"
-            ]
-            if skipped_instagram:
-                print_line(f"  {INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE}")
-                skipped_count += len(skipped_instagram)
-            ready_tasks = [
-                task for task in ready_tasks if task.platform != "instagram"
-            ]
-            excluded_platforms = frozenset(set(excluded_platforms) | {"instagram"})
 
         record_success_count = 0
         for task in ready_tasks:

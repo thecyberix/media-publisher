@@ -36,29 +36,6 @@ class InstagramDurationLimitTests(unittest.TestCase):
     def test_skip_message(self) -> None:
         self.assertIn("24.8 minutes", instagram_duration_skip_message(1487.0))
 
-    def test_long_form_video_is_skipped_by_format(self) -> None:
-        from media_publisher.publishers.instagram import (
-            INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE,
-            InstagramPublishError,
-            publish_to_instagram,
-        )
-        from media_publisher.models import PublishJob
-
-        job = PublishJob(
-            title="Launch",
-            description="Caption",
-            video_path="downloads/happyscribe/sample.mp4",
-            video_format="post",
-        )
-        with self.assertRaises(InstagramPublishError) as raised:
-            publish_to_instagram(
-                job,
-                instagram_account_id="ig123",
-                access_token="token",
-                app_id="app123",
-            )
-        self.assertEqual(str(raised.exception), INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE)
-
     def test_resolve_from_metadata(self) -> None:
         duration = resolve_video_duration_seconds(
             metadata={"Duration": "1487"},

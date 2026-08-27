@@ -15,12 +15,6 @@ class InstagramPublishError(RuntimeError):
     pass
 
 
-INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE = (
-    "instagram: skipped — catalog Type is Video "
-    "(Instagram publishes Reels/Shorts only)"
-)
-
-
 def _resolve_video(job: PublishJob) -> tuple[Path | None, str | None]:
     if job.video_path:
         return Path(job.video_path), None
@@ -31,11 +25,6 @@ def _resolve_video(job: PublishJob) -> tuple[Path | None, str | None]:
 
 def _build_caption(job: PublishJob) -> str:
     return job.description.strip() or job.title
-
-
-def instagram_skips_video_type(job: PublishJob) -> bool:
-    """True when this catalog job should not publish to Instagram (Type=Video)."""
-    return job.video_format == "post"
 
 
 def publish_to_instagram(
@@ -64,8 +53,6 @@ def publish_to_instagram(
         instagram_url=instagram_url or DEFAULT_INSTAGRAM_PROFILE_URL,
         youtube_channel_url=youtube_channel_url or DEFAULT_YOUTUBE_CHANNEL_URL,
     )
-    if instagram_skips_video_type(job):
-        raise InstagramPublishError(INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE)
 
     video_path, video_url = _resolve_video(job)
     if not video_path and not video_url:

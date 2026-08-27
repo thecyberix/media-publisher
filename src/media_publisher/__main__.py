@@ -41,9 +41,7 @@ from media_publisher.quotes_render_pipeline import QuotesRenderPipelineError
 from media_publisher.sources.quote_pdf import QuotePdfError
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import (
-    INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE,
     InstagramPublishError,
-    instagram_skips_video_type,
     publish_to_instagram,
 )
 from media_publisher.publishers.meta import (
@@ -402,7 +400,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Schedule public YouTube and Facebook posts for the next publish slot "
             "(today or tomorrow depending on time). Skips the Instagram upload only; "
             "publish dates and status are unchanged. Instagram uploads happen on a "
-            "normal run when due (or are skipped automatically for Type=Video)."
+            "normal run when due (Type=Video is not auto-scheduled for Instagram)."
         ),
     )
     parser.add_argument(
@@ -2526,9 +2524,6 @@ def main() -> int:
                 attach_local_video_path(task.job, settings)
             if not instagram_is_due(task.publish_at):
                 print(instagram_wait_message(task.publish_at))
-                return 0
-            if instagram_skips_video_type(task.job):
-                print(INSTAGRAM_VIDEO_TYPE_SKIP_MESSAGE)
                 return 0
             if (
                 task.job.video_path
