@@ -102,7 +102,7 @@ Optional (read by workflows when set):
 
 | Variable | Purpose |
 |----------|---------|
-| `HAPPYSCRIBE_REVIEW_URL` | Parent HappyScribe library. Leftover-folder email watches `Short videos` and `Long videos`. Publish also searches the type-matching child. Unset: skip the email check and the fallback search. |
+| `HAPPYSCRIBE_REVIEW_URL` | Optional HappyScribe library for performing a final review before moving the files to HAPPYSCRIBE_URL for publishing. |
 | `TRANSLATION_MODEL` | Override the default model (`claude-sonnet-4-6` for Anthropic, `gpt-4o-mini` for OpenAI) |
 
 ### Add a new language
