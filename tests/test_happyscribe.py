@@ -21,6 +21,7 @@ from media_publisher.sources.happyscribe import (
     find_transcription_for_catalog_names,
     happyscribe_folder_name_for_format,
     parse_library_url,
+    ready_transcription_for_catalog,
     resolve_library_location,
     resolve_library_location_for_format,
     resolve_subtitled_transcription,
@@ -223,6 +224,28 @@ class HappyScribeCatalogSearchTests(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(match.id, "tx-srt")
         self.assertEqual(matched_by, "Launch video")
+
+    def test_ready_transcription_for_catalog_requires_ready_state(self) -> None:
+        ready = HappyScribeTranscription(
+            id="tx-ready",
+            name="Launch video",
+            state="automatic_done",
+        )
+        pending = HappyScribeTranscription(
+            id="tx-pending",
+            name="Launch video",
+            state="processing",
+        )
+        self.assertEqual(
+            ready_transcription_for_catalog([ready], "Launch video"),
+            ready,
+        )
+        self.assertIsNone(
+            ready_transcription_for_catalog([pending], "Launch video"),
+        )
+        self.assertIsNone(
+            ready_transcription_for_catalog([], "Launch video"),
+        )
 
     def test_list_search_transcriptions_merges_folders(self) -> None:
         client = HappyScribeClient("hs-test", organization_id="3310225")

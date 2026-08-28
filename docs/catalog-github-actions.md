@@ -285,8 +285,10 @@ records of that type that have both **Combined Media File** and **Translated
 subtitles**. If none of those are available either, it falls back to
 **Translation done** of that type with a **Video Folder** and **Translation
 resources**, and generates Combined Media File and Translated subtitles before
-writing the SG dates. Publish then burns those subtitles onto the combined file
-instead of downloading from HappyScribe.
+writing the SG dates. For **Editing done**, publish first looks for a ready
+HappyScribe transcription and uses it when present. Only if none is found does
+it burn Translated subtitles onto the Combined Media File. **Translation done**
+always uses that combined-media burn path (no HappyScribe).
 
 Renew locally (either CLI works — same token file):
 

@@ -494,6 +494,23 @@ def find_transcription_for_catalog_names(
     return None, None
 
 
+def ready_transcription_for_catalog(
+    transcriptions: list[HappyScribeTranscription],
+    catalog_name: str,
+    *,
+    smartcat_url: str | None = None,
+) -> HappyScribeTranscription | None:
+    """Return a ready HappyScribe transcription for this catalog title, if any."""
+    names = catalog_names_for_record(catalog_name, smartcat_url)
+    transcription, _matched_by = find_transcription_for_catalog_names(
+        transcriptions,
+        names,
+    )
+    if transcription is None or transcription.state != TRANSCRIPTION_STATE_READY:
+        return None
+    return transcription
+
+
 def merge_transcriptions(
     *groups: list[HappyScribeTranscription],
 ) -> list[HappyScribeTranscription]:

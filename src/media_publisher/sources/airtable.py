@@ -351,6 +351,11 @@ def is_translation_done_status(value: Any) -> bool:
 
 
 def uses_combined_media_with_subtitles(value: Any) -> bool:
+    """True when publish may burn Translated subtitles onto Combined Media File.
+
+    Translation done always takes this path. Editing done takes it only when no
+    ready HappyScribe transcription exists for the title.
+    """
     return is_editing_done_status(value) or is_translation_done_status(value)
 
 

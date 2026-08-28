@@ -28,6 +28,7 @@ from media_publisher.sources.airtable import (
     FIELD_VIDEO_NAME_TRANSLATED,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
+    is_editing_done_status,
     is_translation_done_status,
     mark_platform_scheduled,
     mark_record_done_and_published_if_complete,
@@ -40,6 +41,7 @@ from media_publisher.sources.happyscribe import (
     HappyScribeError,
     HappyScribeLibraryLocation,
     ensure_catalog_video_downloaded,
+    ready_transcription_for_catalog,
     resolve_library_location_for_format,
 )
 from media_publisher.sources.canva import CanvaClient, CanvaError
@@ -357,15 +359,32 @@ def run_publish_pipeline(
                 "  Translation done — publishing Combined Media File "
                 "with Translated subtitles (no HappyScribe)"
             )
-        elif use_combined_with_subtitles:
-            print_line(
-                "  Editing done — publishing Combined Media File "
-                "with Translated subtitles (no HappyScribe)"
-            )
         elif use_combined_media:
             print_line(
                 "  No Translation resources — publishing Combined Media File "
                 "(no HappyScribe subtitles)"
+            )
+
+        def download_from_happyscribe() -> Path:
+            video_format = record_tasks[0].job.video_format
+            search_location, library_transcriptions = search_for_format(
+                video_format
+            )
+            return ensure_catalog_video_downloaded(
+                catalog_name,
+                download_dir=settings.happyscribe_download_dir,
+                client=happyscribe,
+                location=search_location,
+                browser_state_path=settings.happyscribe_browser_state,
+                browser_profile_dir=settings.happyscribe_browser_profile,
+                browser_channel=settings.happyscribe_browser_channel,
+                api_key=settings.happyscribe_api_key,
+                headless=settings.happyscribe_headless,
+                transcriptions=library_transcriptions,
+                force_regenerate=settings.regenerate_videos,
+                use_web_export=settings.use_web_export,
+                smartcat_url=smartcat_url,
+                burn_subtitles=True,
             )
 
         drive_client: GoogleDriveClient | None = None
@@ -474,6 +493,52 @@ def run_publish_pipeline(
                 )
                 print_line(f"  Video ({video_override.source}): {video_path}")
 
+        if video_path is None and is_editing_done_status(status_value):
+            happyscribe_ready = False
+            try:
+                _search_location, library_transcriptions = search_for_format(
+                    record_tasks[0].job.video_format
+                )
+                happyscribe_ready = (
+                    ready_transcription_for_catalog(
+                        library_transcriptions,
+                        catalog_name,
+                        smartcat_url=smartcat_url,
+                    )
+                    is not None
+                )
+            except HappyScribeError as exc:
+                print_line(
+                    "  Editing done — HappyScribe lookup failed "
+                    f"({exc}); publishing Combined Media File "
+                    "with Translated subtitles"
+                )
+            else:
+                if happyscribe_ready:
+                    print_line("  Editing done — using HappyScribe file")
+                else:
+                    print_line(
+                        "  Editing done — no HappyScribe file, publishing "
+                        "Combined Media File with Translated subtitles"
+                    )
+            if happyscribe_ready:
+                try:
+                    video_path = download_from_happyscribe()
+                    print_line(f"  Video: {video_path}")
+                except (HappyScribeError, HappyScribeWebError) as exc:
+                    message = str(exc)
+                    print_line(f"  Video download failed: {message}")
+                    for task in record_tasks:
+                        results.append(
+                            PlatformPublishResult(
+                                record_id=record_id,
+                                platform=task.platform,
+                                title=title,
+                                error=message,
+                            )
+                        )
+                    continue
+
         if video_path is None and use_combined_with_subtitles:
             try:
                 if drive_client is None:
@@ -537,26 +602,7 @@ def run_publish_pipeline(
 
         if video_path is None:
             try:
-                video_format = record_tasks[0].job.video_format
-                search_location, library_transcriptions = search_for_format(
-                    video_format
-                )
-                video_path = ensure_catalog_video_downloaded(
-                    catalog_name,
-                    download_dir=settings.happyscribe_download_dir,
-                    client=happyscribe,
-                    location=search_location,
-                    browser_state_path=settings.happyscribe_browser_state,
-                    browser_profile_dir=settings.happyscribe_browser_profile,
-                    browser_channel=settings.happyscribe_browser_channel,
-                    api_key=settings.happyscribe_api_key,
-                    headless=settings.happyscribe_headless,
-                    transcriptions=library_transcriptions,
-                    force_regenerate=settings.regenerate_videos,
-                    use_web_export=settings.use_web_export,
-                    smartcat_url=smartcat_url,
-                    burn_subtitles=True,
-                )
+                video_path = download_from_happyscribe()
                 print_line(f"  Video: {video_path}")
             except (HappyScribeError, HappyScribeWebError) as exc:
                 message = str(exc)
