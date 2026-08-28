@@ -10,15 +10,19 @@ from media_publisher.sources.happyscribe import (
     METADATA_TRANSCRIPTION_ID,
     HappyScribeClient,
     HappyScribeError,
+    HappyScribeFolder,
     HappyScribeLibraryLocation,
     HappyScribeTranscription,
     burn_subtitles_into_video,
     catalog_names_for_record,
     enrich_job_from_happyscribe,
     find_downloaded_video,
+    find_named_subfolders,
     find_transcription_for_catalog_names,
+    happyscribe_folder_name_for_format,
     parse_library_url,
     resolve_library_location,
+    resolve_library_location_for_format,
     resolve_subtitled_transcription,
     srt_name_from_smartcat_url,
     subtitled_export_name,
@@ -34,6 +38,116 @@ class HappyScribeLibraryTests(unittest.TestCase):
         )
         self.assertEqual(location.organization_id, "3310225")
         self.assertEqual(location.folder_id, "23100499")
+
+    def test_parse_library_workspace_url(self) -> None:
+        location = parse_library_url(
+            "https://www.happyscribe.com/v2/8104266/library/workspace"
+        )
+        self.assertEqual(location.organization_id, "8104266")
+        self.assertEqual(location.folder_id, "workspace")
+
+    def test_find_named_subfolders_under_workspace(self) -> None:
+        folders = [
+            HappyScribeFolder(id="3253658", name="My transcripts", parent_id="14191010"),
+            HappyScribeFolder(id="23100499", name="Done", parent_id="14191010"),
+            HappyScribeFolder(id="53816432", name="Short videos", parent_id="23105998"),
+            HappyScribeFolder(id="55859422", name="Long videos", parent_id="23105998"),
+        ]
+        parent = parse_library_url(
+            "https://www.happyscribe.com/v2/8104266/library/workspace"
+        )
+        found = find_named_subfolders(folders, parent=parent)
+        self.assertEqual(found["Short videos"].id, "53816432")
+        self.assertEqual(found["Long videos"].id, "55859422")
+
+    def test_find_named_subfolders_under_numeric_parent(self) -> None:
+        folders = [
+            HappyScribeFolder(id="53816432", name="Short videos", parent_id="23105998"),
+            HappyScribeFolder(id="55859422", name="Long videos", parent_id="23105998"),
+            HappyScribeFolder(id="9", name="Short videos", parent_id="other"),
+        ]
+        parent = HappyScribeLibraryLocation("8104266", "23105998")
+        found = find_named_subfolders(folders, parent=parent)
+        self.assertEqual(found["Short videos"].id, "53816432")
+        self.assertEqual(found["Long videos"].id, "55859422")
+
+    def test_happyscribe_folder_name_for_format(self) -> None:
+        self.assertEqual(
+            happyscribe_folder_name_for_format("short_form"),
+            "Short videos",
+        )
+        self.assertEqual(happyscribe_folder_name_for_format("post"), "Long videos")
+
+    def test_resolve_library_location_for_format_uses_named_child(self) -> None:
+        client = HappyScribeClient("hs-test")
+        folders = [
+            HappyScribeFolder(id="53816432", name="Short videos", parent_id="23105998"),
+            HappyScribeFolder(id="55859422", name="Long videos", parent_id="23105998"),
+        ]
+        with patch.object(client, "list_folders", return_value=folders):
+            short = resolve_library_location_for_format(
+                client,
+                "https://www.happyscribe.com/v2/8104266/library/workspace",
+                "short_form",
+            )
+            long = resolve_library_location_for_format(
+                client,
+                "https://www.happyscribe.com/v2/8104266/library/workspace",
+                "post",
+            )
+        self.assertEqual(short.folder_id, "53816432")
+        self.assertEqual(long.folder_id, "55859422")
+
+    def test_resolve_library_location_for_format_falls_back_to_parent(self) -> None:
+        client = HappyScribeClient("hs-test")
+        with patch.object(client, "list_folders", return_value=[]):
+            location = resolve_library_location_for_format(
+                client,
+                "https://www.happyscribe.com/v2/3310225/library/23100499",
+                "short_form",
+            )
+        self.assertEqual(location.folder_id, "23100499")
+
+    def test_list_library_transcriptions_uses_folder_filter(self) -> None:
+        client = HappyScribeClient("hs-test", organization_id="3310225")
+        location = HappyScribeLibraryLocation(
+            organization_id="3310225",
+            folder_id="23100499",
+        )
+        with patch.object(client, "list_transcriptions") as list_mock:
+            list_mock.return_value = []
+            client.list_library_transcriptions(location)
+
+        list_mock.assert_called_once_with(
+            organization_id="3310225",
+            folder_id="23100499",
+        )
+
+    def test_list_library_transcriptions_workspace_omits_folder_id(self) -> None:
+        client = HappyScribeClient("hs-test", organization_id="8104266")
+        location = parse_library_url(
+            "https://www.happyscribe.com/v2/8104266/library/workspace"
+        )
+        with patch.object(client, "list_transcriptions") as list_mock:
+            list_mock.return_value = []
+            client.list_library_transcriptions(location)
+        list_mock.assert_called_once_with(
+            organization_id="8104266",
+            folder_id=None,
+        )
+
+    def test_list_folders_parses_parent_id(self) -> None:
+        client = HappyScribeClient("hs-test")
+        with patch.object(client, "_request") as request_mock:
+            request_mock.return_value = {
+                "results": [
+                    {"id": 53816432, "name": "Short videos", "parentId": 23105998},
+                ]
+            }
+            folders = client.list_folders()
+        self.assertEqual(len(folders), 1)
+        self.assertEqual(folders[0].id, "53816432")
+        self.assertEqual(folders[0].parent_id, "23105998")
 
     def test_resolve_library_location_from_url(self) -> None:
         location = resolve_library_location(
@@ -73,21 +187,6 @@ class HappyScribeLibraryTests(unittest.TestCase):
         )
         resolved = resolve_subtitled_transcription([source, exported], source)
         self.assertEqual(resolved.id, "exp1")
-
-    def test_list_library_transcriptions_uses_folder_filter(self) -> None:
-        client = HappyScribeClient("hs-test", organization_id="3310225")
-        location = HappyScribeLibraryLocation(
-            organization_id="3310225",
-            folder_id="23100499",
-        )
-        with patch.object(client, "list_transcriptions") as list_mock:
-            list_mock.return_value = []
-            client.list_library_transcriptions(location)
-
-        list_mock.assert_called_once_with(
-            organization_id="3310225",
-            folder_id="23100499",
-        )
 
 
 class HappyScribeCatalogSearchTests(unittest.TestCase):
@@ -145,6 +244,22 @@ class HappyScribeCatalogSearchTests(unittest.TestCase):
             )
         self.assertEqual({item.id for item in merged}, {"a", "b"})
         self.assertEqual(list_mock.call_count, 2)
+
+    def test_list_search_transcriptions_extra_locations_keep_org(self) -> None:
+        client = HappyScribeClient("hs-test", organization_id="3310225")
+        primary = HappyScribeLibraryLocation("3310225", "111")
+        review = HappyScribeLibraryLocation("8104266", "53816432", "Short videos")
+        with patch.object(client, "list_library_transcriptions") as list_mock:
+            list_mock.side_effect = [
+                [HappyScribeTranscription(id="a", name="one", state="automatic_done")],
+                [HappyScribeTranscription(id="b", name="two", state="automatic_done")],
+            ]
+            merged = client.list_search_transcriptions(
+                primary,
+                extra_locations=[review],
+            )
+        self.assertEqual({item.id for item in merged}, {"a", "b"})
+        self.assertEqual(list_mock.call_args_list[1].args[0], review)
 
 
 class HappyScribeClientTests(unittest.TestCase):

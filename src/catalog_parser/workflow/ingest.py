@@ -7,11 +7,13 @@ from typing import Any
 
 from catalog_parser.airtable import (
     AirtableClient,
+    FIELD_EDITOR,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_STATUS,
     FIELD_TRANSLATOR,
     STATUS_NOT_ASSIGNED,
     STATUS_TODO,
+    STATUS_TRANSLATION_DONE,
     load_existing_original_video_keys_for_ingest,
     load_existing_original_video_names_for_ingest,
     load_existing_titles_for_ingest,
@@ -61,6 +63,42 @@ def ingest_batch_for_translator(
         target_count=target_count,
         max_video_seconds=max_video_seconds,
         airtable_fields={FIELD_TRANSLATOR: translator_name, FIELD_STATUS: STATUS_TODO},
+        credentials_path=credentials_path,
+        token_path=token_path,
+        use_console=use_console,
+        table_cache=table_cache,
+        dry_run=dry_run,
+        require_pkg_tn=require_pkg_tn,
+        log=log,
+    )
+
+
+def ingest_batch_for_editor(
+    airtable: AirtableClient,
+    *,
+    editor_name: str,
+    translator_name: str,
+    desired_type: str,
+    target_count: int,
+    max_video_seconds: int,
+    credentials_path: Path = DEFAULT_CREDENTIALS,
+    token_path: Path = DEFAULT_TOKEN,
+    use_console: bool = False,
+    table_cache: TableCache | None = None,
+    dry_run: bool = False,
+    require_pkg_tn: bool = False,
+    log: Callable[[str], None] | None = None,
+) -> list[str]:
+    return ingest_batch(
+        airtable,
+        desired_type=desired_type,
+        target_count=target_count,
+        max_video_seconds=max_video_seconds,
+        airtable_fields={
+            FIELD_TRANSLATOR: translator_name,
+            FIELD_EDITOR: editor_name,
+            FIELD_STATUS: STATUS_TRANSLATION_DONE,
+        },
         credentials_path=credentials_path,
         token_path=token_path,
         use_console=use_console,

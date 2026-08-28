@@ -41,6 +41,8 @@ FIELD_TRANSLATION_RESOURCES = "Translation resources"
 FIELD_TRANSLATED_SUBTITLES = "Translated subtitles"
 FIELD_STATUS = "Status"
 STATUS_SYNC_DONE = "Synchronization done"
+STATUS_EDITING_DONE = "Editing done"
+STATUS_TRANSLATION_DONE = "Translation done"
 STATUS_DONE_PUBLISHED = "Done & Published"
 FIELD_SG_YT_DATE = "SG-YT-Date published"
 FIELD_SG_FB_DATE = "SG-FB-Date published"
@@ -338,6 +340,28 @@ def is_sync_done_status(value: Any) -> bool:
     return bool(text and STATUS_SYNC_DONE in text)
 
 
+def is_editing_done_status(value: Any) -> bool:
+    text = _field_text(value)
+    return bool(text and STATUS_EDITING_DONE in text)
+
+
+def is_translation_done_status(value: Any) -> bool:
+    text = _field_text(value)
+    return bool(text and STATUS_TRANSLATION_DONE in text)
+
+
+def uses_combined_media_with_subtitles(value: Any) -> bool:
+    return is_editing_done_status(value) or is_translation_done_status(value)
+
+
+def is_catalog_publish_ready_status(value: Any) -> bool:
+    return (
+        is_sync_done_status(value)
+        or is_editing_done_status(value)
+        or is_translation_done_status(value)
+    )
+
+
 def is_done_published_status(value: Any) -> bool:
     text = _field_text(value)
     return bool(text and STATUS_DONE_PUBLISHED in text)
@@ -393,10 +417,10 @@ def mark_record_done_and_published_if_complete(
     record_fields: dict[str, Any],
     excluded_platforms: frozenset[PlatformName] | None = None,
 ) -> AirtableRecord | None:
-    """Move sync-done videos to Done & Published once all scheduled platforms are live."""
+    """Move catalog videos to Done & Published once all scheduled platforms are live."""
     if is_done_published_status(record_fields.get(FIELD_STATUS)):
         return None
-    if not is_sync_done_status(record_fields.get(FIELD_STATUS)):
+    if not is_catalog_publish_ready_status(record_fields.get(FIELD_STATUS)):
         return None
     if not record_publish_platforms_complete(
         record_fields,
@@ -404,6 +428,14 @@ def mark_record_done_and_published_if_complete(
     ):
         return None
     return client.update_record(record_id, {FIELD_STATUS: f"6. {STATUS_DONE_PUBLISHED}"})
+
+
+def catalog_ready_status_filter_formula() -> str:
+    return (
+        f'OR(FIND("{STATUS_SYNC_DONE}", {{Status}} & ""), '
+        f'FIND("{STATUS_EDITING_DONE}", {{Status}} & ""), '
+        f'FIND("{STATUS_TRANSLATION_DONE}", {{Status}} & ""))'
+    )
 
 
 def sync_done_filter_formula() -> str:
@@ -420,7 +452,10 @@ def pending_schedule_filter_formula(*, content_type: str | None = None) -> str:
         type_clause = f', {{{FIELD_TYPE}}} = "{TYPE_QUOTE}"'
     elif content_type == "video":
         type_clause = f', {{{FIELD_TYPE}}} != "{TYPE_QUOTE}"'
-    return f'AND({sync_done_filter_formula()}, OR({", ".join(pending_platforms)}){type_clause})'
+    return (
+        f'AND({catalog_ready_status_filter_formula()}, '
+        f'OR({", ".join(pending_platforms)}){type_clause})'
+    )
 
 
 def quotes_pending_filter_formula() -> str:
@@ -499,7 +534,7 @@ def record_schedule_tasks(
     quotes_only: bool = False,
     videos_only: bool = False,
 ) -> list[PlatformScheduleTask]:
-    if not is_sync_done_status(record.fields.get(FIELD_STATUS)):
+    if not is_catalog_publish_ready_status(record.fields.get(FIELD_STATUS)):
         return []
 
     is_quote = is_quote_record(record.fields)

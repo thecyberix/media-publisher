@@ -146,5 +146,75 @@ class GenerateCatalogTnThumbnailTests(unittest.TestCase):
         self.assertEqual(render_mock.call_args.kwargs["english_text"], "Line one\nLine two")
 
 
+class ComposeOfflineTnBackgroundTests(unittest.TestCase):
+    def test_prefers_drive_psd_pixels_and_keeps_original_styles(self) -> None:
+        from PIL import Image
+
+        from media_publisher.sources.tn_psd import TnLineStyle
+        from media_publisher.sources.tn_publish import (
+            DriveTnTemplate,
+            compose_offline_tn_background,
+        )
+
+        original = Image.new("RGB", (100, 200), (10, 10, 10))
+        covered = Image.new("RGB", (100, 200), (20, 20, 20))
+        drive_image = Image.new("RGB", (200, 400), (30, 30, 30))
+        styles = [
+            TnLineStyle(
+                placeholder_text="Hello",
+                rendered_text="Hello",
+                bbox=(10, 20, 90, 50),
+                font_size_px=20.0,
+                color_hex="#FFFFFF",
+            )
+        ]
+        template, scaled, source = compose_offline_tn_background(
+            original=original,
+            covered_original=covered,
+            drive_template=DriveTnTemplate(
+                image=drive_image,
+                line_styles=[],
+                cached_path=Path("Template.psd"),
+            ),
+            cover_mode="bottom",
+            line_styles=styles,
+            caption_line_count=1,
+        )
+        self.assertEqual(source, "drive-template")
+        self.assertEqual(template.size, (200, 400))
+        self.assertEqual(template.getpixel((0, 0)), (30, 30, 30))
+        self.assertEqual(scaled[0].bbox, (20, 40, 180, 100))
+        self.assertEqual(scaled[0].font_size_px, 40.0)
+
+    def test_falls_back_to_covered_original_without_drive_template(self) -> None:
+        from PIL import Image
+
+        from media_publisher.sources.tn_psd import TnLineStyle
+        from media_publisher.sources.tn_publish import compose_offline_tn_background
+
+        original = Image.new("RGB", (100, 200), (10, 10, 10))
+        covered = Image.new("RGB", (100, 200), (20, 20, 20))
+        styles = [
+            TnLineStyle(
+                placeholder_text="Hello",
+                rendered_text="Hello",
+                bbox=(10, 20, 90, 50),
+                font_size_px=20.0,
+                color_hex="#FFFFFF",
+            )
+        ]
+        template, result_styles, source = compose_offline_tn_background(
+            original=original,
+            covered_original=covered,
+            drive_template=None,
+            cover_mode="bottom",
+            line_styles=styles,
+            caption_line_count=1,
+        )
+        self.assertEqual(source, "original-thumbnail")
+        self.assertEqual(template.getpixel((0, 0)), (20, 20, 20))
+        self.assertEqual(result_styles[0].bbox, (10, 20, 90, 50))
+
+
 if __name__ == "__main__":
     unittest.main()

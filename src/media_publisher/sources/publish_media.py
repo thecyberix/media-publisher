@@ -5,17 +5,22 @@ Publishing uses a translated thumbnail only when Original Video Thumbnail is set
 
 1. Drive override folder (Thumbnails and Thumbnails/Published), by Title — move to Published on success
 2. Canva catalog folder (short vs long, including Published), by Title — move to Published on success
-3. TN render generated on the fly
+
+If those lookups miss, publish continues without a translated thumbnail and emails
+NOTIFY_EMAIL. Offline TN render is ``scripts/_generate_thumbnails_from_original.py``.
 
 Video source for publishing (independent of thumbnail logic):
 
 1. Drive override folder (Videos subfolder), by Title — delete on success
-2. When Translation resources are empty: Combined Media File (must already exist)
-3. Otherwise: HappyScribe download with burned subtitles (handled by the publish pipeline)
+2. Editing done: Combined Media File with Translated subtitles burned in
+3. When Translation resources are empty: Combined Media File (must already exist)
+4. Otherwise: HappyScribe download with burned subtitles (handled by the publish pipeline)
 """
 from __future__ import annotations
 
+import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -23,9 +28,9 @@ from typing import Any, Callable
 from media_publisher.models import PublishJob
 from media_publisher.sources.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
-    FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_TITLE,
     FIELD_TRANSLATED_SUBTITLES,
+    FIELD_VIDEO_NAME_TRANSLATED,
     has_original_video_thumbnail,
 )
 from media_publisher.sources.canva import (
@@ -46,11 +51,7 @@ from media_publisher.sources.google_drive import (
     IMAGE_MIME_PREFIX,
     VIDEO_MIME_PREFIX,
 )
-from media_publisher.sources.tn_publish import (
-    TnPublishError,
-    TnPublishSettings,
-    generate_catalog_tn_thumbnail,
-)
+from media_publisher.sources.tn_publish import resolve_tn_template_drive_url
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff")
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".mkv", ".webm")
@@ -77,6 +78,7 @@ class PublishThumbnailResult:
     path: Path | None
     source: str | None = None
     cleanup: PublishMediaCleanup | None = None
+    missing_translated: bool = False
 
 
 @dataclass(frozen=True)
@@ -176,6 +178,56 @@ def resolve_combined_media_for_publish(
                 record_fields
             ),
         ),
+    )
+
+
+def resolve_combined_media_with_subtitles_for_publish(
+    *,
+    record_fields: dict[str, Any],
+    drive: GoogleDriveClient,
+    download_dir: Path,
+    ffmpeg_path: str | None = None,
+) -> PublishVideoResult:
+    """Download Combined Media File and burn Airtable Translated subtitles."""
+    combined = resolve_combined_media_for_publish(
+        record_fields=record_fields,
+        drive=drive,
+        download_dir=download_dir,
+    )
+    srt_id = translated_subtitles_file_id_from_fields(record_fields)
+    if not srt_id:
+        raise CombinedMediaError(f"Missing {FIELD_TRANSLATED_SUBTITLES!r}")
+
+    title = str(record_fields.get(FIELD_TITLE) or "video").strip()
+    stem = Path(_sanitize_filename(title)).stem or "video"
+    work_dir = download_dir / "combined"
+    srt_path = work_dir / f"{stem}.srt"
+    destination = work_dir / f"{stem}-subtitled.mp4"
+    if destination.is_file():
+        return PublishVideoResult(
+            path=destination,
+            source="combined-media-subtitles",
+            cleanup=combined.cleanup,
+        )
+
+    drive.download_file(srt_id, srt_path)
+    from media_publisher.sources.happyscribe import HappyScribeError, burn_subtitles_into_video
+
+    if combined.path is None:
+        raise CombinedMediaError(f"Missing {FIELD_COMBINED_MEDIA_FILE!r}")
+    try:
+        burned = burn_subtitles_into_video(
+            combined.path,
+            srt_path,
+            destination,
+            ffmpeg_path=ffmpeg_path,
+        )
+    except HappyScribeError as exc:
+        raise CombinedMediaError(str(exc)) from exc
+    return PublishVideoResult(
+        path=burned,
+        source="combined-media-subtitles",
+        cleanup=combined.cleanup,
     )
 
 
@@ -474,22 +526,6 @@ def resolve_canva_catalog_thumbnail(
     )
 
 
-def resolve_generated_tn_thumbnail(
-    *,
-    title: str,
-    record_fields: dict[str, Any],
-    drive: GoogleDriveClient,
-    tn_settings: TnPublishSettings,
-) -> PublishThumbnailResult:
-    path = generate_catalog_tn_thumbnail(
-        title=title,
-        record_fields=record_fields,
-        drive=drive,
-        settings=tn_settings,
-    )
-    return PublishThumbnailResult(path=path, source="tn-generated")
-
-
 def resolve_publish_thumbnail(
     job: PublishJob,
     record_fields: dict[str, Any],
@@ -503,22 +539,19 @@ def resolve_publish_thumbnail(
     override_root_folder_id: str,
     thumbnails_subfolder: str,
     published_subfolder_name: str,
-    tn_settings: TnPublishSettings,
 ) -> PublishThumbnailResult:
     """Resolve a Bulgarian publish thumbnail when Original Video Thumbnail is set.
 
     The Airtable attachment itself is not used at publish time; it only gates
-    whether a translated thumbnail is required.
+    whether a translated thumbnail is required. Missing Drive/Canva matches
+    return ``missing_translated=True`` instead of generating a thumbnail.
     """
     if not has_original_video_thumbnail(record_fields):
         return PublishThumbnailResult(path=None)
 
     lookup_title = title.strip() or catalog_video_name_from_job(job)
-    attempts: list[str] = []
 
-    if drive is None or not override_root_folder_id:
-        attempts.append("drive override: Google Drive client unavailable")
-    else:
+    if drive is not None and override_root_folder_id:
         drive_result = resolve_drive_override_thumbnail(
             drive,
             root_folder_id=override_root_folder_id,
@@ -529,11 +562,8 @@ def resolve_publish_thumbnail(
         )
         if drive_result is not None and drive_result.path is not None:
             return drive_result
-        attempts.append("drive override: no matching file in Thumbnails or Published folder")
 
-    if canva_client is None:
-        attempts.append("canva catalog: Canva client unavailable")
-    else:
+    if canva_client is not None:
         try:
             canva_result = resolve_canva_catalog_thumbnail(
                 job,
@@ -547,32 +577,89 @@ def resolve_publish_thumbnail(
         except CanvaError as exc:
             if is_canva_auth_error(exc):
                 raise
-            attempts.append(f"canva catalog: {exc}")
         else:
             if canva_result is not None and canva_result.path is not None:
                 return canva_result
-            attempts.append("canva catalog: no thumbnail downloaded")
 
-    if drive is None:
-        attempts.append("tn generation: Google Drive client unavailable")
-    else:
-        try:
-            generated = resolve_generated_tn_thumbnail(
-                title=lookup_title,
-                record_fields=record_fields,
-                drive=drive,
-                tn_settings=tn_settings,
-            )
-        except TnPublishError as exc:
-            attempts.append(f"tn generation: {exc}")
-        else:
-            if generated.path is not None:
-                return generated
-            attempts.append("tn generation: render returned no file")
+    return PublishThumbnailResult(path=None, missing_translated=True)
 
-    detail = "; ".join(attempts) if attempts else "no resolution steps attempted"
-    raise TnPublishError(
-        f"Could not resolve translated thumbnail for {lookup_title!r} ({detail})"
+
+def format_publish_without_translated_thumbnail_email(
+    *,
+    title: str,
+    translated: str | None,
+    tn_template: str | None = None,
+) -> tuple[str, str]:
+    subject = f"Publishing without translated thumbnail — {title}"
+    lines = [
+        "A video with an Original Video Thumbnail is being published",
+        "without a translated thumbnail (no match in the Canva catalog or",
+        "Drive Thumbnails folder). Generate one offline with",
+        "scripts/_generate_thumbnails_from_original.py, then place it in",
+        "Drive Overrides/Thumbnails or the Canva catalog.",
+        "",
+        f"1. {title}",
+    ]
+    if translated:
+        lines.append(f"   Translated: {translated}")
+    if tn_template:
+        lines.append(f"   Drive TN template: {tn_template}")
+    body = "\n".join(lines).rstrip() + "\n"
+    return subject, body
+
+
+def send_publish_without_translated_thumbnail_email(
+    *,
+    title: str,
+    translated: str | None,
+    tn_template: str | None = None,
+) -> bool:
+    scripts_dir = Path(__file__).resolve().parents[3] / "scripts" / "catalog"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+
+    from send_notification_email import send_email
+
+    smtp_user = os.getenv("GMAIL_SMTP_USER", "").strip()
+    smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD", "").strip()
+    notify_email = os.getenv("NOTIFY_EMAIL", "").strip()
+    if not smtp_user or not smtp_password or not notify_email:
+        return False
+
+    subject, body = format_publish_without_translated_thumbnail_email(
+        title=title,
+        translated=translated,
+        tn_template=tn_template,
+    )
+    send_email(
+        smtp_user=smtp_user,
+        smtp_password=smtp_password,
+        to_address=notify_email,
+        subject=subject,
+        body=body,
+    )
+    return True
+
+
+def notify_publishing_without_translated_thumbnail(
+    *,
+    title: str,
+    record_fields: dict[str, Any],
+    drive: GoogleDriveClient | None,
+) -> bool:
+    translated = record_fields.get(FIELD_VIDEO_NAME_TRANSLATED)
+    translated_text = (
+        translated.strip()
+        if isinstance(translated, str) and translated.strip()
+        else None
+    )
+    tn_template = None
+    if drive is not None:
+        tn_template = resolve_tn_template_drive_url(drive.drive_service, record_fields)
+    return send_publish_without_translated_thumbnail_email(
+        title=title,
+        translated=translated_text,
+        tn_template=tn_template,
     )
 
 

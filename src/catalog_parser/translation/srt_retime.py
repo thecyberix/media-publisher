@@ -404,6 +404,38 @@ def compress_audio_for_transcription(
     return destination
 
 
+def extract_mono_wav(
+    source: Path,
+    destination: Path,
+    *,
+    sample_rate: int = 16000,
+    ffmpeg_path: str | None = None,
+) -> Path:
+    """Extract 16 kHz mono WAV from a video or audio file for local alignment."""
+    ffmpeg = resolve_ffmpeg_path(ffmpeg_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(source),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(sample_rate),
+        str(destination),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise SrtRetimeError(f"Failed to run ffmpeg: {exc}") from exc
+    if result.returncode != 0 or not destination.exists():
+        detail = (result.stderr or result.stdout or "unknown ffmpeg error").strip()
+        raise SrtRetimeError(f"ffmpeg audio extract failed: {detail}")
+    return destination
+
+
 def _parse_openai_words(payload: dict[str, Any]) -> list[WordTiming]:
     raw_words = payload.get("words")
     if not isinstance(raw_words, list) or not raw_words:

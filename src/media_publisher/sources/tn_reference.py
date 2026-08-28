@@ -75,18 +75,27 @@ SPLIT_BOTTOM_COVER_BOTTOM_MARGIN_RATIO = 0.04
 RIGHT_SIDE_SCAN_LEFT_RATIO = 0.45
 RIGHT_SIDE_SCAN_TOP_RATIO = 0.12
 RIGHT_SIDE_SCAN_BOTTOM_RATIO = 0.50
+# Deeper scan for cover/styles after layout is confirmed (catches tall captions).
+RIGHT_SIDE_FULL_SCAN_BOTTOM_RATIO = 0.72
 RIGHT_SIDE_MIN_BANDS = 2
 RIGHT_SIDE_TEXT_AVG_LUMINANCE = 160
 RIGHT_SIDE_BOX_LEFT_RATIO = 0.42
-RIGHT_SIDE_BOX_RIGHT_MARGIN_RATIO = 0.025
+RIGHT_SIDE_BOX_RIGHT_MARGIN_RATIO = 0.05
 RIGHT_SIDE_FONT_SCALE = 0.72
-RIGHT_SIDE_LINE1_FONT_SCALE = 0.80
-RIGHT_SIDE_LINE3_FONT_SCALE = 1.18
+RIGHT_SIDE_LINE1_FONT_SCALE = 0.88
+RIGHT_SIDE_LINE2_FONT_SCALE = 0.81
+RIGHT_SIDE_LINE3_BODY_FONT_SCALE = 0.90
+RIGHT_SIDE_LINE_LAST_FONT_SCALE = 0.68
+RIGHT_SIDE_ACCENT_ORANGE = "#FF8A00"
+RIGHT_SIDE_PACK_GAP_FACTOR = 0.14
+RIGHT_SIDE_PACK_TAIL_GAP_FACTOR = 0.28
 RIGHT_SIDE_COVER_MARGIN_X_RATIO = 0.03
+RIGHT_SIDE_COVER_MARGIN_Y_RATIO = 0.02
 RIGHT_SIDE_COVER_HEIGHT = 135
 RIGHT_SIDE_PANEL_OLIVE = (50, 59, 39)
 RIGHT_SIDE_PANEL_OLIVE_ALPHA = 0.45
 RIGHT_SIDE_PANEL_TRIM_PAD_RATIO = 0.004
+RIGHT_SIDE_PLATE_FALLBACK = "#1C1133"
 
 
 def _is_text_pixel(red: int, green: int, blue: int) -> bool:
@@ -654,6 +663,8 @@ def cover_top_only_reference_text(
 
 def _right_side_text_bands(
     reference: Image.Image,
+    *,
+    scan_bottom_ratio: float | None = None,
 ) -> list[tuple[int, int, int, int, str, str | None]]:
     """Detect bright caption lines constrained to the right column."""
     width, height = reference.size
@@ -661,7 +672,12 @@ def _right_side_text_bands(
     scan_left = int(width * RIGHT_SIDE_SCAN_LEFT_RATIO)
     scan_right = width
     scan_top = int(height * RIGHT_SIDE_SCAN_TOP_RATIO)
-    scan_bottom = int(height * RIGHT_SIDE_SCAN_BOTTOM_RATIO)
+    bottom_ratio = (
+        RIGHT_SIDE_SCAN_BOTTOM_RATIO
+        if scan_bottom_ratio is None
+        else scan_bottom_ratio
+    )
+    scan_bottom = int(height * bottom_ratio)
     scan_width = max(1, scan_right - scan_left)
     row_threshold = max(1, int(scan_width * TEXT_ROW_PIXEL_RATIO))
 
@@ -729,9 +745,38 @@ def has_right_side_reference_layout(
     return median_left >= int(width * 0.40)
 
 
+def _sample_right_side_panel_hex(
+    image: Image.Image,
+    bands: list[tuple[int, int, int, int, str, str | None]],
+) -> str:
+    """Sample dark panel color near right-column caption bands."""
+    if not bands:
+        return RIGHT_SIDE_PLATE_FALLBACK
+    pixels = image.load()
+    width, height = image.size
+    left = max(0, min(band[0] for band in bands))
+    right = min(width, max(band[2] for band in bands))
+    top = max(0, min(band[1] for band in bands))
+    bottom = min(height, max(band[3] for band in bands))
+    sample_pixels: list[tuple[int, int, int]] = []
+    for y in range(top, bottom):
+        for x in range(left, right):
+            red, green, blue = pixels[x, y][:3]
+            if _is_text_pixel(red, green, blue):
+                continue
+            if (red + green + blue) / 3 > 140:
+                continue
+            sample_pixels.append((red, green, blue))
+    if not sample_pixels:
+        return RIGHT_SIDE_PLATE_FALLBACK
+    return _hex_from_rgb(*_average_rgb(sample_pixels))
+
+
 def _layout_right_side_line_styles(
     bands: list[tuple[int, int, int, int, str, str | None]],
     template_size: tuple[int, int],
+    *,
+    panel_hex: str = RIGHT_SIDE_PLATE_FALLBACK,
 ) -> list[TnLineStyle]:
     if not bands:
         return []
@@ -740,35 +785,104 @@ def _layout_right_side_line_styles(
     box_left = int(width * RIGHT_SIDE_BOX_LEFT_RATIO)
     box_right = width - max(8, int(width * RIGHT_SIDE_BOX_RIGHT_MARGIN_RATIO))
 
-    styles: list[TnLineStyle] = []
     body_height = max(1, bands[min(1, len(bands) - 1)][3] - bands[min(1, len(bands) - 1)][1])
     body_font = max(22.0, body_height * RIGHT_SIDE_FONT_SCALE * REFERENCE_FONT_SCALE)
+
+    specs: list[tuple[float, str, tuple[str | None, ...]]] = []
     for index, band in enumerate(bands):
         band_height = max(1, band[3] - band[1])
+        color_hex = band[4]
+        backgrounds: tuple[str | None, ...] = ()
         if index == 0:
             font_size = max(22.0, band_height * RIGHT_SIDE_LINE1_FONT_SCALE * REFERENCE_FONT_SCALE)
+            backgrounds = (panel_hex,)
         elif index == len(bands) - 1 and len(bands) >= 3:
-            font_size = max(22.0, body_font * RIGHT_SIDE_LINE3_FONT_SCALE)
+            font_size = max(22.0, body_font * RIGHT_SIDE_LINE_LAST_FONT_SCALE)
+            # Prefer a vivid orange like the original accent line.
+            color_hex = RIGHT_SIDE_ACCENT_ORANGE
+            backgrounds = (panel_hex,)
+        elif index == 1 and len(bands) >= 3:
+            font_size = max(22.0, body_font * RIGHT_SIDE_LINE2_FONT_SCALE)
+            backgrounds = (panel_hex,)
+        elif index == 2 and len(bands) >= 3:
+            font_size = max(22.0, body_font * RIGHT_SIDE_LINE3_BODY_FONT_SCALE)
+            backgrounds = (panel_hex,)
         else:
             font_size = body_font
+            backgrounds = (panel_hex,) if len(bands) >= 3 else ()
+        # Prefer a slightly lifted plate so separate line rectangles read clearly
+        # against the dark right-column photo.
+        if backgrounds:
+            rgb = _hex_to_rgb(backgrounds[0] or "")
+            if rgb is not None:
+                lifted = _hex_from_rgb(
+                    min(255, rgb[0] + 18),
+                    min(255, rgb[1] + 14),
+                    min(255, rgb[2] + 22),
+                )
+                backgrounds = (lifted,)
+        specs.append((font_size, color_hex, backgrounds))
+
+    styles: list[TnLineStyle] = []
+    prev_bottom: int | None = None
+    for index, (band, (font_size, color_hex, backgrounds)) in enumerate(
+        zip(bands, specs, strict=True)
+    ):
         line_box_height = max(1, int(round(font_size * 1.12)))
-        center_y = (band[1] + band[3]) // 2
-        top = max(0, center_y - line_box_height // 2)
+        if index == 0 or prev_bottom is None:
+            center_y = (band[1] + band[3]) // 2
+            top = max(0, center_y - line_box_height // 2)
+        else:
+            gap_factor = (
+                RIGHT_SIDE_PACK_TAIL_GAP_FACTOR
+                if index == len(bands) - 1
+                else RIGHT_SIDE_PACK_GAP_FACTOR
+            )
+            gap = max(4, int(round(font_size * gap_factor)))
+            top = prev_bottom + gap
         bottom = min(height, top + line_box_height)
+        if bottom - top < line_box_height and top > 0:
+            top = max(0, bottom - line_box_height)
+        prev_bottom = bottom
         styles.append(
             TnLineStyle(
                 placeholder_text="reference-line",
                 rendered_text="reference-line",
                 bbox=(box_left, top, box_right, bottom),
                 font_size_px=font_size,
-                color_hex=band[4],
+                color_hex=color_hex,
                 layer_name="reference-thumbnail",
                 alignment="right",
                 faux_bold=False,
                 max_grow_factor=REFERENCE_MAX_GROW_FACTOR,
+                stacked_line_backgrounds=backgrounds,
             )
         )
     return styles
+
+
+def _select_right_side_bands_for_caption(
+    bands: list[tuple[int, int, int, int, str, str | None]],
+    template_size: tuple[int, int],
+    caption_line_count: int | None,
+) -> list[tuple[int, int, int, int, str, str | None]]:
+    """Pick caption lines while keeping the first and last English bands.
+
+    Tall right-column titles often use an accent color on the final line; taking
+    only the first N bands drops that accent when English has more lines.
+    """
+    bands = _filter_bands(bands, template_size)
+    if caption_line_count is None:
+        return bands
+    if len(bands) <= caption_line_count:
+        return (
+            bands
+            if len(bands) == caption_line_count
+            else _expand_bands_to_count(bands, caption_line_count)
+        )
+    if caption_line_count <= 1:
+        return bands[:caption_line_count]
+    return bands[: caption_line_count - 1] + [bands[-1]]
 
 
 def extract_right_side_reference_line_styles(
@@ -779,11 +893,22 @@ def extract_right_side_reference_line_styles(
 ) -> list[TnLineStyle]:
     """Derive right-aligned line styles from a right-column English caption."""
     aligned = _resize_reference(reference.convert("RGB"), template_size)
-    bands = _filter_bands(_right_side_text_bands(aligned), template_size)
-    selected = _select_bands_for_caption(bands, template_size, caption_line_count)
+    bands = _filter_bands(
+        _right_side_text_bands(
+            aligned,
+            scan_bottom_ratio=RIGHT_SIDE_FULL_SCAN_BOTTOM_RATIO,
+        ),
+        template_size,
+    )
+    selected = _select_right_side_bands_for_caption(
+        bands, template_size, caption_line_count
+    )
     if not selected:
         return []
-    return _layout_right_side_line_styles(selected, template_size)
+    panel_hex = _sample_right_side_panel_hex(aligned, bands or selected)
+    return _layout_right_side_line_styles(
+        selected, template_size, panel_hex=panel_hex
+    )
 
 
 def _lift_right_side_olive_pixel(red: int, green: int, blue: int) -> tuple[int, int, int]:
@@ -840,58 +965,95 @@ def cover_right_side_reference_text(
     *,
     solid_fill: bool = True,
     caption_line_count: int | None = None,
+    line_styles: list[TnLineStyle] | None = None,
 ) -> Image.Image:
-    """Cover English text in the right-side caption column."""
+    """Cover English text in the right-side caption column.
+
+    Uses separate per-band fills so tall captions do not become one solid panel.
+    When ``line_styles`` are provided, pixels below the last caption line are
+    restored from the original so empty panel space under the title is removed.
+    """
+    del caption_line_count  # Cover all English bands; caption count only affects layout.
+    del solid_fill
     aligned = image.convert("RGB")
-    bands = _filter_bands(_right_side_text_bands(aligned), aligned.size)
-    selected = _select_bands_for_caption(bands, aligned.size, caption_line_count)
-    if not selected:
-        selected = bands
-    if not selected:
+    bands = _filter_bands(
+        _right_side_text_bands(
+            aligned,
+            scan_bottom_ratio=RIGHT_SIDE_FULL_SCAN_BOTTOM_RATIO,
+        ),
+        aligned.size,
+    )
+    if not bands:
         return image.copy()
 
     width, height = aligned.size
-    # Restore previous horizontal cover from detected text bands.
-    left = min(band[0] for band in selected)
-    right = max(band[2] for band in selected)
-    text_top = min(band[1] for band in selected)
-    text_bottom = max(band[3] for band in selected)
     margin_x = max(10, int(width * RIGHT_SIDE_COVER_MARGIN_X_RATIO))
-    cover_left = max(0, left - margin_x)
-    cover_right = min(width, right + margin_x)
-    # Fixed-height panel centered on the caption block.
-    text_center = (text_top + text_bottom) // 2
-    cover_height = min(RIGHT_SIDE_COVER_HEIGHT, height)
-    cover_top = max(0, text_center - cover_height // 2)
-    cover_bottom = cover_top + cover_height
-    if cover_bottom > height:
-        cover_bottom = height
-        cover_top = max(0, cover_bottom - cover_height)
-
-    # Paint a clean fixed-height panel only — do not alter pixels outside it
-    # (olive-lift trimming caused edge artifacts on Sadhguru / the inset).
-    result = image.copy()
-
-    if not solid_fill:
-        return cover_text_region(
-            result,
-            (cover_left, cover_top, cover_right, cover_bottom),
-            solid_fill=False,
-        )
-
+    margin_y = max(6, int(height * RIGHT_SIDE_COVER_MARGIN_Y_RATIO))
     pixels = aligned.load()
     sample_pixels: list[tuple[int, int, int]] = []
-    for y in range(cover_top, cover_bottom):
-        for x in range(cover_left, cover_right):
-            red, green, blue = pixels[x, y][:3]
-            if _is_text_pixel(red, green, blue):
-                continue
-            if (red + green + blue) / 3 > 140:
-                continue
-            sample_pixels.append((red, green, blue))
-    fill = _average_rgb(sample_pixels) if sample_pixels else (72, 83, 63)
+    for band in bands:
+        for y in range(max(0, band[1]), min(height, band[3])):
+            for x in range(max(0, band[0]), min(width, band[2])):
+                red, green, blue = pixels[x, y][:3]
+                if _is_text_pixel(red, green, blue):
+                    continue
+                if (red + green + blue) / 3 > 140:
+                    continue
+                sample_pixels.append((red, green, blue))
+    fill = _average_rgb(sample_pixels) if sample_pixels else (28, 17, 51)
+
+    result = image.copy()
     draw = ImageDraw.Draw(result)
-    draw.rectangle((cover_left, cover_top, cover_right, cover_bottom), fill=fill)
+    result_pixels = result.load()
+    text_top = min(band[1] for band in bands)
+    text_bottom = max(band[3] for band in bands)
+    band_span = text_bottom - text_top + 2 * margin_y
+    if band_span <= RIGHT_SIDE_COVER_HEIGHT:
+        # Short olive-panel captions: keep the previous fixed-height look.
+        left = min(band[0] for band in bands)
+        right = max(band[2] for band in bands)
+        text_center = (text_top + text_bottom) // 2
+        cover_height = min(RIGHT_SIDE_COVER_HEIGHT, height)
+        cover_top = max(0, text_center - cover_height // 2)
+        cover_bottom = min(height, cover_top + cover_height)
+        draw.rectangle(
+            (
+                max(0, left - margin_x),
+                cover_top,
+                min(width, right + margin_x),
+                cover_bottom,
+            ),
+            fill=fill,
+        )
+        return result
+
+    for band in bands:
+        band_left = max(0, band[0] - margin_x)
+        band_top = max(0, band[1] - margin_y)
+        band_right = min(width, band[2] + margin_x)
+        band_bottom = min(height, band[3] + margin_y)
+        # Scrub English glyphs only — avoid a tall solid panel. Caption lines 3/4
+        # get their own rectangles during render via stacked_line_backgrounds.
+        for y in range(band_top, band_bottom):
+            for x in range(band_left, band_right):
+                red, green, blue = result_pixels[x, y][:3]
+                if _is_text_pixel(red, green, blue):
+                    result_pixels[x, y] = fill
+
+    if line_styles:
+        keep_bottom = max(style.bbox[3] for style in line_styles) + margin_y
+        column_left = max(0, min(band[0] for band in bands) - margin_x)
+        column_right = min(width, max(band[2] for band in bands) + margin_x)
+        original_pixels = image.convert("RGB").load()
+        for y in range(max(0, keep_bottom), height):
+            for x in range(column_left, column_right):
+                result_pixels[x, y] = original_pixels[x, y]
+        scrub_bottom = min(height, text_bottom + margin_y)
+        for y in range(max(0, keep_bottom), scrub_bottom):
+            for x in range(column_left, column_right):
+                red, green, blue = result_pixels[x, y][:3]
+                if _is_text_pixel(red, green, blue):
+                    result_pixels[x, y] = fill
     return result
 
 
@@ -2118,3 +2280,134 @@ def load_reference_thumbnail(path: Path) -> Image.Image | None:
         return None
     with Image.open(path) as image:
         return image.convert("RGB")
+
+
+def derive_reference_layout(
+    image: Image.Image,
+    *,
+    caption_line_count: int,
+    catalog_title: str = "",
+) -> tuple[list[TnLineStyle], str] | None:
+    """Detect English text bands on an original thumbnail.
+
+    Returns ``(line_styles, cover_mode)`` or ``None`` when no layout is found.
+    """
+    size = image.size
+    title = catalog_title.casefold()
+    if has_split_top_bottom_reference_layout(image, size):
+        styles = extract_top_reference_line_styles(
+            image,
+            size,
+            caption_line_count=caption_line_count,
+        )
+        return (styles, "split top/bottom") if styles else None
+    if has_top_only_reference_layout(image, size):
+        styles = extract_top_only_reference_line_styles(
+            image,
+            size,
+            caption_line_count=caption_line_count,
+        )
+        return (styles, "top") if styles else None
+    if has_right_side_reference_layout(image, size):
+        styles = extract_right_side_reference_line_styles(
+            image,
+            size,
+            caption_line_count=caption_line_count,
+        )
+        return (styles, "right") if styles else None
+    if has_label_box_reference_layout(image, size):
+        styles = extract_label_box_reference_line_styles(
+            image,
+            size,
+            caption_line_count=caption_line_count,
+        )
+        return (styles, "label box") if styles else None
+    if "solar flares" in title and caption_line_count in (3, 4):
+        styles = extract_reordered_mystic_musings_reference_styles(
+            image,
+            size,
+            caption_line_count=caption_line_count,
+        )
+        return (styles, "bottom") if styles else None
+    styles = extract_line_styles_from_reference_thumbnail(
+        image,
+        size,
+        caption_line_count=caption_line_count,
+    )
+    return (styles, "bottom") if styles else None
+
+
+def cover_reference_layout(
+    image: Image.Image,
+    cover_mode: str,
+    line_styles: list[TnLineStyle],
+    caption_line_count: int,
+) -> Image.Image:
+    """Cover English text on ``image`` using the layout detected from a reference."""
+    if cover_mode == "top":
+        return cover_top_only_reference_text(
+            image,
+            caption_line_count=caption_line_count,
+        )
+    if cover_mode == "right":
+        return cover_right_side_reference_text(
+            image,
+            caption_line_count=caption_line_count,
+            line_styles=line_styles,
+        )
+    if cover_mode == "label box":
+        return cover_label_box_reference_text(image)
+    if cover_mode == "split top/bottom":
+        return cover_split_reference_text(image)
+    return cover_reference_text(image)
+
+
+def scale_line_styles(
+    styles: list[TnLineStyle],
+    source_size: tuple[int, int],
+    dest_size: tuple[int, int],
+) -> list[TnLineStyle]:
+    """Scale original-thumbnail line boxes onto a background of a different size."""
+    src_w, src_h = source_size
+    dst_w, dst_h = dest_size
+    if src_w <= 0 or src_h <= 0 or (src_w, src_h) == (dst_w, dst_h):
+        return styles
+    sx = dst_w / src_w
+    sy = dst_h / src_h
+    size_scale = (sx + sy) / 2
+
+    def _scale_box(
+        box: tuple[int, int, int, int],
+    ) -> tuple[int, int, int, int]:
+        left, top, right, bottom = box
+        return (
+            int(round(left * sx)),
+            int(round(top * sy)),
+            int(round(right * sx)),
+            int(round(bottom * sy)),
+        )
+
+    scaled: list[TnLineStyle] = []
+    for style in styles:
+        segments = tuple(
+            replace(
+                segment,
+                font_size_px=segment.font_size_px * size_scale,
+            )
+            for segment in style.segments
+        )
+        stacked_sizes = tuple(
+            int(round(size * size_scale)) for size in style.stacked_line_font_sizes
+        )
+        fixed = style.fixed_font_size_px
+        scaled.append(
+            replace(
+                style,
+                bbox=_scale_box(style.bbox),
+                font_size_px=style.font_size_px * size_scale,
+                segments=segments,
+                fixed_font_size_px=None if fixed is None else fixed * size_scale,
+                stacked_line_font_sizes=stacked_sizes,
+            )
+        )
+    return scaled

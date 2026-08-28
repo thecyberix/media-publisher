@@ -22,11 +22,11 @@ from media_publisher.sources.publish_media import (
     merge_publish_media_cleanup,
     resolve_canva_catalog_thumbnail,
     resolve_combined_media_for_publish,
+    resolve_combined_media_with_subtitles_for_publish,
     resolve_drive_override_thumbnail,
     resolve_publish_thumbnail,
     resolve_publish_video,
 )
-from media_publisher.sources.tn_publish import TnPublishSettings
 
 
 class PublishMediaResolutionTests(unittest.TestCase):
@@ -103,6 +103,66 @@ class PublishMediaResolutionTests(unittest.TestCase):
                 download_dir=Path("."),
             )
         drive.download_file.assert_not_called()
+
+    def test_resolve_combined_media_with_subtitles_burns_translated_srt(self) -> None:
+        drive = MagicMock()
+
+        def _write_download(_file_id, dest):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(b"data")
+            return dest
+
+        drive.download_file.side_effect = _write_download
+        burned = Path("downloads/combined/Launch video-subtitled.mp4")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir) / "dl"
+            with patch(
+                "media_publisher.sources.happyscribe.burn_subtitles_into_video",
+                return_value=burned,
+            ) as burn_mock:
+                result = resolve_combined_media_with_subtitles_for_publish(
+                    record_fields={
+                        FIELD_TITLE: "Launch video",
+                        FIELD_COMBINED_MEDIA_FILE: (
+                            "https://drive.google.com/file/d/file123/view"
+                        ),
+                        FIELD_TRANSLATED_SUBTITLES: (
+                            "https://drive.google.com/file/d/subs123/view"
+                        ),
+                    },
+                    drive=drive,
+                    download_dir=download_dir,
+                    ffmpeg_path="ffmpeg",
+                )
+
+        self.assertEqual(result.source, "combined-media-subtitles")
+        self.assertEqual(result.path, burned)
+        burn_mock.assert_called_once()
+        self.assertEqual(drive.download_file.call_count, 2)
+
+    def test_resolve_combined_media_with_subtitles_requires_srt(self) -> None:
+        drive = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            download_dir = Path(tmpdir) / "dl"
+
+            def _write_download(_file_id, dest):
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(b"combined")
+                return dest
+
+            drive.download_file.side_effect = _write_download
+            with self.assertRaises(CombinedMediaError):
+                resolve_combined_media_with_subtitles_for_publish(
+                    record_fields={
+                        FIELD_TITLE: "Launch video",
+                        FIELD_COMBINED_MEDIA_FILE: (
+                            "https://drive.google.com/file/d/file123/view"
+                        ),
+                    },
+                    drive=drive,
+                    download_dir=download_dir,
+                )
 
     def test_resolve_publish_video_uses_drive_override(self) -> None:
         drive = MagicMock()
@@ -335,12 +395,6 @@ class PublishMediaResolutionTests(unittest.TestCase):
                 override_root_folder_id="root123",
                 thumbnails_subfolder="Thumbnails",
                 published_subfolder_name="Published",
-                tn_settings=TnPublishSettings(
-                    original_dir=Path(tmpdir) / "original",
-                    cache_dir=Path(tmpdir) / "cache",
-                    output_dir=Path(tmpdir) / "rendered",
-                    english_override_file=Path(tmpdir) / "overrides.json",
-                ),
             )
 
         self.assertEqual(result.source, "drive-override-thumbnail")
@@ -465,45 +519,45 @@ class PublishMediaResolutionTests(unittest.TestCase):
             override_root_folder_id="root123",
             thumbnails_subfolder="Thumbnails",
             published_subfolder_name="Published",
-            tn_settings=TnPublishSettings(
-                original_dir=Path("downloads/original-thumbnails"),
-                cache_dir=Path("downloads/tn-cache"),
-                output_dir=Path("downloads/tn-rendered"),
-                english_override_file=Path("downloads/tn-english-overrides.json"),
-            ),
         )
         self.assertIsNone(result.path)
+        self.assertFalse(result.missing_translated)
         canva.find_design_in_folder.assert_not_called()
 
-    def test_resolve_publish_thumbnail_reports_all_failed_steps(self) -> None:
-        from media_publisher.sources.tn_publish import TnPublishError
-
+    def test_resolve_publish_thumbnail_marks_missing_translated(self) -> None:
         job = PublishJob(title="Translated", video_format="post")
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaises(TnPublishError) as ctx:
-                resolve_publish_thumbnail(
-                    job,
-                    {"Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}]},
-                    title="Launch video",
-                    canva_client=None,
-                    drive=None,
-                    canva_download_dir=Path(tmpdir),
-                    long_catalog_url="https://www.canva.com/folder/FAHOgLx_jAw",
-                    short_catalog_url="https://www.canva.com/folder/FAHOgF-NT8Q",
-                    override_root_folder_id="root123",
-                    thumbnails_subfolder="Thumbnails",
-                    published_subfolder_name="Published",
-                    tn_settings=TnPublishSettings(
-                        original_dir=Path(tmpdir) / "original",
-                        cache_dir=Path(tmpdir) / "cache",
-                        output_dir=Path(tmpdir) / "rendered",
-                        english_override_file=Path(tmpdir) / "overrides.json",
-                    ),
-                )
-        message = str(ctx.exception)
-        self.assertIn("drive override: Google Drive client unavailable", message)
-        self.assertIn("canva catalog: Canva client unavailable", message)
-        self.assertIn("tn generation: Google Drive client unavailable", message)
+            result = resolve_publish_thumbnail(
+                job,
+                {"Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}]},
+                title="Launch video",
+                canva_client=None,
+                drive=None,
+                canva_download_dir=Path(tmpdir),
+                long_catalog_url="https://www.canva.com/folder/FAHOgLx_jAw",
+                short_catalog_url="https://www.canva.com/folder/FAHOgF-NT8Q",
+                override_root_folder_id="root123",
+                thumbnails_subfolder="Thumbnails",
+                published_subfolder_name="Published",
+            )
+        self.assertIsNone(result.path)
+        self.assertTrue(result.missing_translated)
+
+    def test_format_publish_without_translated_thumbnail_email(self) -> None:
+        from media_publisher.sources.publish_media import (
+            format_publish_without_translated_thumbnail_email,
+        )
+
+        subject, body = format_publish_without_translated_thumbnail_email(
+            title="Launch video",
+            translated="Старт",
+            tn_template="https://drive.google.com/file/d/tmpl/view",
+        )
+        self.assertIn("Launch video", subject)
+        self.assertIn("without a translated thumbnail", body)
+        self.assertIn("Старт", body)
+        self.assertIn("Drive TN template:", body)
+        self.assertIn("_generate_thumbnails_from_original.py", body)
 
     def test_resolve_publish_thumbnail_reraises_canva_auth_error(self) -> None:
         job = PublishJob(title="Translated", video_format="post")
@@ -526,12 +580,6 @@ class PublishMediaResolutionTests(unittest.TestCase):
                     override_root_folder_id="root123",
                     thumbnails_subfolder="Thumbnails",
                     published_subfolder_name="Published",
-                    tn_settings=TnPublishSettings(
-                        original_dir=Path(tmpdir) / "original",
-                        cache_dir=Path(tmpdir) / "cache",
-                        output_dir=Path(tmpdir) / "rendered",
-                        english_override_file=Path(tmpdir) / "overrides.json",
-                    ),
                 )
 
     def test_canva_catalog_thumbnail_exists_reraises_auth_error(self) -> None:

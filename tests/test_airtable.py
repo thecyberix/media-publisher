@@ -28,6 +28,8 @@ from media_publisher.sources.airtable import (
     SMEDIA_OPTION_FACEBOOK,
     SMEDIA_OPTION_YOUTUBE,
     STATUS_SYNC_DONE,
+    STATUS_EDITING_DONE,
+    STATUS_TRANSLATION_DONE,
     TYPE_REEL,
     TYPE_QUOTE,
     TYPE_VIDEO,
@@ -212,6 +214,33 @@ class CatalogScheduleTests(unittest.TestCase):
         )
         tasks = record_schedule_tasks(record)
         self.assertEqual(len(tasks), 1)
+
+    def test_record_schedule_tasks_accepts_editing_done_status(self) -> None:
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "3. Editing done",
+                FIELD_TITLE: "Launch video",
+                FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
+                FIELD_SG_YT_DATE: "2026-07-05",
+            },
+        )
+        tasks = record_schedule_tasks(record)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].platform, "youtube")
+
+    def test_record_schedule_tasks_accepts_translation_done_status(self) -> None:
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                FIELD_STATUS: "2. Translation done",
+                FIELD_TITLE: "Launch video",
+                FIELD_VIDEO_NAME_TRANSLATED: "Видео за стартиране",
+                FIELD_SG_YT_DATE: "2026-07-05",
+            },
+        )
+        tasks = record_schedule_tasks(record)
+        self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0].platform, "youtube")
 
     def test_record_publish_platforms_complete(self) -> None:
@@ -308,6 +337,61 @@ class CatalogScheduleTests(unittest.TestCase):
         self.assertIsNone(not_updated)
         update_mock.assert_not_called()
 
+    def test_mark_record_done_and_published_if_complete_from_editing_done(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        record_fields = {
+            FIELD_STATUS: "3. Editing done",
+            FIELD_SG_YT_DATE: "2026-07-05",
+            FIELD_SG_FB_DATE: "2026-07-05",
+            FIELD_SG_IG_DATE: "2026-07-05",
+            FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+            FIELD_SG_FB_PUBLISHED: "https://facebook.com/watch/?v=1",
+            FIELD_SG_IG_PUBLISHED: "https://instagram.com/p/1",
+        }
+        with patch.object(
+            client,
+            "update_record",
+            return_value=AirtableRecord(
+                id="recABC",
+                fields={FIELD_STATUS: "6. Done & Published"},
+            ),
+        ) as update_mock:
+            updated = mark_record_done_and_published_if_complete(
+                client,
+                record_id="recABC",
+                record_fields=record_fields,
+            )
+        update_mock.assert_called_once()
+
+    def test_mark_record_done_and_published_if_complete_from_translation_done(
+        self,
+    ) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        record_fields = {
+            FIELD_STATUS: "2. Translation done",
+            FIELD_SG_YT_DATE: "2026-07-05",
+            FIELD_SG_FB_DATE: "2026-07-05",
+            FIELD_SG_IG_DATE: "2026-07-05",
+            FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+            FIELD_SG_FB_PUBLISHED: "https://facebook.com/watch/?v=1",
+            FIELD_SG_IG_PUBLISHED: "https://instagram.com/p/1",
+        }
+        with patch.object(
+            client,
+            "update_record",
+            return_value=AirtableRecord(
+                id="recABC",
+                fields={FIELD_STATUS: "6. Done & Published"},
+            ),
+        ) as update_mock:
+            updated = mark_record_done_and_published_if_complete(
+                client,
+                record_id="recABC",
+                record_fields=record_fields,
+            )
+        self.assertIsNotNone(updated)
+        update_mock.assert_called_once()
+
     def test_build_platform_published_update_merges_smedia_uploaded(self) -> None:
         update = build_platform_published_update(
             {
@@ -328,6 +412,8 @@ class CatalogScheduleTests(unittest.TestCase):
     def test_pending_schedule_filter_formula(self) -> None:
         formula = pending_schedule_filter_formula()
         self.assertIn(STATUS_SYNC_DONE, formula)
+        self.assertIn(STATUS_EDITING_DONE, formula)
+        self.assertIn(STATUS_TRANSLATION_DONE, formula)
         self.assertIn(FIELD_SG_YT_DATE, formula)
         self.assertIn(FIELD_SG_FB_PUBLISHED, formula)
 

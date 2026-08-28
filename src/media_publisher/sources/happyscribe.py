@@ -25,8 +25,17 @@ EXPORT_POLL_INTERVAL_SECONDS = 1.0
 EXPORT_POLL_MAX_ATTEMPTS = 60
 TRANSCRIPTION_STATE_READY = "automatic_done"
 METADATA_TRANSCRIPTION_ID = "happyscribe_transcription_id"
+WORKSPACE_FOLDER_SLUG = "workspace"
+HAPPYSCRIBE_SHORT_VIDEOS_FOLDER_NAME = "Short videos"
+HAPPYSCRIBE_LONG_VIDEOS_FOLDER_NAME = "Long videos"
+HAPPYSCRIBE_REVIEW_SUBFOLDER_NAMES = (
+    HAPPYSCRIBE_SHORT_VIDEOS_FOLDER_NAME,
+    HAPPYSCRIBE_LONG_VIDEOS_FOLDER_NAME,
+)
 LIBRARY_URL_PATTERN = re.compile(
-    r"https?://(?:www\.)?happyscribe\.com/v2/(?P<organization_id>\d+)/library/(?P<folder_id>\d+)"
+    r"https?://(?:www\.)?happyscribe\.com/v2/(?P<organization_id>\d+)/library/"
+    r"(?P<folder_id>\d+|workspace)",
+    re.IGNORECASE,
 )
 
 
@@ -38,6 +47,14 @@ class HappyScribeError(RuntimeError):
 class HappyScribeLibraryLocation:
     organization_id: str
     folder_id: str
+    folder_name: str | None = None
+
+
+@dataclass(frozen=True)
+class HappyScribeFolder:
+    id: str
+    name: str
+    parent_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -150,16 +167,30 @@ def _safe_filename(name: str) -> str:
     return cleaned or "video"
 
 
+def library_folder_url(organization_id: str, folder_id: str) -> str:
+    return (
+        f"https://www.happyscribe.com/v2/{organization_id}/library/{folder_id}"
+    )
+
+
+def is_workspace_folder_id(folder_id: str | None) -> bool:
+    return (folder_id or "").strip().casefold() == WORKSPACE_FOLDER_SLUG
+
+
 def parse_library_url(url: str) -> HappyScribeLibraryLocation:
     match = LIBRARY_URL_PATTERN.search(url.strip())
     if not match:
         raise HappyScribeError(
             "Invalid HappyScribe library URL. Expected format: "
-            "https://www.happyscribe.com/v2/<organization_id>/library/<folder_id>"
+            "https://www.happyscribe.com/v2/<organization_id>/library/"
+            "<folder_id-or-workspace>"
         )
+    folder_id = match.group("folder_id")
+    if is_workspace_folder_id(folder_id):
+        folder_id = WORKSPACE_FOLDER_SLUG
     return HappyScribeLibraryLocation(
         organization_id=match.group("organization_id"),
-        folder_id=match.group("folder_id"),
+        folder_id=folder_id,
     )
 
 
@@ -172,6 +203,138 @@ def resolve_library_location(
     raise HappyScribeError(
         "HappyScribe library location is required. Set HAPPYSCRIBE_URL."
     )
+
+
+def happyscribe_folder_name_for_format(video_format: str) -> str:
+    if video_format == "short_form":
+        return HAPPYSCRIBE_SHORT_VIDEOS_FOLDER_NAME
+    return HAPPYSCRIBE_LONG_VIDEOS_FOLDER_NAME
+
+
+def resolve_library_location_for_format(
+    client: HappyScribeClient,
+    library_url: str,
+    video_format: str,
+    *,
+    required: bool = False,
+) -> HappyScribeLibraryLocation:
+    """Return the Short videos or Long videos child for ``video_format``.
+
+    When ``required`` is false and those children are missing, the parent
+    folder itself is used (a leaf library URL).
+    """
+    parent = parse_library_url(library_url)
+    name = happyscribe_folder_name_for_format(video_format)
+    try:
+        found = find_named_subfolders(
+            client.list_folders(),
+            parent=parent,
+            names=(name,),
+        )
+    except HappyScribeError:
+        if required:
+            raise
+        return parent
+    folder = found[name]
+    return HappyScribeLibraryLocation(
+        organization_id=parent.organization_id,
+        folder_id=folder.id,
+        folder_name=folder.name,
+    )
+
+
+def _parse_folder(payload: dict[str, Any]) -> HappyScribeFolder | None:
+    folder_id = payload.get("id")
+    if folder_id is None:
+        return None
+    name = _field_text(payload.get("name"))
+    if not name:
+        return None
+    parent_id = payload.get("parentId")
+    if parent_id is None:
+        parent_id = payload.get("parent_id")
+    return HappyScribeFolder(
+        id=str(folder_id),
+        name=name,
+        parent_id=str(parent_id) if parent_id is not None else None,
+    )
+
+
+def find_named_subfolders(
+    folders: list[HappyScribeFolder],
+    *,
+    parent: HappyScribeLibraryLocation,
+    names: tuple[str, ...] = HAPPYSCRIBE_REVIEW_SUBFOLDER_NAMES,
+) -> dict[str, HappyScribeFolder]:
+    """Return named child folders under ``parent``.
+
+    Workspace URLs (``.../library/workspace``) match top-level folders whose
+    parent is not itself listed — typically the org workspace root.
+    """
+    wanted = {name.casefold(): name for name in names}
+    if is_workspace_folder_id(parent.folder_id):
+        listed_ids = {folder.id for folder in folders}
+        candidates = [
+            folder
+            for folder in folders
+            if not folder.parent_id or folder.parent_id not in listed_ids
+        ]
+        grouped: dict[str, list[HappyScribeFolder]] = {}
+        for folder in candidates:
+            grouped.setdefault(folder.parent_id or "", []).append(folder)
+        pool = candidates
+        best_count = -1
+        for group in grouped.values():
+            count = sum(1 for folder in group if folder.name.casefold() in wanted)
+            if count > best_count:
+                pool = group
+                best_count = count
+    else:
+        pool = [folder for folder in folders if folder.parent_id == parent.folder_id]
+
+    found: dict[str, HappyScribeFolder] = {}
+    for folder in pool:
+        canonical = wanted.get(folder.name.casefold())
+        if canonical is not None and canonical not in found:
+            found[canonical] = folder
+    missing = [name for name in names if name not in found]
+    if missing:
+        available = ", ".join(sorted({folder.name for folder in pool})) or "none"
+        raise HappyScribeError(
+            "HappyScribe folder "
+            f"{library_folder_url(parent.organization_id, parent.folder_id)!r} "
+            f"is missing subfolder(s): {', '.join(missing)}. Found: {available}."
+        )
+    return found
+
+
+def resolve_review_video_folders(
+    client: HappyScribeClient,
+    review_url: str,
+) -> list[HappyScribeLibraryLocation]:
+    """Resolve Short videos / Long videos under HAPPYSCRIBE_REVIEW_URL."""
+    cached = getattr(client, "_review_video_folders", None)
+    cache_url = getattr(client, "_review_video_folders_url", None)
+    if (
+        isinstance(cached, list)
+        and cache_url == review_url
+        and all(isinstance(item, HappyScribeLibraryLocation) for item in cached)
+    ):
+        return cached
+
+    parent = parse_library_url(review_url)
+    found = find_named_subfolders(client.list_folders(), parent=parent)
+    locations = [
+        HappyScribeLibraryLocation(
+            organization_id=parent.organization_id,
+            folder_id=found[name].id,
+            folder_name=found[name].name,
+        )
+        for name in HAPPYSCRIBE_REVIEW_SUBFOLDER_NAMES
+    ]
+    client._review_video_folders = locations
+    client._review_video_folders_url = review_url
+    return locations
 
 
 def video_destination_path(
@@ -862,13 +1025,36 @@ class HappyScribeClient:
             )
         )
 
+    def list_folders(self) -> list[HappyScribeFolder]:
+        cached = getattr(self, "_folders", None)
+        if isinstance(cached, list):
+            return cached
+        response = self._request("GET", self._url("folders"))
+        results = response.get("results", [])
+        if not isinstance(results, list):
+            raise HappyScribeError("HappyScribe folders response is invalid")
+        folders: list[HappyScribeFolder] = []
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            folder = _parse_folder(item)
+            if folder is not None:
+                folders.append(folder)
+        self._folders = folders
+        return folders
+
     def list_library_transcriptions(
         self,
         location: HappyScribeLibraryLocation,
     ) -> list[HappyScribeTranscription]:
+        folder_id = (
+            None
+            if is_workspace_folder_id(location.folder_id)
+            else location.folder_id
+        )
         return self.list_transcriptions(
             organization_id=location.organization_id,
-            folder_id=location.folder_id,
+            folder_id=folder_id,
         )
 
     def list_search_transcriptions(
@@ -876,20 +1062,26 @@ class HappyScribeClient:
         location: HappyScribeLibraryLocation,
         *,
         extra_folder_ids: list[str] | None = None,
+        extra_locations: list[HappyScribeLibraryLocation] | None = None,
     ) -> list[HappyScribeTranscription]:
         """List transcriptions from the primary folder plus any extra library folders."""
         groups = [self.list_library_transcriptions(location)]
+        seen = {(location.organization_id, location.folder_id)}
+        extras: list[HappyScribeLibraryLocation] = []
         for folder_id in extra_folder_ids or []:
-            if folder_id == location.folder_id:
-                continue
-            groups.append(
-                self.list_library_transcriptions(
-                    HappyScribeLibraryLocation(
-                        organization_id=location.organization_id,
-                        folder_id=folder_id,
-                    )
+            extras.append(
+                HappyScribeLibraryLocation(
+                    organization_id=location.organization_id,
+                    folder_id=folder_id,
                 )
             )
+        extras.extend(extra_locations or [])
+        for extra in extras:
+            key = (extra.organization_id, extra.folder_id)
+            if not extra.folder_id or key in seen:
+                continue
+            seen.add(key)
+            groups.append(self.list_library_transcriptions(extra))
         return merge_transcriptions(*groups)
 
     def get_transcription(self, transcription_id: str) -> HappyScribeTranscription:
@@ -1126,10 +1318,15 @@ class HappyScribeClient:
         location: HappyScribeLibraryLocation | None = None,
     ) -> tuple[str, int]:
         if location is not None:
+            folder_id = (
+                None
+                if is_workspace_folder_id(location.folder_id)
+                else location.folder_id
+            )
             count = len(
                 self.list_transcriptions(
                     organization_id=location.organization_id,
-                    folder_id=location.folder_id,
+                    folder_id=folder_id,
                     per_page=1,
                 )
             )

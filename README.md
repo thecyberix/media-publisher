@@ -84,7 +84,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | `CANVA_URL` | Parent Canva folder; catalog thumbs use child folders `Long videos` and `Short videos` |
 | `DRIVE_URL` | Parent Drive folder (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`) |
 | `GENERATED_QUOTES_NOTIFY_EMAIL` | Recipients for generated-quotes Drive sync mail (comma-separated) |
-| `HAPPYSCRIBE_URL` | HappyScribe library URL |
+| `HAPPYSCRIBE_URL` | HappyScribe library URL. If it contains `Short videos` / `Long videos` children, publish uses the folder that matches the video type. |
 | `META_INSTAGRAM_USERNAME` | Instagram username for the linked business account |
 | `META_PAGE_USERNAME` | Facebook Page username |
 | `NOTIFY_EMAIL` | Recipients for catalog / auth / workflow failure mail |
@@ -98,10 +98,11 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | `YOUTUBE_DAILY_PLAYLIST_JSON` | Daily playlist id plus quote/reel/lau slot video ids (and optional `pending`) |
 | `YOUTUBE_PLAYLIST_ID` | Archive playlist id for published catalog videos and quotes |
 
-Optional (read by workflows when set; currently unset in this repo):
+Optional (read by workflows when set):
 
 | Variable | Purpose |
 |----------|---------|
+| `HAPPYSCRIBE_REVIEW_URL` | Parent HappyScribe library. Leftover-folder email watches `Short videos` and `Long videos`. Publish also searches the type-matching child. Unset: skip the email check and the fallback search. |
 | `TRANSLATION_MODEL` | Override the default model (`claude-sonnet-4-6` for Anthropic, `gpt-4o-mini` for OpenAI) |
 
 ### Add a new language

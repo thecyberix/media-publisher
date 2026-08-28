@@ -39,6 +39,7 @@ env:
   AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
   HAPPYSCRIBE_API_KEY: ${{ secrets.HAPPYSCRIBE_API_KEY }}
   HAPPYSCRIBE_URL: ${{ vars.HAPPYSCRIBE_URL }}
+  HAPPYSCRIBE_REVIEW_URL: ${{ vars.HAPPYSCRIBE_REVIEW_URL }}
   CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
   CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
   CANVA_URL: ${{ vars.CANVA_URL }}
@@ -80,7 +81,6 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           install-ffmpeg: "true"
-          extras: thumbnails
 
       - name: Verify configuration
         run: python -m media_publisher --check-config

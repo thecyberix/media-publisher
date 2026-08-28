@@ -142,13 +142,13 @@ Each orchestrator run writes a full-table JSON snapshot to `output/backups/`:
 - `airtable-latest.json` — most recent backup (used as the baseline for the next run's status diff)
 - `airtable-previous.json` — copy of the prior `airtable-latest.json` before each run
 
-Status changes between daily snapshots are appended to `output/workflow/status_history.json`. This file powers the weekly report and requires **no extra Airtable API calls**.
+Status changes between daily snapshots are appended to `output/workflow/status_history.json`. This file powers the weekly report and requires **no extra Airtable API calls**. Last-assigned dates for idle-editor ingest are stored in `output/workflow/editor_last_assigned.json`.
 
 On GitHub Actions, the daily workflow:
 
-1. Restores `workflow-state` from the latest successful daily run (status history + previous backup).
+1. Restores `workflow-state` from the latest successful daily run (status history, editor last-assigned dates, and previous backup).
 2. Runs the orchestrator and appends any new status events.
-3. Uploads `airtable-latest.json` and the accumulated `status_history.json` as artifacts.
+3. Uploads `airtable-latest.json`, `status_history.json`, and `editor_last_assigned.json` as artifacts.
 
 Download artifacts from the workflow run page under **Artifacts**.
 
@@ -194,6 +194,7 @@ These live under **Settings → Secrets and variables → Actions → Variables*
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
 | `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg` in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
 | `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |
+| `HAPPYSCRIBE_REVIEW_URL` | Optional. Parent HappyScribe library URL. If set, leftover-folder email watches child folders `Short videos` and `Long videos`; publish also searches the child that matches the video type (Reel/Short → Short videos, Video → Long videos). Unset: skip the email check. Example: `https://www.happyscribe.com/v2/8104266/library/workspace`. |
 
 ### Required when ingest runs (web session mode)
 
@@ -209,7 +210,7 @@ Alert emails go to the repository variable `NOTIFY_EMAIL`. Also set:
 
 | Secret | Description |
 |--------|-------------|
-| `HAPPYSCRIBE_API_KEY` | HappyScribe API key used to check the watched library folder for leftover transcriptions (same secret as the publish workflow). Optional; the check is skipped when unset. |
+| `HAPPYSCRIBE_API_KEY` | HappyScribe API key used to check `HAPPYSCRIBE_REVIEW_URL` child folders `Short videos` and `Long videos` for leftover transcriptions (same secret as the publish workflow). Optional; the check is skipped when this secret or `HAPPYSCRIBE_REVIEW_URL` is unset. |
 
 ### Optional: Canva thumbnail export during ingest
 
@@ -273,6 +274,20 @@ Scheduling still proceeds; the email is informational. Needs the same
 `GMAIL_SMTP_*` / `NOTIFY_EMAIL` env as other catalog alerts, plus Canva secrets
 when checking the Canva catalog.
 
+At **publish** time the same gap is treated as “publish without a translated
+thumbnail”: the video still goes out, and `NOTIFY_EMAIL` gets a second notice.
+Thumbnails are not generated in the publish workflow; use
+`scripts/_generate_thumbnails_from_original.py` offline.
+
+If Synchronization done has no unscheduled video of the needed type (Saturday
+**Video**, otherwise **Reel/Short**), the scheduler falls back to **Editing done**
+records of that type that have both **Combined Media File** and **Translated
+subtitles**. If none of those are available either, it falls back to
+**Translation done** of that type with a **Video Folder** and **Translation
+resources**, and generates Combined Media File and Translated subtitles before
+writing the SG dates. Publish then burns those subtitles onto the combined file
+instead of downloading from HappyScribe.
+
 Renew locally (either CLI works — same token file):
 
 ```powershell
@@ -326,13 +341,9 @@ python scripts/catalog/send_notification_email.py --subject "test" --body "test 
 
 ### HappyScribe watch-folder alert
 
-After a successful authorization check, the daily workflow lists transcriptions in:
+After a successful authorization check, if repository variable `HAPPYSCRIBE_REVIEW_URL` is set, the daily workflow lists transcriptions in its `Short videos` and `Long videos` child folders.
 
-`https://www.happyscribe.com/v2/8104266/library/53816432`
-
-If the folder is **not empty**, an email is sent to `NOTIFY_EMAIL` with the item count and titles. The check is non-blocking: an empty folder, missing `HAPPYSCRIBE_API_KEY`, or a HappyScribe API error does not fail the catalog orchestrator.
-
-Override the watched URL with env `HAPPYSCRIBE_WATCH_LIBRARY_URL` (or `--library-url`).
+If **any** of those folders is **not empty**, an email is sent to `NOTIFY_EMAIL` with the folder name, item count, titles, and folder links. The check is skipped when `HAPPYSCRIBE_REVIEW_URL` or `HAPPYSCRIBE_API_KEY` is unset. An empty folder or a HappyScribe API error does not fail the catalog orchestrator.
 
 Test locally:
 
@@ -340,7 +351,7 @@ Test locally:
 python scripts/catalog/check_happyscribe_library.py --skip-if-missing
 ```
 
-Requires secret `HAPPYSCRIBE_API_KEY` (same as the publish workflow).
+Requires secret `HAPPYSCRIBE_API_KEY` (same as the publish workflow). `HAPPYSCRIBE_REVIEW_URL` is optional; the script exits 0 when it is unset.
 
 ### Optional: Smartcat company API (alternative to web session)
 
@@ -385,6 +396,12 @@ Paste as one secret value (minified JSON):
 ```
 
 Field names must match Airtable **Translator** / **Editor** / **Timing Editor** single-select values. Optional translator `preferred_editor` routes that translator's videos to a specific editor (type preference ignored) and those assignments run first in a workflow pass.
+
+### Idle editor ingest (Translation done)
+
+If an editor has **no** videos in `2. Translation done` **and** their last new assignment was **at least 7 days ago** (Europe/Sofia), the daily orchestrator ingests a week of work directly into Translation done and assigns it to them. The queue only has to be empty *now*; we do not wait an extra week after it empties. Translator is set to **Sir Translatesalot**. Count and type follow that editor's `weekly_capacity_reels` and `preferred_editing_type`; with no type preference, the same reel/video ratio as translator ingest is used.
+
+Last-assigned dates live in `output/workflow/editor_last_assigned.json` (updated when an editor is assigned or idle-ingested) and are restored with the daily `workflow-state` artifact. That gap gives human translators a week to fill the queue after each assignment.
 
 ## Repository variables (optional)
 

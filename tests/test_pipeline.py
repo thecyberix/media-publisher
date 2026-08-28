@@ -386,6 +386,125 @@ class PublishPipelineTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         thumb_mock.assert_not_called()
 
+    def test_run_publish_pipeline_emails_when_translated_thumbnail_missing(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        happyscribe = HappyScribeClient("hs-test")
+        location = HappyScribeLibraryLocation("1", "2")
+        settings = self._pipeline_settings()
+        job = PublishJob(
+            title="Demo",
+            video_format="short_form",
+            metadata={
+                FIELD_TITLE: "Launch video",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+            },
+        )
+        tasks = [
+            PlatformScheduleTask(
+                platform="youtube",
+                publish_at=datetime.now(timezone.utc),
+                job=job,
+                record_id="rec1",
+            )
+        ]
+
+        with (
+            patch("media_publisher.pipeline.fetch_pending_schedule_tasks", return_value=tasks),
+            patch("media_publisher.pipeline.fetch_missing_translation_reports", return_value=[]),
+            patch("media_publisher.pipeline.ensure_catalog_video_downloaded", return_value=Path("video.mp4")),
+            patch("media_publisher.pipeline.publish_to_youtube", return_value="yt"),
+            patch("media_publisher.pipeline.mark_platform_scheduled"),
+            patch(
+                "media_publisher.pipeline.resolve_publish_thumbnail",
+                return_value=PublishThumbnailResult(
+                    path=None,
+                    missing_translated=True,
+                ),
+            ),
+            patch(
+                "media_publisher.pipeline.notify_publishing_without_translated_thumbnail",
+                return_value=True,
+            ) as notify_mock,
+            patch.object(happyscribe, "list_search_transcriptions", return_value=[]),
+        ):
+            exit_code, results = run_publish_pipeline(
+                client,
+                happyscribe,
+                location,
+                settings,
+                print_line=lambda _: None,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].success)
+        notify_mock.assert_called_once()
+        self.assertEqual(notify_mock.call_args.kwargs["title"], "Launch video")
+
+    def test_run_publish_pipeline_searches_type_matching_review_folder(self) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        happyscribe = HappyScribeClient("hs-test")
+        primary = HappyScribeLibraryLocation("3310225", "23100499")
+        short_review = HappyScribeLibraryLocation(
+            "8104266", "53816432", "Short videos"
+        )
+        settings = self._pipeline_settings(
+            skip_thumbnails=True,
+            happyscribe_library_url="https://www.happyscribe.com/v2/3310225/library/23100499",
+            happyscribe_review_url="https://www.happyscribe.com/v2/8104266/library/workspace",
+        )
+        job = PublishJob(
+            title="Demo",
+            video_format="short_form",
+            metadata={
+                FIELD_TITLE: "Launch video",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+            },
+        )
+        tasks = [
+            PlatformScheduleTask(
+                platform="youtube",
+                publish_at=datetime.now(timezone.utc),
+                job=job,
+                record_id="rec1",
+            )
+        ]
+
+        def fake_resolve(_client, url, video_format, required=False):
+            self.assertEqual(video_format, "short_form")
+            if "8104266" in url:
+                self.assertTrue(required)
+                return short_review
+            return primary
+
+        with (
+            patch("media_publisher.pipeline.fetch_pending_schedule_tasks", return_value=tasks),
+            patch("media_publisher.pipeline.fetch_missing_translation_reports", return_value=[]),
+            patch(
+                "media_publisher.pipeline.resolve_library_location_for_format",
+                side_effect=fake_resolve,
+            ),
+            patch("media_publisher.pipeline.ensure_catalog_video_downloaded", return_value=Path("video.mp4")),
+            patch("media_publisher.pipeline.publish_to_youtube", return_value="yt"),
+            patch("media_publisher.pipeline.mark_platform_scheduled"),
+            patch.object(happyscribe, "list_search_transcriptions", return_value=[]) as list_mock,
+        ):
+            exit_code, _ = run_publish_pipeline(
+                client,
+                happyscribe,
+                primary,
+                settings,
+                print_line=lambda _: None,
+            )
+
+        self.assertEqual(exit_code, 0)
+        list_mock.assert_called_once()
+        self.assertEqual(list_mock.call_args.args[0], primary)
+        self.assertEqual(
+            list_mock.call_args.kwargs["extra_locations"],
+            [short_review],
+        )
+
     def test_run_publish_pipeline_publishes_and_updates_airtable(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")
@@ -516,6 +635,160 @@ class PublishPipelineTests(unittest.TestCase):
             ),
         ):
             # Drive client is only created when the service-account path exists.
+            settings = replace(
+                settings,
+                google_drive_service_account=Path(__file__),
+            )
+            exit_code, results = run_publish_pipeline(
+                client,
+                happyscribe,
+                location,
+                settings,
+                print_line=lambda _: None,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(results[0].success)
+        combined_mock.assert_called_once()
+        hs_mock.assert_not_called()
+
+    def test_run_publish_pipeline_uses_combined_media_and_subtitles_for_editing_done(
+        self,
+    ) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        happyscribe = HappyScribeClient("hs-test")
+        location = HappyScribeLibraryLocation("1", "2")
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                "Status": "3. Editing done",
+                FIELD_TITLE: "Launch video",
+                "Type": "Reel",
+                "Video name translated": "Видео",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+                "Combined Media File": "https://drive.google.com/file/d/combined123/view",
+                "Translated subtitles": "https://drive.google.com/file/d/subs123/view",
+                "SG-YT-Date published": "2026-07-04",
+            },
+        )
+        settings = self._pipeline_settings()
+        video_path = Path("downloads/publish-media/combined/Launch video-subtitled.mp4")
+        thumbnail_path = Path("downloads/canva/Launch video.png")
+        drive_mock = unittest.mock.Mock()
+        drive_mock.find_child_folder.return_value = None
+
+        with patch.object(client, "list_records", return_value=[record]), patch.object(
+            happyscribe,
+            "list_search_transcriptions",
+            return_value=[],
+        ), patch(
+            "media_publisher.pipeline.resolve_combined_media_with_subtitles_for_publish",
+            return_value=PublishVideoResult(
+                path=video_path,
+                source="combined-media-subtitles",
+            ),
+        ) as combined_mock, patch(
+            "media_publisher.pipeline.ensure_catalog_video_downloaded",
+        ) as hs_mock, patch(
+            "media_publisher.pipeline.resolve_publish_thumbnail",
+            side_effect=lambda *args, **kwargs: PublishThumbnailResult(
+                path=thumbnail_path,
+                source="test",
+            ),
+        ), patch(
+            "media_publisher.pipeline.publish_platform_task",
+            return_value="https://www.youtube.com/watch?v=abc123",
+        ), patch(
+            "media_publisher.pipeline.GoogleDriveClient.from_service_account",
+            return_value=drive_mock,
+        ), patch.object(
+            client,
+            "update_record",
+            return_value=AirtableRecord(
+                id="recABC",
+                fields={
+                    "Status": "3. Editing done",
+                    "SG-YT-Published video": "url",
+                },
+            ),
+        ):
+            settings = replace(
+                settings,
+                google_drive_service_account=Path(__file__),
+            )
+            exit_code, results = run_publish_pipeline(
+                client,
+                happyscribe,
+                location,
+                settings,
+                print_line=lambda _: None,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(results[0].success)
+        combined_mock.assert_called_once()
+        hs_mock.assert_not_called()
+
+    def test_run_publish_pipeline_uses_combined_media_and_subtitles_for_translation_done(
+        self,
+    ) -> None:
+        client = AirtableClient("pat-test", "app123", "Catalog")
+        happyscribe = HappyScribeClient("hs-test")
+        location = HappyScribeLibraryLocation("1", "2")
+        record = AirtableRecord(
+            id="recABC",
+            fields={
+                "Status": "2. Translation done",
+                FIELD_TITLE: "Launch video",
+                "Type": "Reel",
+                "Video name translated": "Видео",
+                FIELD_TRANSLATION_RESOURCES: _SMARTCAT_URL,
+                "Combined Media File": "https://drive.google.com/file/d/combined123/view",
+                "Translated subtitles": "https://drive.google.com/file/d/subs123/view",
+                "SG-YT-Date published": "2026-07-04",
+            },
+        )
+        settings = self._pipeline_settings()
+        video_path = Path("downloads/publish-media/combined/Launch video-subtitled.mp4")
+        thumbnail_path = Path("downloads/canva/Launch video.png")
+        drive_mock = unittest.mock.Mock()
+        drive_mock.find_child_folder.return_value = None
+
+        with patch.object(client, "list_records", return_value=[record]), patch.object(
+            happyscribe,
+            "list_search_transcriptions",
+            return_value=[],
+        ), patch(
+            "media_publisher.pipeline.resolve_combined_media_with_subtitles_for_publish",
+            return_value=PublishVideoResult(
+                path=video_path,
+                source="combined-media-subtitles",
+            ),
+        ) as combined_mock, patch(
+            "media_publisher.pipeline.ensure_catalog_video_downloaded",
+        ) as hs_mock, patch(
+            "media_publisher.pipeline.resolve_publish_thumbnail",
+            side_effect=lambda *args, **kwargs: PublishThumbnailResult(
+                path=thumbnail_path,
+                source="test",
+            ),
+        ), patch(
+            "media_publisher.pipeline.publish_platform_task",
+            return_value="https://www.youtube.com/watch?v=abc123",
+        ), patch(
+            "media_publisher.pipeline.GoogleDriveClient.from_service_account",
+            return_value=drive_mock,
+        ), patch.object(
+            client,
+            "update_record",
+            return_value=AirtableRecord(
+                id="recABC",
+                fields={
+                    "Status": "2. Translation done",
+                    "SG-YT-Published video": "url",
+                },
+            ),
+        ):
             settings = replace(
                 settings,
                 google_drive_service_account=Path(__file__),

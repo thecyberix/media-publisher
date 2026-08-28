@@ -14,9 +14,18 @@ from catalog_parser.auth import get_docs_service, get_drive_service
 from catalog_parser.drive_combine import DriveCombineError, verify_drive_output_folder_access
 from catalog_parser.workflow.actions import ActionResult, execute_action
 from catalog_parser.workflow.config import combined_media_output_folder_id, load_workflow_config
+from catalog_parser.workflow.editor_idle import (
+    editor_last_assigned_path,
+    load_editor_last_assigned,
+    mark_editor_assigned,
+    save_editor_last_assigned,
+    seed_editor_last_assigned,
+    workflow_today,
+)
 from catalog_parser.workflow.rules import (
     WorkflowActionType,
     is_workflow_type,
+    plan_idle_editor_ingest_actions,
     plan_ingest_actions,
     plan_record_actions,
     resolve_assign_editor_actions,
@@ -149,6 +158,32 @@ def run_workflow(
         planned_actions,
         timing_editors=timing_editor_slots,
     )
+    today = workflow_today()
+    last_assigned_path = editor_last_assigned_path(project_root)
+    last_assigned = load_editor_last_assigned(last_assigned_path)
+    previous_records: list[dict[str, Any]] = []
+    previous_path = project_root / DEFAULT_BACKUP_DIR / "airtable-previous.json"
+    if previous_path.is_file():
+        try:
+            previous_records = TableCache.from_backup_file(previous_path).records
+        except ValueError as exc:
+            print(f"Warning: could not load previous backup for editor idle clock: {exc}")
+    seed_editor_last_assigned(
+        last_assigned,
+        records=ingest_records,
+        previous_records=previous_records,
+        editor_names=editor_names,
+        today=today,
+    )
+    planned_actions.extend(
+        plan_idle_editor_ingest_actions(
+            ingest_records,
+            editors=editor_slots,
+            last_assigned=last_assigned,
+            today=today,
+            target_reel_to_video_ratio=config.target_reel_to_video_ratio,
+        )
+    )
     planned_actions.extend(
         plan_ingest_actions(
             ingest_records,
@@ -171,15 +206,19 @@ def run_workflow(
                 verify_drive_output_folder_access(drive_service, output_parent_id)
             except DriveCombineError as exc:
                 print(f"ERROR: {exc}")
+                if not dry_run:
+                    save_editor_last_assigned(last_assigned_path, last_assigned)
                 return 1
             except Exception as exc:
                 print(f"ERROR: Could not resolve Combined Media Files folder: {exc}")
+                if not dry_run:
+                    save_editor_last_assigned(last_assigned_path, last_assigned)
                 return 1
 
         print(f"Planned {len(planned_actions)} action(s){' (dry-run)' if dry_run else ''}:")
         results: list[ActionResult] = []
         for action in planned_actions:
-            label = action.title or action.translator_name or action.record_id
+            label = action.title or action.translator_name or action.record_id or action.editor_name
             print(f"  - {action.action_type.value}: {label} ({action.reason})")
             result = execute_action(
                 action,
@@ -197,10 +236,26 @@ def run_workflow(
             results.append(result)
             status = "OK" if result.success else "FAIL"
             print(f"    -> {status}: {result.message}")
+            if (
+                result.success
+                and not dry_run
+                and action.editor_name
+                and action.action_type
+                in {
+                    WorkflowActionType.ASSIGN_EDITOR,
+                    WorkflowActionType.INGEST_FOR_EDITOR,
+                }
+            ):
+                mark_editor_assigned(last_assigned, action.editor_name, when=today)
 
         failures = sum(1 for result in results if not result.success)
+        if not dry_run:
+            save_editor_last_assigned(last_assigned_path, last_assigned)
         if failures:
             return 1
+
+    if not planned_actions and not dry_run:
+        save_editor_last_assigned(last_assigned_path, last_assigned)
 
     approved_result = process_approved_review_thumbnails_in_workflow(
         project_root=project_root,
@@ -222,6 +277,7 @@ def run_workflow(
         log=print,
         project_root=project_root,
         docs_service=docs_service,
+        table_cache=table_cache,
     )
     print(f"Publish schedule: {schedule_result.message}")
     if not schedule_result.success:

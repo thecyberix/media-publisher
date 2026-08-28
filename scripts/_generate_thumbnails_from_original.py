@@ -1,4 +1,9 @@
-"""Generate TN thumbnails from Airtable Original Video Thumbnail + translated caption."""
+"""Generate TN thumbnails from Airtable Original Video Thumbnail + translated caption.
+
+Uses the original English thumbnail for line position and style. When a matching
+image exists in the Video Folder, that Drive file is the background (PSD text
+layers are stripped; raster files have detected English covered).
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,28 +20,23 @@ from media_publisher.config import load_settings
 from media_publisher.sources.airtable import (
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_VIDEO_CAPTION_TRANSLATED,
+    FIELD_VIDEO_FOLDER,
     AirtableClient,
     catalog_title,
 )
+from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
 from media_publisher.sources.tn_docx import caption_lines_for_render
-from media_publisher.sources.tn_publish import render_destination
+from media_publisher.sources.tn_psd import ImageSize
+from media_publisher.sources.tn_publish import (
+    DriveTnTemplate,
+    compose_offline_tn_background,
+    load_matching_drive_tn_template,
+    parse_folder_id,
+    render_destination,
+)
 from media_publisher.sources.tn_reference import (
-    cover_label_box_reference_text,
-    cover_reference_text,
-    cover_reference_text_plates,
-    cover_right_side_reference_text,
-    cover_split_reference_text,
-    cover_top_only_reference_text,
-    extract_label_box_reference_line_styles,
-    extract_line_styles_from_reference_thumbnail,
-    extract_reordered_mystic_musings_reference_styles,
-    extract_right_side_reference_line_styles,
-    extract_top_only_reference_line_styles,
-    extract_top_reference_line_styles,
-    has_label_box_reference_layout,
-    has_right_side_reference_layout,
-    has_split_top_bottom_reference_layout,
-    has_top_only_reference_layout,
+    cover_reference_layout,
+    derive_reference_layout,
 )
 from media_publisher.sources.tn_renderer import TnRenderError, render_tn_thumbnail
 
@@ -62,6 +62,30 @@ def download_airtable_thumbnail(fields: dict, destination: Path) -> None:
     destination.write_bytes(response.content)
 
 
+def load_drive_background(
+    drive: GoogleDriveClient | None,
+    fields: dict,
+    *,
+    cache_dir: Path,
+    reference_size: ImageSize,
+) -> DriveTnTemplate | None:
+    if drive is None:
+        return None
+    folder_id = parse_folder_id(fields.get(FIELD_VIDEO_FOLDER))
+    if folder_id is None:
+        return None
+    try:
+        return load_matching_drive_tn_template(
+            drive,
+            folder_id,
+            cache_dir=cache_dir,
+            reference_size=reference_size,
+        )
+    except (GoogleDriveError, OSError) as exc:
+        print(f"  Drive template skipped: {exc}")
+        return None
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
@@ -78,8 +102,20 @@ def main() -> int:
     )
     output_dir = PROJECT_ROOT / "downloads" / "tn-rendered"
     staging_dir = PROJECT_ROOT / "downloads" / "original-thumbnails"
+    cache_dir = PROJECT_ROOT / "downloads" / "tn-cache"
     output_dir.mkdir(parents=True, exist_ok=True)
     staging_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    drive: GoogleDriveClient | None = None
+    service_account = PROJECT_ROOT / settings.google_sheets_service_account
+    if service_account.is_file():
+        try:
+            drive = GoogleDriveClient.from_service_account(service_account)
+        except GoogleDriveError as exc:
+            print(f"Drive client unavailable ({exc}); using original thumbnail as background.")
+    else:
+        print("Drive service account missing; using original thumbnail as background.")
 
     records = [
         record
@@ -121,7 +157,7 @@ def main() -> int:
         try:
             download_airtable_thumbnail(fields, staging_path)
             with Image.open(staging_path) as image:
-                template = image.convert("RGB")
+                original = image.convert("RGB")
         except (RuntimeError, OSError, requests.RequestException) as exc:
             failures.append((title, str(exc)))
             print(f"  FAIL {exc}")
@@ -129,81 +165,52 @@ def main() -> int:
             continue
 
         caption_text = "\n".join(caption_lines)
-        print(f"  template: {template.size[0]}x{template.size[1]}")
+        print(f"  original: {original.size[0]}x{original.size[1]}")
         print(f"  caption:  {' / '.join(caption_lines)}")
 
-        reference = template.copy()
-        if has_split_top_bottom_reference_layout(reference, template.size):
-            line_styles = extract_top_reference_line_styles(
-                reference,
-                template.size,
-                caption_line_count=len(caption_lines),
-            )
-            cover_mode = "split top/bottom"
-        elif has_top_only_reference_layout(reference, template.size):
-            line_styles = extract_top_only_reference_line_styles(
-                reference,
-                template.size,
-                caption_line_count=len(caption_lines),
-            )
-            cover_mode = "top"
-        elif has_right_side_reference_layout(reference, template.size):
-            line_styles = extract_right_side_reference_line_styles(
-                reference,
-                template.size,
-                caption_line_count=len(caption_lines),
-            )
-            cover_mode = "right"
-        elif has_label_box_reference_layout(reference, template.size):
-            line_styles = extract_label_box_reference_line_styles(
-                reference,
-                template.size,
-                caption_line_count=len(caption_lines),
-            )
-            cover_mode = "label box"
-        elif "solar flares" in title.casefold() and len(caption_lines) in (3, 4):
-            line_styles = extract_reordered_mystic_musings_reference_styles(
-                reference,
-                template.size,
-                caption_line_count=len(caption_lines),
-            )
-            cover_mode = "bottom"
-        else:
-            line_styles = extract_line_styles_from_reference_thumbnail(
-                reference,
-                template.size,
-                caption_line_count=len(caption_lines),
-            )
-            cover_mode = "bottom"
-        if not line_styles:
+        derived = derive_reference_layout(
+            original,
+            caption_line_count=len(caption_lines),
+            catalog_title=title,
+        )
+        if derived is None:
             failures.append((title, "could not derive line styles from original English text"))
             print("  FAIL could not derive line styles from original English text")
             print()
             continue
+        line_styles, cover_mode = derived
+        covered_original = cover_reference_layout(
+            original,
+            cover_mode,
+            line_styles,
+            len(caption_lines),
+        )
 
-        if cover_mode == "top":
-            template = cover_top_only_reference_text(
-                reference,
-                caption_line_count=len(caption_lines),
-            )
-        elif cover_mode == "right":
-            template = cover_right_side_reference_text(
-                reference,
-                caption_line_count=len(caption_lines),
-            )
-        elif cover_mode == "label box":
-            template = cover_label_box_reference_text(reference)
-        elif cover_mode == "split top/bottom":
-            template = cover_split_reference_text(reference)
-        elif any(style.stacked_line_backgrounds for style in line_styles):
-            # Blur away English plates; final plate shapes are painted during render
-            # (line 1 full-width, later lines text-hugging).
-            template = cover_reference_text(reference)
-        else:
-            template = cover_reference_text(reference)
+        drive_template = load_drive_background(
+            drive,
+            fields,
+            cache_dir=cache_dir,
+            reference_size=ImageSize(
+                width=original.size[0],
+                height=original.size[1],
+                source="original-thumbnail",
+            ),
+        )
+        template, line_styles, background_source = compose_offline_tn_background(
+            original=original,
+            covered_original=covered_original,
+            drive_template=drive_template,
+            cover_mode=cover_mode,
+            line_styles=line_styles,
+            caption_line_count=len(caption_lines),
+        )
         print(
             f"  styles:   {len(line_styles)} reference line(s) "
             f"from original English layout ({cover_mode})"
+        )
+        print(
+            f"  background: {background_source} "
+            f"{template.size[0]}x{template.size[1]}"
         )
 
         try:

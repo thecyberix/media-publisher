@@ -22,21 +22,25 @@ from media_publisher.publishers.youtube import (
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
+    FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TRANSLATION_RESOURCES,
     FIELD_VIDEO_NAME_TRANSLATED,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
+    is_translation_done_status,
     mark_platform_scheduled,
     mark_record_done_and_published_if_complete,
     record_publish_platforms_complete,
     STATUS_DONE_PUBLISHED,
+    uses_combined_media_with_subtitles,
 )
 from media_publisher.sources.happyscribe import (
     HappyScribeClient,
     HappyScribeError,
     HappyScribeLibraryLocation,
     ensure_catalog_video_downloaded,
+    resolve_library_location_for_format,
 )
 from media_publisher.sources.canva import CanvaClient, CanvaError
 from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
@@ -45,12 +49,13 @@ from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
     merge_publish_media_cleanup,
+    notify_publishing_without_translated_thumbnail,
     resolve_combined_media_for_publish,
+    resolve_combined_media_with_subtitles_for_publish,
     resolve_publish_thumbnail,
     resolve_publish_video,
     translated_subtitles_cleanup_from_fields,
 )
-from media_publisher.sources.tn_publish import TnPublishError, TnPublishSettings
 from media_publisher.scheduling import (
     PublishMode,
     prepare_job_for_immediate_publish,
@@ -106,6 +111,8 @@ class PublishPipelineSettings:
     regenerate_videos: bool = False
     use_web_export: bool = False
     happyscribe_published_folder_id: str | None = None
+    happyscribe_library_url: str = ""
+    happyscribe_review_url: str = ""
     youtube_short_cover_intro_seconds: float = 5.0
     youtube_daily_playlist_id: str | None = None
     youtube_daily_playlist_slots_path: Path | None = None
@@ -116,7 +123,6 @@ class PublishPipelineSettings:
     canva_published_subfolder_name: str = "Published"
     google_drive_service_account: Path | None = None
     publish_media_download_dir: Path | None = None
-    tn_publish_settings: TnPublishSettings | None = None
 
 
 def group_tasks_by_record(
@@ -269,15 +275,45 @@ def run_publish_pipeline(
     results: list[PlatformPublishResult] = []
     grouped = group_tasks_by_record(tasks)
     skipped_count = 0
-    extra_folders = (
-        [settings.happyscribe_published_folder_id]
-        if settings.happyscribe_published_folder_id
-        else []
-    )
-    library_transcriptions = happyscribe.list_search_transcriptions(
-        happyscribe_location,
-        extra_folder_ids=extra_folders,
-    )
+    extra_folders: list[str] = []
+    if settings.happyscribe_published_folder_id:
+        extra_folders.append(settings.happyscribe_published_folder_id)
+    transcriptions_by_format: dict[str, list] = {}
+    location_by_format: dict[str, HappyScribeLibraryLocation] = {}
+
+    def search_for_format(video_format: str) -> tuple[HappyScribeLibraryLocation, list]:
+        cached_location = location_by_format.get(video_format)
+        if cached_location is not None:
+            return cached_location, transcriptions_by_format[video_format]
+        library_url = settings.happyscribe_library_url.strip()
+        location = (
+            resolve_library_location_for_format(
+                happyscribe,
+                library_url,
+                video_format,
+            )
+            if library_url
+            else happyscribe_location
+        )
+        extra_locations = []
+        review_url = settings.happyscribe_review_url.strip()
+        if review_url:
+            extra_locations.append(
+                resolve_library_location_for_format(
+                    happyscribe,
+                    review_url,
+                    video_format,
+                    required=True,
+                )
+            )
+        transcriptions = happyscribe.list_search_transcriptions(
+            location,
+            extra_folder_ids=extra_folders,
+            extra_locations=extra_locations,
+        )
+        location_by_format[video_format] = location
+        transcriptions_by_format[video_format] = transcriptions
+        return location, transcriptions
 
     for record_id, record_tasks in grouped.items():
         ready_tasks = list(record_tasks)
@@ -310,9 +346,23 @@ def run_publish_pipeline(
         )
         use_combined_media = smartcat_url is None
         record_fields = dict(record_tasks[0].record_fields)
+        status_value = record_fields.get(FIELD_STATUS)
+        use_combined_with_subtitles = uses_combined_media_with_subtitles(
+            status_value
+        )
         lookup_title = record_fields.get(FIELD_TITLE) or catalog_name
         print_line(f"Processing {record_id}\t{catalog_name}\t{title}")
-        if use_combined_media:
+        if is_translation_done_status(status_value):
+            print_line(
+                "  Translation done — publishing Combined Media File "
+                "with Translated subtitles (no HappyScribe)"
+            )
+        elif use_combined_with_subtitles:
+            print_line(
+                "  Editing done — publishing Combined Media File "
+                "with Translated subtitles (no HappyScribe)"
+            )
+        elif use_combined_media:
             print_line(
                 "  No Translation resources — publishing Combined Media File "
                 "(no HappyScribe subtitles)"
@@ -364,14 +414,6 @@ def run_publish_pipeline(
                     override_root_folder_id=override_root_folder_id,
                     thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
                     published_subfolder_name=settings.canva_published_subfolder_name,
-                    tn_settings=settings.tn_publish_settings
-                    or TnPublishSettings(
-                        original_dir=settings.project_root / "downloads/original-thumbnails",
-                        cache_dir=settings.project_root / "downloads/tn-cache",
-                        output_dir=settings.project_root / "downloads/tn-rendered",
-                        english_override_file=settings.project_root
-                        / "downloads/tn-english-overrides.json",
-                    ),
                 )
                 thumbnail_path = (
                     str(thumbnail_result.path) if thumbnail_result.path else None
@@ -383,7 +425,27 @@ def run_publish_pipeline(
                     print_line(
                         f"  Thumbnail ({thumbnail_result.source}): {thumbnail_path}"
                     )
-            except (CanvaError, TnPublishError) as exc:
+                elif thumbnail_result.missing_translated:
+                    print_line(
+                        "  Thumbnail: publishing without a translated thumbnail"
+                    )
+                    try:
+                        sent = notify_publishing_without_translated_thumbnail(
+                            title=str(lookup_title),
+                            record_fields=record_fields,
+                            drive=drive_client,
+                        )
+                    except Exception as exc:  # noqa: BLE001 — publish must continue
+                        print_line(f"  Thumbnail notification failed: {exc}")
+                    else:
+                        if sent:
+                            print_line("  Thumbnail: notification email sent")
+                        else:
+                            print_line(
+                                "  Thumbnail: notification email not sent "
+                                "(check GMAIL_SMTP_* / NOTIFY_EMAIL)"
+                            )
+            except CanvaError as exc:
                 message = str(exc)
                 print_line(f"  Thumbnail resolution failed: {message}")
                 for task in record_tasks:
@@ -411,6 +473,37 @@ def run_publish_pipeline(
                     publish_cleanup, video_override.cleanup
                 )
                 print_line(f"  Video ({video_override.source}): {video_path}")
+
+        if video_path is None and use_combined_with_subtitles:
+            try:
+                if drive_client is None:
+                    raise CombinedMediaError(
+                        "Google Drive client required for Combined Media File"
+                    )
+                combined = resolve_combined_media_with_subtitles_for_publish(
+                    record_fields=record_fields,
+                    drive=drive_client,
+                    download_dir=media_download_dir,
+                    ffmpeg_path=settings.ffmpeg_path,
+                )
+                video_path = combined.path
+                publish_cleanup = merge_publish_media_cleanup(
+                    publish_cleanup, combined.cleanup
+                )
+                print_line(f"  Video ({combined.source}): {video_path}")
+            except (CombinedMediaError, GoogleDriveError) as exc:
+                message = str(exc)
+                print_line(f"  Combined media with subtitles failed: {message}")
+                for task in record_tasks:
+                    results.append(
+                        PlatformPublishResult(
+                            record_id=record_id,
+                            platform=task.platform,
+                            title=title,
+                            error=message,
+                        )
+                    )
+                continue
 
         if video_path is None and use_combined_media:
             try:
@@ -444,11 +537,15 @@ def run_publish_pipeline(
 
         if video_path is None:
             try:
+                video_format = record_tasks[0].job.video_format
+                search_location, library_transcriptions = search_for_format(
+                    video_format
+                )
                 video_path = ensure_catalog_video_downloaded(
                     catalog_name,
                     download_dir=settings.happyscribe_download_dir,
                     client=happyscribe,
-                    location=happyscribe_location,
+                    location=search_location,
                     browser_state_path=settings.happyscribe_browser_state,
                     browser_profile_dir=settings.happyscribe_browser_profile,
                     browser_channel=settings.happyscribe_browser_channel,

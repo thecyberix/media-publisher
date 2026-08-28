@@ -26,6 +26,7 @@ class Settings:
     happyscribe_api_key: str | None = None
     happyscribe_api_base: str = "https://www.happyscribe.com/api/v1"
     happyscribe_url: str | None = None
+    happyscribe_review_url: str | None = None
     happyscribe_published_folder_id: str | None = None
     happyscribe_download_dir: str = "downloads/happyscribe"
     happyscribe_ffmpeg: str | None = None
@@ -169,6 +170,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
         ).strip()
         or "https://www.happyscribe.com/api/v1",
         happyscribe_url=optional("HAPPYSCRIBE_URL"),
+        happyscribe_review_url=optional("HAPPYSCRIBE_REVIEW_URL"),
         happyscribe_published_folder_id=optional("HAPPYSCRIBE_PUBLISHED_FOLDER_ID"),
         happyscribe_download_dir=os.getenv(
             "HAPPYSCRIBE_DOWNLOAD_DIR", "downloads/happyscribe"

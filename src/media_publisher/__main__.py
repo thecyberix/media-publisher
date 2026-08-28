@@ -30,12 +30,12 @@ from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
     merge_publish_media_cleanup,
+    notify_publishing_without_translated_thumbnail,
     resolve_publish_thumbnail,
     resolve_publish_video,
     translated_subtitles_cleanup_from_fields,
 )
 from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
-from media_publisher.sources.tn_publish import TnPublishError, TnPublishSettings
 from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_pipeline
 from media_publisher.quotes_render_pipeline import QuotesRenderPipelineError
 from media_publisher.sources.quote_pdf import QuotePdfError
@@ -81,6 +81,8 @@ from media_publisher.sources.airtable import (
     FIELD_TITLE,
     FIELD_VIDEO_NAME_TRANSLATED,
     STATUS_SYNC_DONE,
+    STATUS_EDITING_DONE,
+    STATUS_TRANSLATION_DONE,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
     has_video_name_translated,
@@ -110,7 +112,9 @@ from media_publisher.sources.happyscribe import (
     burned_video_destination_path,
     find_downloaded_video,
     is_subtitled_export_name,
+    parse_library_url,
     resolve_library_location,
+    resolve_review_video_folders,
 )
 from media_publisher.sources.happyscribe_web import (
     HappyScribeWebError,
@@ -544,8 +548,9 @@ def happyscribe_library_from_settings(settings):
 
 def happyscribe_client_from_settings(settings) -> HappyScribeClient:
     organization_id = None
-    if settings.happyscribe_url:
-        organization_id = happyscribe_library_from_settings(settings).organization_id
+    library_url = settings.happyscribe_url or settings.happyscribe_review_url
+    if library_url:
+        organization_id = parse_library_url(library_url).organization_id
     return HappyScribeClient(
         api_key=settings.happyscribe_api_key or "",
         api_base=settings.happyscribe_api_base,
@@ -939,7 +944,9 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
     if not tasks:
         raise AirtableError(
             f"Record {record_id!r} is not ready to schedule on {platform}: "
-            f"requires Status {STATUS_SYNC_DONE!r}, a publish date, and no existing permalink."
+            f"requires Status {STATUS_SYNC_DONE!r}, {STATUS_EDITING_DONE!r}, "
+            f"or {STATUS_TRANSLATION_DONE!r}, "
+            "a publish date, and no existing permalink."
         )
     task = tasks[0]
     cleanup: PublishMediaCleanup | None = translated_subtitles_cleanup_from_fields(
@@ -987,12 +994,6 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
                 override_root_folder_id=override_root_folder_id,
                 thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
                 published_subfolder_name=settings.canva_published_subfolder_name,
-                tn_settings=TnPublishSettings(
-                    original_dir=PROJECT_ROOT / settings.tn_original_thumbnail_dir,
-                    cache_dir=PROJECT_ROOT / settings.tn_cache_dir,
-                    output_dir=PROJECT_ROOT / settings.tn_render_output_dir,
-                    english_override_file=PROJECT_ROOT / settings.tn_english_override_file,
-                ),
             )
             cleanup = merge_publish_media_cleanup(cleanup, thumbnail_result.cleanup)
             if thumbnail_result.path is not None:
@@ -1000,7 +1001,16 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
                     task,
                     job=replace(task.job, thumbnail_path=str(thumbnail_result.path)),
                 )
-        except (CanvaError, TnPublishError) as exc:
+            elif thumbnail_result.missing_translated:
+                try:
+                    notify_publishing_without_translated_thumbnail(
+                        title=lookup_title,
+                        record_fields=dict(record.fields),
+                        drive=drive_client,
+                    )
+                except Exception:
+                    pass
+        except CanvaError as exc:
             raise AirtableError(f"Thumbnail lookup failed: {exc}") from exc
 
     if drive_client is not None and override_root_folder_id:
@@ -1707,18 +1717,14 @@ def build_publish_pipeline_settings(
         regenerate_videos=regenerate_videos,
         use_web_export=use_web_export,
         happyscribe_published_folder_id=settings.happyscribe_published_folder_id,
+        happyscribe_library_url=settings.happyscribe_url or "",
+        happyscribe_review_url=settings.happyscribe_review_url or "",
         drive_url=settings.drive_url,
         publish_override_thumbnails_subfolder=settings.publish_override_thumbnails_subfolder,
         publish_override_videos_subfolder=settings.publish_override_videos_subfolder,
         canva_published_subfolder_name=settings.canva_published_subfolder_name,
         google_drive_service_account=PROJECT_ROOT / settings.google_sheets_service_account,
         publish_media_download_dir=PROJECT_ROOT / settings.publish_media_download_dir,
-        tn_publish_settings=TnPublishSettings(
-            original_dir=PROJECT_ROOT / settings.tn_original_thumbnail_dir,
-            cache_dir=PROJECT_ROOT / settings.tn_cache_dir,
-            output_dir=PROJECT_ROOT / settings.tn_render_output_dir,
-            english_override_file=PROJECT_ROOT / settings.tn_english_override_file,
-        ),
     )
 
 
@@ -1813,10 +1819,12 @@ def run_default_publish(settings, args) -> int:
             return 1
 
     try:
+        happyscribe_client = happyscribe_client_from_settings(settings)
+        happyscribe_location = happyscribe_library_from_settings(settings)
         exit_code, _ = run_publish_pipeline(
             airtable,
-            happyscribe_client_from_settings(settings),
-            happyscribe_library_from_settings(settings),
+            happyscribe_client,
+            happyscribe_location,
             build_publish_pipeline_settings(
                 settings,
                 meta_page_id=page_id,
@@ -1939,7 +1947,16 @@ def main() -> int:
         try:
             client = happyscribe_client_from_settings(settings)
             location = happyscribe_library_from_settings(settings)
-            transcriptions = client.list_library_transcriptions(location)
+            extra_locations = []
+            if settings.happyscribe_review_url:
+                extra_locations = resolve_review_video_folders(
+                    client,
+                    settings.happyscribe_review_url,
+                )
+            transcriptions = client.list_search_transcriptions(
+                location,
+                extra_locations=extra_locations,
+            )
         except HappyScribeError as exc:
             print(f"HappyScribe library listing failed: {exc}")
             return 1
@@ -1965,7 +1982,16 @@ def main() -> int:
         try:
             client = happyscribe_client_from_settings(settings)
             location = happyscribe_library_from_settings(settings)
-            transcriptions = client.list_library_transcriptions(location)
+            extra_locations = []
+            if settings.happyscribe_review_url:
+                extra_locations = resolve_review_video_folders(
+                    client,
+                    settings.happyscribe_review_url,
+                )
+            transcriptions = client.list_search_transcriptions(
+                location,
+                extra_locations=extra_locations,
+            )
             downloaded = []
             for transcription in transcriptions:
                 if transcription.state != TRANSCRIPTION_STATE_READY:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from catalog_parser.airtable import (
     FIELD_EDITOR,
@@ -16,6 +17,7 @@ from catalog_parser.airtable import (
     STATUS_TRANSLATION_DONE,
 )
 from catalog_parser.workflow.actions import execute_action
+from catalog_parser.workflow.editor_idle import SIR_TRANSLATESALOT
 from catalog_parser.workflow.table_cache import TableCache
 from catalog_parser.workflow.comments import (
     comment_indicates_editor_ready,
@@ -27,6 +29,7 @@ from catalog_parser.workflow.comments import (
 from catalog_parser.workflow.rules import (
     WorkflowAction,
     WorkflowActionType,
+    plan_idle_editor_ingest_actions,
     plan_ingest_actions,
     plan_record_actions,
     resolve_assign_editor_actions,
@@ -821,6 +824,186 @@ class WorkflowActionTests(unittest.TestCase):
         self.assertEqual(
             table_cache.get("rec1")["fields"][FIELD_TIMING_EDITOR],
             "Timing Free",
+        )
+
+
+class IdleEditorIngestTests(unittest.TestCase):
+    def test_empty_queue_and_assignment_week_ago_ingests_now(self) -> None:
+        today = date(2026, 8, 28)
+        actions = plan_idle_editor_ingest_actions(
+            [],
+            editors=[("Nina Rueva", 4, "Reel")],
+            last_assigned={"Nina Rueva": today - timedelta(days=7)},
+            today=today,
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].action_type, WorkflowActionType.INGEST_FOR_EDITOR)
+        self.assertEqual(actions[0].editor_name, "Nina Rueva")
+        self.assertEqual(actions[0].translator_name, SIR_TRANSLATESALOT)
+        self.assertEqual(actions[0].ingest_type, "Reel")
+        self.assertEqual(actions[0].ingest_count, 4)
+
+    def test_empty_queue_does_not_wait_another_week_after_finishing(self) -> None:
+        today = date(2026, 8, 28)
+        records = [
+            {
+                "id": "rec_done",
+                "fields": {
+                    FIELD_TITLE: "Just finished",
+                    "Type": "Reel",
+                    "Status": STATUS_EDITING_DONE,
+                    FIELD_EDITOR: "Nina Rueva",
+                },
+            }
+        ]
+        actions = plan_idle_editor_ingest_actions(
+            records,
+            editors=[("Nina Rueva", 4, "Reel")],
+            last_assigned={"Nina Rueva": today - timedelta(days=8)},
+            today=today,
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].editor_name, "Nina Rueva")
+
+    def test_recent_assignment_skips_even_when_queue_empty(self) -> None:
+        today = date(2026, 8, 28)
+        actions = plan_idle_editor_ingest_actions(
+            [],
+            editors=[("Nina Rueva", 4, "Reel")],
+            last_assigned={"Nina Rueva": today - timedelta(days=6)},
+            today=today,
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(actions, [])
+
+    def test_unknown_last_assigned_and_empty_queue_ingests(self) -> None:
+        actions = plan_idle_editor_ingest_actions(
+            [],
+            editors=[("Nina Rueva", 4, "Reel")],
+            last_assigned={},
+            today=date(2026, 8, 28),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].editor_name, "Nina Rueva")
+
+    def test_active_queue_skips_even_if_last_assignment_old(self) -> None:
+        records = _editing_assignment_records("Nina Rueva", 1)
+        actions = plan_idle_editor_ingest_actions(
+            records,
+            editors=[("Nina Rueva", 4, "Reel")],
+            last_assigned={"Nina Rueva": date(2026, 8, 1)},
+            today=date(2026, 8, 28),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(actions, [])
+
+    def test_preferred_video_type(self) -> None:
+        actions = plan_idle_editor_ingest_actions(
+            [],
+            editors=[("Dilyana Hayes", 15, "Video")],
+            last_assigned={"Dilyana Hayes": date(2026, 8, 1)},
+            today=date(2026, 8, 28),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].ingest_type, "Video")
+        self.assertEqual(actions[0].ingest_count, 1)
+
+    def test_no_preference_uses_ratio(self) -> None:
+        actions = plan_idle_editor_ingest_actions(
+            [],
+            editors=[("Dilyana Hayes", 10, None)],
+            last_assigned={"Dilyana Hayes": date(2026, 8, 1)},
+            today=date(2026, 8, 28),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].ingest_type, "Video")
+        self.assertEqual(actions[0].ingest_count, 1)
+
+    def test_idle_editor_ingest_blocks_dual_role_translator_ingest(self) -> None:
+        records: list[dict] = []
+        idle_actions = plan_idle_editor_ingest_actions(
+            records,
+            editors=[("Dilyana Hayes", 4, "Reel")],
+            last_assigned={"Dilyana Hayes": date(2026, 8, 1)},
+            today=date(2026, 8, 28),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertTrue(idle_actions)
+        ingest_actions = plan_ingest_actions(
+            records,
+            translators=[("Dilyana Hayes", 4, "Reel")],
+            target_reel_to_video_ratio=6,
+            max_video_seconds=900,
+            editor_names=frozenset({"Dilyana Hayes"}),
+        )
+        self.assertTrue(
+            all(action.translator_name != "Dilyana Hayes" for action in ingest_actions)
+        )
+
+    def test_same_run_editor_assignment_skips_idle_ingest(self) -> None:
+        records = [
+            {
+                "id": "rec_needs_editor",
+                "fields": {
+                    FIELD_TITLE: "Ready for editing",
+                    "Type": "Reel",
+                    "Status": STATUS_TRANSLATION_DONE,
+                    "Duration": 60,
+                },
+            }
+        ]
+        record_actions = []
+        for record in records:
+            record_actions.extend(plan_record_actions(record))
+        resolve_assign_editor_actions(
+            records,
+            record_actions,
+            editors=[("Nina Rueva", 4, "Reel")],
+        )
+        actions = plan_idle_editor_ingest_actions(
+            records,
+            editors=[("Nina Rueva", 4, "Reel")],
+            last_assigned={"Nina Rueva": date(2026, 8, 1)},
+            today=date(2026, 8, 28),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(actions, [])
+
+    def test_ingest_for_editor_sets_translation_done_fields(self) -> None:
+        action = WorkflowAction(
+            action_type=WorkflowActionType.INGEST_FOR_EDITOR,
+            translator_name=SIR_TRANSLATESALOT,
+            editor_name="Nina Rueva",
+            ingest_type="Reel",
+            ingest_count=2,
+        )
+        config = MagicMock()
+        config.max_video_seconds = 900
+        with patch(
+            "catalog_parser.workflow.actions.ingest_batch_for_editor",
+            return_value=["rec1", "rec2"],
+        ) as ingest_mock:
+            result = execute_action(
+                action,
+                airtable=MagicMock(),
+                config=config,
+                drive_service=None,
+                docs_service=None,
+                credentials_path=MagicMock(),
+                token_path=MagicMock(),
+                dry_run=False,
+            )
+        self.assertTrue(result.success)
+        ingest_mock.assert_called_once()
+        self.assertEqual(ingest_mock.call_args.kwargs["editor_name"], "Nina Rueva")
+        self.assertEqual(
+            ingest_mock.call_args.kwargs["translator_name"],
+            SIR_TRANSLATESALOT,
         )
 
 

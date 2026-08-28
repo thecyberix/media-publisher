@@ -898,6 +898,14 @@ def _draw_line(
             bg_right = max(box_right, text_box_right + pad_x)
             bg_top = min(box_top, text_top - pad_y_top)
             bg_bottom = max(box_bottom, text_bottom + pad_y_bottom)
+        elif alignment == "right":
+            # Text-hugging right-aligned plates; keep vertical extent to the
+            # style bbox so neighboring line plates stay separated by the gap.
+            pad_x = max(14, int(reference_size * 0.20))
+            bg_right = max(box_right, text_box_right + pad_x)
+            bg_left = text_box_left - pad_x
+            bg_top = box_top
+            bg_bottom = box_bottom
         else:
             bg_left = text_box_left - pad_x
             bg_right = text_box_right + pad_x

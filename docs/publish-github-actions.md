@@ -135,15 +135,15 @@ Same as the catalog workflow where noted:
 
 | Secret | Used for |
 |--------|----------|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Drive override thumbnails/videos, TN template download |
-| `CANVA_TOKEN_JSON` | Canva catalog thumbnails (reels/videos without TN caption) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Drive override thumbnails/videos |
+| `CANVA_TOKEN_JSON` | Canva catalog thumbnails |
 | `CANVA_CLIENT_ID` / `CANVA_CLIENT_SECRET` | Canva token refresh in CI |
 | `CONFIG_SYNC_PAT` | Persist Canva/YouTube tokens and daily-playlist slots (Secrets + Variables write) |
 | `AIRTABLE_*`, `HAPPYSCRIBE_*`, `YOUTUBE_*`, `META_*` | Catalog fetch and platform publish |
 
-Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run instead of falling through to TN generation.
+Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run.
 
-The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render can run when Drive override and Canva catalog lookup fail for non-auth reasons.
+When Original Video Thumbnail is set but Drive override and Canva catalog have no matching translated thumbnail, publish continues without one and emails `NOTIFY_EMAIL`. Generate the thumbnail offline with `scripts/_generate_thumbnails_from_original.py`.
 
 ## Repository variables
 
@@ -151,6 +151,8 @@ The publish workflow installs the `thumbnails` extra (`psd-tools`) so TN render 
 |----------|----------|
 | `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval` |
 | `CANVA_URL` | Parent Canva folder; catalog thumbnails use `Long videos` and `Short videos` |
+| `HAPPYSCRIBE_URL` | Primary HappyScribe library for catalog video lookup. Required. If it has `Short videos` / `Long videos` children, only the folder matching the video type is searched. |
+| `HAPPYSCRIBE_REVIEW_URL` | Optional parent HappyScribe library. Publish also searches the type-matching child (`Short videos` or `Long videos`). Unset: skip that fallback. |
 | `YOUTUBE_CHANNEL_HANDLE` | YouTube handle. Required for publish. |
 | `YOUTUBE_PLAYLIST_ID` | Channel playlist for published catalog videos and quotes. Unset: skip playlist add. |
 | `YOUTUBE_DAILY_PLAYLIST_JSON` | Daily Smartlink playlist id plus slot state (`playlist_id`, `quote`, `reel`, `lau`). Unset: skip daily playlist updates. |

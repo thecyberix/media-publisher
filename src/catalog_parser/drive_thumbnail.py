@@ -333,7 +333,7 @@ def resolve_original_video_thumbnail(
 ) -> tuple[list[dict[str, str]] | None, str | None]:
     """Resolve an Original Video Thumbnail attachment for ingest.
 
-    Drive TN templates are ignored here (used only later for translated TN render).
+    Drive TN templates are ignored here (used later for offline translated TN render).
     Canva designs are preferred when present.
     """
     fields: dict[str, str | None]
@@ -512,7 +512,7 @@ def _stage_original_thumbnail_for_ingest(
     3. Otherwise matching-aspect original-platform thumbs are queued for review
 
     Canva auth failures raise (workflow should fail). Drive TN templates are ignored
-    at ingest (used later for translated TN render).
+    at ingest (used later for offline translated TN render).
     """
     updated[thumbnail_field] = None
     updated.pop(f"{thumbnail_field}Error", None)

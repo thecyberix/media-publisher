@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
 from typing import Any
 
@@ -14,6 +15,7 @@ from catalog_parser.airtable import (
     FIELD_EDITOR,
     FIELD_TIMING_EDITOR,
     FIELD_TITLE,
+    FIELD_TYPE,
     STATUS_EDITING_DONE,
     STATUS_TODO,
     STATUS_TRANSLATION_DONE,
@@ -26,6 +28,7 @@ VIDEO_REEL_EQUIVALENT = 10
 class WorkflowActionType(str, Enum):
     COMBINE_MEDIA = "combine_media"
     INGEST_FOR_TRANSLATOR = "ingest_for_translator"
+    INGEST_FOR_EDITOR = "ingest_for_editor"
     ASSIGN_EDITOR = "assign_editor"
     ASSIGN_TIMING_EDITOR = "assign_timing_editor"
 
@@ -502,6 +505,184 @@ def pool_type_counts(records: list[dict[str, Any]]) -> tuple[int, int]:
     return reels, videos
 
 
+def choose_ingest_type(
+    *,
+    preferred: str | None,
+    reels_pool: int,
+    videos_pool: int,
+    target_reel_to_video_ratio: int,
+) -> str:
+    if preferred in {TYPE_REEL, TYPE_VIDEO}:
+        return preferred
+    if videos_pool <= 0:
+        return TYPE_VIDEO
+    current_ratio = reels_pool / max(1, videos_pool)
+    return TYPE_VIDEO if current_ratio >= target_reel_to_video_ratio else TYPE_REEL
+
+
+def plan_capacity_ingest_chunks(
+    *,
+    weekly_capacity_reels: int,
+    preferred_type: str | None,
+    active_units: int,
+    reels_pool: int,
+    videos_pool: int,
+    target_reel_to_video_ratio: int,
+) -> tuple[list[tuple[str, int]], int, int]:
+    """Fill remaining weekly capacity with ingest chunks.
+
+    Returns ``(chunks, reels_pool, videos_pool)`` where each chunk is
+    ``(ingest_type, ingest_count)``.
+    """
+    chunks: list[tuple[str, int]] = []
+    while active_units < weekly_capacity_reels:
+        remaining_capacity_units = weekly_capacity_reels - active_units
+        ingest_type = choose_ingest_type(
+            preferred=preferred_type,
+            reels_pool=reels_pool,
+            videos_pool=videos_pool,
+            target_reel_to_video_ratio=target_reel_to_video_ratio,
+        )
+        if ingest_type == TYPE_VIDEO and remaining_capacity_units < VIDEO_REEL_EQUIVALENT:
+            if preferred_type in {TYPE_VIDEO, TYPE_REEL}:
+                break
+            if weekly_capacity_reels >= VIDEO_REEL_EQUIVALENT:
+                # Ratio wants a video and this person can hold one eventually.
+                # Do not consume the remaining capacity with reels while waiting.
+                break
+            ingest_type = TYPE_REEL
+        if ingest_type == TYPE_REEL and remaining_capacity_units < 1:
+            break
+
+        if ingest_type == TYPE_VIDEO:
+            ingest_units = VIDEO_REEL_EQUIVALENT
+            ingest_count = 1
+        else:
+            ingest_units = remaining_capacity_units
+            ingest_count = ingest_units
+
+        if active_units + ingest_units > weekly_capacity_reels:
+            break
+
+        chunks.append((ingest_type, ingest_count))
+        if ingest_type == TYPE_VIDEO:
+            videos_pool += 1
+        else:
+            reels_pool += ingest_count
+        active_units += ingest_units
+    return chunks, reels_pool, videos_pool
+
+
+def editor_due_for_weekly_assignment(
+    *,
+    last_assigned: date | None,
+    today: date,
+    grace_days: int = 7,
+) -> bool:
+    """True on the same weekday next week (Monday → next Monday), not the day after.
+
+    ``(today - last).days >= 7``: assigned Mon 17th is due Mon 24th, not Tue 25th.
+    """
+    if last_assigned is None:
+        return True
+    return (today - last_assigned).days >= grace_days
+
+
+def is_idle_editor_for_ingest(
+    records: list[dict[str, Any]],
+    editor_name: str,
+    *,
+    last_assigned: dict[str, date],
+    today: date,
+    grace_days: int = 7,
+) -> bool:
+    if count_active_editing_reel_units(records, editor_name) > 0:
+        return False
+    return editor_due_for_weekly_assignment(
+        last_assigned=last_assigned.get(editor_name),
+        today=today,
+        grace_days=grace_days,
+    )
+
+
+def stamp_pending_editor_ingest(
+    records: list[dict[str, Any]],
+    action: WorkflowAction,
+) -> None:
+    """Append placeholder rows so later ingest planning sees the new editing load."""
+    from catalog_parser.workflow.editor_idle import SIR_TRANSLATESALOT
+
+    count = action.ingest_count or 0
+    ingest_type = action.ingest_type
+    editor_name = action.editor_name
+    if count <= 0 or not ingest_type or not editor_name:
+        return
+    for index in range(count):
+        records.append(
+            {
+                "id": f"pending-idle-{editor_name}-{ingest_type}-{index}",
+                "fields": {
+                    FIELD_STATUS: STATUS_TRANSLATION_DONE,
+                    FIELD_EDITOR: editor_name,
+                    FIELD_TYPE: ingest_type,
+                    FIELD_TRANSLATOR: SIR_TRANSLATESALOT,
+                },
+            }
+        )
+
+
+def plan_idle_editor_ingest_actions(
+    records: list[dict[str, Any]],
+    *,
+    editors: list[tuple[str, int, str | None]],
+    last_assigned: dict[str, date],
+    today: date,
+    target_reel_to_video_ratio: int,
+    grace_days: int = 7,
+) -> list[WorkflowAction]:
+    from catalog_parser.workflow.editor_idle import SIR_TRANSLATESALOT
+
+    actions: list[WorkflowAction] = []
+    reels_pool, videos_pool = pool_type_counts(records)
+
+    for editor_name, weekly_capacity_reels, preferred_type in editors:
+        if not is_idle_editor_for_ingest(
+            records,
+            editor_name,
+            last_assigned=last_assigned,
+            today=today,
+            grace_days=grace_days,
+        ):
+            continue
+
+        last = last_assigned.get(editor_name)
+        idle_days = (today - last).days if last is not None else grace_days
+        chunks, reels_pool, videos_pool = plan_capacity_ingest_chunks(
+            weekly_capacity_reels=weekly_capacity_reels,
+            preferred_type=preferred_type,
+            active_units=0,
+            reels_pool=reels_pool,
+            videos_pool=videos_pool,
+            target_reel_to_video_ratio=target_reel_to_video_ratio,
+        )
+        for ingest_type, ingest_count in chunks:
+            action = WorkflowAction(
+                action_type=WorkflowActionType.INGEST_FOR_EDITOR,
+                translator_name=SIR_TRANSLATESALOT,
+                editor_name=editor_name,
+                ingest_type=ingest_type,
+                ingest_count=ingest_count,
+                target_status=STATUS_TRANSLATION_DONE,
+                reason=(
+                    f"idle editor {editor_name}: no assignment for {idle_days}d; "
+                    f"ingest {ingest_count} {ingest_type}(s) as Translation done"
+                ),
+            )
+            actions.append(action)
+            stamp_pending_editor_ingest(records, action)
+    return actions
+
+
 def plan_ingest_actions(
     records: list[dict[str, Any]],
     *,
@@ -514,14 +695,6 @@ def plan_ingest_actions(
     reels_pool, videos_pool = pool_type_counts(records)
     editors = editor_names or frozenset()
 
-    def choose_ingest_type(*, preferred: str | None) -> str:
-        if preferred in {TYPE_REEL, TYPE_VIDEO}:
-            return preferred
-        if videos_pool <= 0:
-            return TYPE_VIDEO
-        current_ratio = reels_pool / max(1, videos_pool)
-        return TYPE_VIDEO if current_ratio >= target_reel_to_video_ratio else TYPE_REEL
-
     for translator_name, weekly_capacity_reels, preferred_type in translators:
         if (
             translator_name in editors
@@ -530,32 +703,15 @@ def plan_ingest_actions(
             continue
 
         active_units = count_active_translation_reel_units(records, translator_name)
-        while active_units < weekly_capacity_reels:
-            remaining_capacity_units = weekly_capacity_reels - active_units
-
-            preferred = preferred_type
-            ingest_type = choose_ingest_type(preferred=preferred)
-            if ingest_type == TYPE_VIDEO and remaining_capacity_units < VIDEO_REEL_EQUIVALENT:
-                if preferred in {TYPE_VIDEO, TYPE_REEL}:
-                    break
-                if weekly_capacity_reels >= VIDEO_REEL_EQUIVALENT:
-                    # Ratio wants a video and this translator can hold one eventually.
-                    # Do not consume the remaining capacity with reels while waiting.
-                    break
-                ingest_type = TYPE_REEL
-            if ingest_type == TYPE_REEL and remaining_capacity_units < 1:
-                break
-
-            if ingest_type == TYPE_VIDEO:
-                ingest_units = VIDEO_REEL_EQUIVALENT
-                ingest_count = 1
-            else:
-                ingest_units = remaining_capacity_units
-                ingest_count = ingest_units  # reels count == units
-
-            if active_units + ingest_units > weekly_capacity_reels:
-                break
-
+        chunks, reels_pool, videos_pool = plan_capacity_ingest_chunks(
+            weekly_capacity_reels=weekly_capacity_reels,
+            preferred_type=preferred_type,
+            active_units=active_units,
+            reels_pool=reels_pool,
+            videos_pool=videos_pool,
+            target_reel_to_video_ratio=target_reel_to_video_ratio,
+        )
+        for ingest_type, ingest_count in chunks:
             actions.append(
                 WorkflowAction(
                     action_type=WorkflowActionType.INGEST_FOR_TRANSLATOR,
@@ -568,12 +724,8 @@ def plan_ingest_actions(
                     ),
                 )
             )
-
-            # Update simulated pool for ratio selection during this planning run.
             if ingest_type == TYPE_VIDEO:
-                videos_pool += 1
+                active_units += VIDEO_REEL_EQUIVALENT
             else:
-                reels_pool += ingest_count
-
-            active_units += ingest_units
+                active_units += ingest_count
     return actions

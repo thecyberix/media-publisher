@@ -164,5 +164,23 @@ class TnReferenceTests(unittest.TestCase):
         self.assertLess(abs(block_center - cover_center), 8)
 
 
+class ScaleLineStylesTests(unittest.TestCase):
+    def test_scale_line_styles_doubles_boxes_and_font(self) -> None:
+        from media_publisher.sources.tn_psd import TnLineStyle
+        from media_publisher.sources.tn_reference import scale_line_styles
+
+        style = TnLineStyle(
+            placeholder_text="Hello",
+            rendered_text="Hello",
+            bbox=(10, 20, 110, 60),
+            font_size_px=40.0,
+            color_hex="#FFFFFF",
+        )
+        scaled = scale_line_styles([style], (100, 200), (200, 400))
+        self.assertEqual(len(scaled), 1)
+        self.assertEqual(scaled[0].bbox, (20, 40, 220, 120))
+        self.assertEqual(scaled[0].font_size_px, 80.0)
+
+
 if __name__ == "__main__":
     unittest.main()

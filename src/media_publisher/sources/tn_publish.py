@@ -1,10 +1,12 @@
-"""Generate TN thumbnails at publish time for catalog videos."""
+"""Generate TN thumbnails offline from Drive templates and original thumbnails."""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from media_publisher.sources.airtable import (
     FIELD_ORIGINAL_VIDEO,
@@ -22,12 +24,17 @@ from media_publisher.sources.source_thumbnail import (
 from media_publisher.sources.tn_docx import caption_lines_for_render
 from media_publisher.sources.tn_psd import (
     ImageSize,
+    TnLineStyle,
     TnPsdError,
     best_aspect_matches,
     collect_image_sizes,
     load_template_image,
     read_pillow_size,
     safe_cache_name,
+)
+from media_publisher.sources.tn_reference import (
+    cover_reference_layout,
+    scale_line_styles,
 )
 from media_publisher.sources.tn_renderer import TnRenderError, render_tn_thumbnail
 
@@ -77,6 +84,17 @@ def _is_image_file(name: str, mime_type: str) -> bool:
 def _tn_template_sort_key(row: object) -> tuple[int, str]:
     name = getattr(row, "name", "").casefold()
     return (0 if name.endswith(".psd") else 1, name)
+
+
+@dataclass(frozen=True)
+class DriveTnTemplate:
+    image: Image.Image
+    line_styles: list[TnLineStyle]
+    cached_path: Path
+
+    @property
+    def text_layers_stripped(self) -> bool:
+        return self.cached_path.suffix.casefold() == ".psd"
 
 
 def find_tn_template_in_folder(
@@ -175,6 +193,68 @@ def reference_thumbnail_size(
     return read_pillow_size(original_path)
 
 
+def load_matching_drive_tn_template(
+    drive: GoogleDriveClient,
+    folder_id: str,
+    *,
+    cache_dir: Path,
+    reference_size: ImageSize,
+) -> DriveTnTemplate | None:
+    """Download the first Video Folder image whose aspect matches ``reference_size``.
+
+    PSD files are composited without text layers. Raster files are returned as RGB.
+    """
+    children = drive.list_children(folder_id)
+    images = [item for item in children if _is_image_file(item.name, item.mime_type)]
+    if not images:
+        return None
+
+    for child in sorted(images, key=_tn_template_sort_key):
+        cache_path = cache_dir / safe_cache_name(child.name)
+        if not cache_path.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            drive.download_file(child.id, cache_path)
+        matches = best_aspect_matches(reference_size, collect_image_sizes(cache_path))
+        if not matches:
+            continue
+        template, line_styles = load_template_image(cache_path, matches[0])
+        return DriveTnTemplate(
+            image=template,
+            line_styles=line_styles,
+            cached_path=cache_path,
+        )
+    return None
+
+
+def compose_offline_tn_background(
+    *,
+    original: Image.Image,
+    covered_original: Image.Image,
+    drive_template: DriveTnTemplate | None,
+    cover_mode: str,
+    line_styles: list[TnLineStyle],
+    caption_line_count: int,
+) -> tuple[Image.Image, list[TnLineStyle], str]:
+    """Prefer a Drive template as pixels; keep original-derived line styles."""
+    if drive_template is None:
+        return covered_original, line_styles, "original-thumbnail"
+
+    styles = scale_line_styles(
+        line_styles,
+        original.size,
+        drive_template.image.size,
+    )
+    if drive_template.text_layers_stripped:
+        return drive_template.image, styles, "drive-template"
+    covered_drive = cover_reference_layout(
+        drive_template.image,
+        cover_mode,
+        styles,
+        caption_line_count,
+    )
+    return covered_drive, styles, "drive-template"
+
+
 def generate_catalog_tn_thumbnail(
     *,
     title: str,
@@ -210,32 +290,23 @@ def generate_catalog_tn_thumbnail(
     if not images:
         raise TnPublishError(f"No TN template images in Drive folder for {title!r}")
 
-    matched_layer: ImageSize | None = None
-    cached_path: Path | None = None
-
-    for child in sorted(images, key=_tn_template_sort_key):
-        cache_path = settings.cache_dir / safe_cache_name(child.name)
-        if not cache_path.exists():
-            settings.cache_dir.mkdir(parents=True, exist_ok=True)
-            drive.download_file(child.id, cache_path)
-        matches = best_aspect_matches(reference_size, collect_image_sizes(cache_path))
-        if matches:
-            matched_layer = matches[0]
-            cached_path = cache_path
-            break
-
-    if matched_layer is None or cached_path is None:
+    loaded = load_matching_drive_tn_template(
+        drive,
+        folder_id,
+        cache_dir=settings.cache_dir,
+        reference_size=reference_size,
+    )
+    if loaded is None:
         raise TnPublishError(
             f"No Drive TN template with matching aspect ratio for {title!r}"
         )
 
     caption_text = "\n".join(caption_lines)
     try:
-        template, line_styles = load_template_image(cached_path, matched_layer)
         render_tn_thumbnail(
-            template=template,
+            template=loaded.image,
             english_text=caption_text,
-            line_styles=line_styles,
+            line_styles=loaded.line_styles,
             destination=destination,
             catalog_title=title,
         )

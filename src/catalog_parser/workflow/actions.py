@@ -27,7 +27,7 @@ from catalog_parser.drive_mix import (
     pick_dialogue_audio_path,
 )
 from catalog_parser.workflow.config import WorkflowConfig, combined_media_output_folder_id
-from catalog_parser.workflow.ingest import ingest_batch_for_translator
+from catalog_parser.workflow.ingest import ingest_batch_for_editor, ingest_batch_for_translator
 from catalog_parser.workflow.rules import (
     WorkflowAction,
     WorkflowActionType,
@@ -69,6 +69,17 @@ def execute_action(
         )
     if action.action_type == WorkflowActionType.INGEST_FOR_TRANSLATOR:
         return _ingest_for_translator(
+            action,
+            airtable=airtable,
+            config=config,
+            credentials_path=credentials_path,
+            token_path=token_path,
+            dry_run=dry_run,
+            use_console=use_console,
+            table_cache=table_cache,
+        )
+    if action.action_type == WorkflowActionType.INGEST_FOR_EDITOR:
+        return _ingest_for_editor(
             action,
             airtable=airtable,
             config=config,
@@ -306,6 +317,63 @@ def _ingest_for_translator(
         action=action,
         success=True,
         message=f"Ingested {len(created_ids)} record(s) and assigned to {action.translator_name!r}: {', '.join(created_ids)}",
+    )
+
+
+def _ingest_for_editor(
+    action: WorkflowAction,
+    *,
+    airtable: AirtableClient,
+    config: WorkflowConfig,
+    credentials_path: Path,
+    token_path: Path,
+    dry_run: bool,
+    use_console: bool,
+    table_cache: TableCache | None = None,
+) -> ActionResult:
+    if not action.editor_name:
+        return ActionResult(action=action, success=False, message="Missing editor_name")
+    if not action.translator_name:
+        return ActionResult(action=action, success=False, message="Missing translator_name")
+    if action.ingest_type is None or action.ingest_count is None:
+        return ActionResult(action=action, success=False, message="Missing ingest_type/ingest_count")
+    created_ids = ingest_batch_for_editor(
+        airtable,
+        editor_name=action.editor_name,
+        translator_name=action.translator_name,
+        desired_type=action.ingest_type,
+        target_count=action.ingest_count,
+        max_video_seconds=config.max_video_seconds,
+        credentials_path=credentials_path,
+        token_path=token_path,
+        use_console=use_console,
+        table_cache=table_cache,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        return ActionResult(
+            action=action,
+            success=True,
+            message=(
+                f"Would ingest {len(created_ids)} {action.ingest_type}(s) "
+                f"as Translation done for editor {action.editor_name!r}"
+                if created_ids
+                else f"No eligible catalog row found for editor {action.editor_name!r}"
+            ),
+        )
+    if not created_ids:
+        return ActionResult(
+            action=action,
+            success=False,
+            message=f"No eligible catalog row found for editor {action.editor_name!r}",
+        )
+    return ActionResult(
+        action=action,
+        success=True,
+        message=(
+            f"Ingested {len(created_ids)} Translation done record(s) "
+            f"for editor {action.editor_name!r}: {', '.join(created_ids)}"
+        ),
     )
 
 

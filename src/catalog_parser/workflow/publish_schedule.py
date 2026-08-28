@@ -9,10 +9,14 @@ from typing import Any, Callable
 
 from catalog_parser.airtable import (
     AirtableClient,
+    FIELD_COMBINED_MEDIA_FILE,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_STATUS,
     FIELD_TITLE,
+    FIELD_TRANSLATED_SUBTITLES,
+    FIELD_TRANSLATION_RESOURCES,
     FIELD_TYPE,
+    FIELD_VIDEO_FOLDER,
     FIELD_VIDEO_NAME_TRANSLATED,
     STATUS_SYNC_DONE,
 )
@@ -101,6 +105,24 @@ def is_quote_record(fields: dict[str, Any]) -> bool:
 def is_sync_done_status(value: Any) -> bool:
     text = _field_text(value)
     return bool(text and STATUS_SYNC_DONE in text)
+
+
+def is_editing_done_status(value: Any) -> bool:
+    text = _field_text(value)
+    return bool(text and "Editing done" in text)
+
+
+def is_translation_done_status(value: Any) -> bool:
+    text = _field_text(value)
+    return bool(text and "Translation done" in text)
+
+
+def _is_schedule_pool_status(value: Any) -> bool:
+    return (
+        is_sync_done_status(value)
+        or is_editing_done_status(value)
+        or is_translation_done_status(value)
+    )
 
 
 def is_done_published_status(value: Any) -> bool:
@@ -385,7 +407,7 @@ def _has_pending_matching_type(
         fields = record.get("fields")
         if not isinstance(fields, dict):
             continue
-        if not is_sync_done_status(fields.get(FIELD_STATUS)):
+        if not _is_schedule_pool_status(fields.get(FIELD_STATUS)):
             continue
         if is_quote_record(fields):
             continue
@@ -399,43 +421,131 @@ def _has_pending_matching_type(
     return False
 
 
-def _select_candidate(
+def _matches_desired_type(fields: dict[str, Any], desired_type: str) -> bool:
+    if desired_type == TYPE_VIDEO:
+        return is_video_type(fields)
+    return is_reel_type(fields)
+
+
+def _has_drive_file_field(fields: dict[str, Any], key: str) -> bool:
+    return _field_text(fields.get(key)) is not None
+
+
+def _is_unscheduled_candidate(fields: dict[str, Any]) -> bool:
+    if is_quote_record(fields):
+        return False
+    if not has_video_name_translated(fields):
+        return False
+    if is_done_published_status(fields.get(FIELD_STATUS)):
+        return False
+    if _record_has_any_publish_date(fields):
+        return False
+    return True
+
+
+def _candidate_sort_key(record: dict[str, Any]) -> tuple[int, str]:
+    fields = record.get("fields", {})
+    thumb_rank = 0 if has_original_video_thumbnail(fields) else 1
+    created = record.get("createdTime") or ""
+    return (thumb_rank, str(created))
+
+
+def _collect_candidate_pools(
     records: list[dict[str, Any]],
     *,
     desired_type: str,
-) -> dict[str, Any] | None:
-    candidates: list[dict[str, Any]] = []
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    sync_done: list[dict[str, Any]] = []
+    editing_done: list[dict[str, Any]] = []
+    translation_done: list[dict[str, Any]] = []
     for record in records:
         fields = record.get("fields")
         if not isinstance(fields, dict):
             continue
-        if is_quote_record(fields):
+        if not _is_unscheduled_candidate(fields):
             continue
-        if not is_sync_done_status(fields.get(FIELD_STATUS)):
+        if not _matches_desired_type(fields, desired_type):
             continue
-        if not has_video_name_translated(fields):
-            continue
-        if is_done_published_status(fields.get(FIELD_STATUS)):
-            continue
-        if _record_has_any_publish_date(fields):
-            continue
-        if desired_type == TYPE_VIDEO and not is_video_type(fields):
-            continue
-        if desired_type != TYPE_VIDEO and not is_reel_type(fields):
-            continue
-        candidates.append(record)
+        if is_sync_done_status(fields.get(FIELD_STATUS)):
+            sync_done.append(record)
+        elif is_editing_done_status(fields.get(FIELD_STATUS)) and _has_drive_file_field(
+            fields, FIELD_COMBINED_MEDIA_FILE
+        ) and _has_drive_file_field(fields, FIELD_TRANSLATED_SUBTITLES):
+            editing_done.append(record)
+        elif is_translation_done_status(fields.get(FIELD_STATUS)) and _has_drive_file_field(
+            fields, FIELD_VIDEO_FOLDER
+        ) and _has_drive_file_field(fields, FIELD_TRANSLATION_RESOURCES):
+            translation_done.append(record)
 
-    if not candidates:
-        return None
+    sync_done.sort(key=_candidate_sort_key)
+    editing_done.sort(key=_candidate_sort_key)
+    translation_done.sort(key=_candidate_sort_key)
+    return sync_done, editing_done, translation_done
 
-    def _sort_key(record: dict[str, Any]) -> tuple[int, str]:
-        fields = record.get("fields", {})
-        thumb_rank = 0 if has_original_video_thumbnail(fields) else 1
-        created = record.get("createdTime") or ""
-        return (thumb_rank, str(created))
 
-    candidates.sort(key=_sort_key)
-    return candidates[0]
+def _prepare_translation_done_media(
+    *,
+    record_id: str,
+    fields: dict[str, Any],
+    airtable: AirtableClient,
+    dry_run: bool,
+    table_cache: Any | None = None,
+    project_root: Path | None = None,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Generate Combined Media File and Translated subtitles for Translation done."""
+    if _has_drive_file_field(fields, FIELD_COMBINED_MEDIA_FILE) and _has_drive_file_field(
+        fields, FIELD_TRANSLATED_SUBTITLES
+    ):
+        return True, "Combined Media File and Translated subtitles already present", fields
+
+    from catalog_parser.workflow.actions import _combine_media
+    from catalog_parser.workflow.config import load_workflow_config
+    from catalog_parser.workflow.rules import WorkflowAction, WorkflowActionType
+
+    root = project_root or Path(__file__).resolve().parents[3]
+    config = load_workflow_config(root)
+    action = WorkflowAction(
+        action_type=WorkflowActionType.COMBINE_MEDIA,
+        record_id=record_id,
+        reason="Translation done schedule fallback",
+    )
+    result = _combine_media(
+        action,
+        airtable=airtable,
+        config=config,
+        dry_run=dry_run,
+        table_cache=table_cache,
+        project_root=root,
+    )
+    if not result.success:
+        return False, result.message, fields
+
+    if dry_run:
+        return True, result.message, fields
+
+    refreshed = fields
+    if table_cache is not None:
+        updated = table_cache.get(record_id)
+        updated_fields = updated.get("fields") if isinstance(updated, dict) else None
+        if isinstance(updated_fields, dict):
+            refreshed = updated_fields
+    else:
+        record = airtable.get_record(record_id)
+        rec_fields = record.get("fields") if isinstance(record, dict) else None
+        if isinstance(rec_fields, dict):
+            refreshed = rec_fields
+
+    if not (
+        _has_drive_file_field(refreshed, FIELD_COMBINED_MEDIA_FILE)
+        and _has_drive_file_field(refreshed, FIELD_TRANSLATED_SUBTITLES)
+    ):
+        extra = result.message
+        return (
+            False,
+            f"{extra} (Combined Media File or Translated subtitles still missing)",
+            refreshed,
+        )
+    return True, result.message, refreshed
 
 
 def _build_schedule_fields(fields: dict[str, Any], target_date: date) -> dict[str, str]:
@@ -458,6 +568,7 @@ def schedule_tomorrow_publish(
     log: Callable[[str], None] | None = None,
     project_root: Path | None = None,
     docs_service: Any | None = None,
+    table_cache: Any | None = None,
 ) -> ScheduleTomorrowResult:
     """Pick one catalog record for tomorrow and set SG publish dates."""
     from zoneinfo import ZoneInfo
@@ -484,7 +595,39 @@ def schedule_tomorrow_publish(
             target_date=target_date,
         )
 
-    chosen = _select_candidate(records, desired_type=desired)
+    sync_done, editing_done, translation_done = _collect_candidate_pools(
+        records, desired_type=desired
+    )
+    chosen: dict[str, Any] | None = None
+    chosen_source: str | None = None
+
+    if sync_done:
+        chosen = sync_done[0]
+        chosen_source = "sync"
+    elif editing_done:
+        chosen = editing_done[0]
+        chosen_source = "editing"
+    else:
+        for record in translation_done:
+            record_id = record.get("id")
+            fields = record.get("fields")
+            if not isinstance(record_id, str) or not record_id or not isinstance(fields, dict):
+                continue
+            ok, prepare_message, refreshed = _prepare_translation_done_media(
+                record_id=record_id,
+                fields=fields,
+                airtable=airtable,
+                dry_run=dry_run,
+                table_cache=table_cache,
+                project_root=project_root,
+            )
+            emit(f"  Translation done prepare ({record_id}): {prepare_message}")
+            if not ok:
+                continue
+            chosen = {**record, "fields": refreshed}
+            chosen_source = "translation"
+            break
+
     if chosen is None:
         return ScheduleTomorrowResult(
             success=True,
@@ -506,11 +649,20 @@ def schedule_tomorrow_publish(
 
     title = _field_text(fields.get(FIELD_TITLE)) or "Untitled"
     update_fields = _build_schedule_fields(fields, target_date)
+    fallback_note = ""
+    if chosen_source == "editing":
+        fallback_note = (
+            " (Editing done fallback; Combined Media File + Translated subtitles)"
+        )
+    elif chosen_source == "translation":
+        fallback_note = (
+            " (Translation done fallback; Combined Media File + Translated subtitles)"
+        )
 
     if dry_run:
         emit(
             f"Publish schedule preview for {target_date.isoformat()}: "
-            f"{record_id}\t{title}"
+            f"{record_id}\t{title}{fallback_note}"
         )
         for label, value in update_fields.items():
             emit(f"  {label}: {value}")
@@ -534,7 +686,7 @@ def schedule_tomorrow_publish(
     airtable.update_record_fields(record_id, update_fields)
     emit(
         f"Publish schedule applied for {target_date.isoformat()}: "
-        f"{record_id}\t{title}"
+        f"{record_id}\t{title}{fallback_note}"
     )
     for label, value in update_fields.items():
         emit(f"  {label}: {value}")
