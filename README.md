@@ -102,7 +102,7 @@ Optional (read by workflows when set):
 
 | Variable | Purpose |
 |----------|---------|
-| `HAPPYSCRIBE_REVIEW_URL` | Optional HappyScribe library for performing a final review before moving the files to HAPPYSCRIBE_URL for publishing. |
+| `HAPPYSCRIBE_REVIEW_URL` | HappyScribe library for performing a review before moving the files to HAPPYSCRIBE_URL for publishing. |
 | `TRANSLATION_MODEL` | Override the default model (`claude-sonnet-4-6` for Anthropic, `gpt-4o-mini` for OpenAI) |
 
 ### Add a new language
