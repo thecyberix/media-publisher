@@ -78,8 +78,13 @@ def render_monthly_quotes(
     if day is not None:
         quotes = [quote for quote in quotes if quote.day == day]
     if not quotes:
+        scope = (
+            f"{year}-{month:02d}-{day:02d}"
+            if day is not None
+            else f"{year}-{month:02d}"
+        )
         raise QuotesRenderPipelineError(
-            f"No quote rows found for {year}-{month:02d} in the configured spreadsheet."
+            f"No quote rows found for {scope} in the configured spreadsheet."
         )
 
     drive_config = config.backgrounds_drive
@@ -179,8 +184,14 @@ def resolve_quote_days_to_prepare(
     month: int,
     publish_mode: str,
     reference_date: date | None,
+    platforms: tuple[str, ...] | None = None,
 ) -> set[int]:
-    """Return calendar days that need rendered images for this publish run."""
+    """Return calendar days that need rendered images for this publish run.
+
+    In staggered mode, Instagram uses today's quote and YouTube/Facebook use
+    tomorrow's. When ``platforms`` is set, only days needed for those platforms
+    are prepared (so an Instagram-only run does not require tomorrow's row).
+    """
     days_in_month = calendar.monthrange(year, month)[1]
     all_days = set(range(1, days_in_month + 1))
 
@@ -189,10 +200,17 @@ def resolve_quote_days_to_prepare(
             raise QuotesRenderPipelineError(
                 "reference_date is required for staggered quote publish"
             )
-        days = {reference_date.day}
-        tomorrow = reference_date + timedelta(days=1)
-        if tomorrow.year == year and tomorrow.month == month:
-            days.add(tomorrow.day)
+        need_today = platforms is None or "instagram" in platforms
+        need_tomorrow = platforms is None or any(
+            platform in platforms for platform in ("youtube", "facebook")
+        )
+        days: set[int] = set()
+        if need_today:
+            days.add(reference_date.day)
+        if need_tomorrow:
+            tomorrow = reference_date + timedelta(days=1)
+            if tomorrow.year == year and tomorrow.month == month:
+                days.add(tomorrow.day)
         return days & all_days
 
     if reference_date is not None:
@@ -241,6 +259,7 @@ def prepare_quote_posts_for_publish(
     publish_hour: int,
     publish_mode: str,
     reference_date: date | None,
+    platforms: tuple[str, ...] | None = None,
     overwrite: bool = False,
 ) -> tuple[list[LocalQuotePost], dict[str, Path]]:
     """Render quote images from Sheet text + Drive backgrounds and build publish posts."""
@@ -249,37 +268,68 @@ def prepare_quote_posts_for_publish(
         month=month,
         publish_mode=publish_mode,
         reference_date=reference_date,
+        platforms=platforms,
     )
     if not days:
         return [], {}
 
+    available_days = {
+        quote.day
+        for quote in load_monthly_quote_texts(
+            sheets_client,
+            config,
+            year=year,
+            month=month,
+        )
+    }
+    requested_days = sorted(days)
+    days = days & available_days
+    if not days:
+        requested = ", ".join(
+            f"{year}-{month:02d}-{day:02d}" for day in requested_days
+        )
+        raise QuotesRenderPipelineError(
+            f"No quote rows found for {requested} in the configured spreadsheet."
+        )
+
+    need_instagram = platforms is None or "instagram" in platforms
+    need_fbyt = platforms is None or any(
+        platform in platforms for platform in ("youtube", "facebook")
+    )
+    # Posts are built from FB/YT renders; Instagram still needs a post shell even
+    # when YouTube/Facebook are not publishing in this run.
+    if need_instagram:
+        need_fbyt = True
+
     fbyt_renders: list[RenderedQuoteImage] = []
     ig_renders: list[RenderedQuoteImage] = []
     for day in sorted(days):
-        fbyt_renders.extend(
-            render_monthly_quotes(
-                config=config,
-                sheets_client=sheets_client,
-                drive_client=drive_client,
-                year=year,
-                month=month,
-                variants=("fbyt",),
-                overwrite=overwrite,
-                day=day,
+        if need_fbyt:
+            fbyt_renders.extend(
+                render_monthly_quotes(
+                    config=config,
+                    sheets_client=sheets_client,
+                    drive_client=drive_client,
+                    year=year,
+                    month=month,
+                    variants=("fbyt",),
+                    overwrite=overwrite,
+                    day=day,
+                )
             )
-        )
-        ig_renders.extend(
-            render_monthly_quotes(
-                config=config,
-                sheets_client=sheets_client,
-                drive_client=drive_client,
-                year=year,
-                month=month,
-                variants=("ig",),
-                overwrite=overwrite,
-                day=day,
+        if need_instagram:
+            ig_renders.extend(
+                render_monthly_quotes(
+                    config=config,
+                    sheets_client=sheets_client,
+                    drive_client=drive_client,
+                    year=year,
+                    month=month,
+                    variants=("ig",),
+                    overwrite=overwrite,
+                    day=day,
+                )
             )
-        )
 
     posts = build_local_quote_posts(
         fbyt_renders,

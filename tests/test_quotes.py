@@ -71,6 +71,26 @@ class QuoteRenderPlanningTests(unittest.TestCase):
         )
         self.assertEqual(days, {15, 16})
 
+    def test_resolve_quote_days_to_prepare_staggered_instagram_only(self) -> None:
+        days = resolve_quote_days_to_prepare(
+            year=2026,
+            month=7,
+            publish_mode="staggered",
+            reference_date=date(2026, 7, 15),
+            platforms=("instagram",),
+        )
+        self.assertEqual(days, {15})
+
+    def test_resolve_quote_days_to_prepare_staggered_youtube_facebook_only(self) -> None:
+        days = resolve_quote_days_to_prepare(
+            year=2026,
+            month=7,
+            publish_mode="staggered",
+            reference_date=date(2026, 7, 15),
+            platforms=("youtube", "facebook"),
+        )
+        self.assertEqual(days, {16})
+
     def test_resolve_quote_days_to_prepare_single_day(self) -> None:
         days = resolve_quote_days_to_prepare(
             year=2026,
@@ -79,6 +99,64 @@ class QuoteRenderPlanningTests(unittest.TestCase):
             reference_date=date(2026, 7, 15),
         )
         self.assertEqual(days, {15})
+
+    def test_prepare_skips_missing_tomorrow_in_staggered(self) -> None:
+        from media_publisher.quotes_render_pipeline import (
+            RenderedQuoteImage,
+            prepare_quote_posts_for_publish,
+        )
+        from media_publisher.sources.quotes_sheet import DailyQuoteText
+
+        today_quote = DailyQuoteText(
+            day=15,
+            publish_date=date(2026, 7, 15),
+            date_label="15 Jul 2026",
+            text_bg="Днешна цитат",
+        )
+        rendered = RenderedQuoteImage(
+            variant="fbyt",
+            day=15,
+            stem="2026-07-15",
+            image_path=Path("2026-07-15.jpg"),
+            caption="Днешна цитат",
+            layout_key="default",
+            line_count=1,
+            background_name="15.jpg",
+        )
+        ig_rendered = RenderedQuoteImage(
+            variant="ig",
+            day=15,
+            stem="2026-07-15",
+            image_path=Path("ig-2026-07-15.jpg"),
+            caption="Днешна цитат",
+            layout_key="default",
+            line_count=1,
+            background_name="15.jpg",
+        )
+
+        with patch(
+            "media_publisher.quotes_render_pipeline.load_monthly_quote_texts",
+            return_value=[today_quote],
+        ), patch(
+            "media_publisher.quotes_render_pipeline.render_monthly_quotes",
+            side_effect=[[rendered], [ig_rendered]],
+        ) as render_mock:
+            posts, ig_images = prepare_quote_posts_for_publish(
+                config=unittest.mock.Mock(),
+                sheets_client=unittest.mock.Mock(),
+                drive_client=unittest.mock.Mock(),
+                year=2026,
+                month=7,
+                publish_timezone="Europe/Sofia",
+                publish_hour=8,
+                publish_mode="staggered",
+                reference_date=date(2026, 7, 15),
+            )
+
+        self.assertEqual([post.stem for post in posts], ["2026-07-15"])
+        self.assertEqual(set(ig_images), {"2026-07-15"})
+        rendered_days = {call.kwargs["day"] for call in render_mock.call_args_list}
+        self.assertEqual(rendered_days, {15})
 
 
 class QuoteCanvaTitleTests(unittest.TestCase):

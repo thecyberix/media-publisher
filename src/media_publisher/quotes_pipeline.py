@@ -225,6 +225,7 @@ def run_quotes_pipeline(
             publish_hour=settings.publish_hour,
             publish_mode=settings.publish_mode,
             reference_date=settings.reference_date,
+            platforms=settings.platforms,
         )
     except QuotesRenderPipelineError as exc:
         print_line(f"Failed to prepare quote images: {exc}")
