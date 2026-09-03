@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
-from catalog_parser.airtable import FIELD_EDITOR, FIELD_STATUS, STATUS_TRANSLATION_DONE
+from catalog_parser.airtable import FIELD_EDITOR
 
 DEFAULT_EDITOR_LAST_ASSIGNED_PATH = Path("output") / "workflow" / "editor_last_assigned.json"
 DEFAULT_WORKFLOW_TIMEZONE = "Europe/Sofia"
 SIR_TRANSLATESALOT = "Sir Translatesalot"
-IDLE_EDITOR_GRACE_DAYS = 7
+# Monday. Later days catch up if this week's fill did not complete.
+EDITOR_ASSIGNMENT_WEEKDAY = 0
 
 
 def editor_last_assigned_path(project_root: Path) -> Path:
@@ -21,6 +22,16 @@ def workflow_today(*, timezone_name: str = DEFAULT_WORKFLOW_TIMEZONE) -> date:
     from media_publisher.timezones import get_timezone
 
     return datetime.now(get_timezone(timezone_name)).date()
+
+
+def this_week_assignment_date(
+    today: date,
+    *,
+    weekday: int = EDITOR_ASSIGNMENT_WEEKDAY,
+) -> date:
+    """Most recent assignment weekday on or before ``today`` (Monday by default)."""
+    offset = (today.weekday() - weekday) % 7
+    return today - timedelta(days=offset)
 
 
 def load_editor_last_assigned(path: Path) -> dict[str, date]:
@@ -79,18 +90,6 @@ def _editor_name(fields: dict[str, Any]) -> str | None:
     return stripped or None
 
 
-def _has_active_editing_queue(records: list[dict[str, Any]], editor_name: str) -> bool:
-    for record in records:
-        fields = record.get("fields")
-        if not isinstance(fields, dict):
-            continue
-        if _editor_name(fields) != editor_name:
-            continue
-        if fields.get(FIELD_STATUS) == STATUS_TRANSLATION_DONE:
-            return True
-    return False
-
-
 def seed_editor_last_assigned(
     assigned: dict[str, date],
     *,
@@ -102,9 +101,7 @@ def seed_editor_last_assigned(
     """Record new assignments from the current table snapshot.
 
     Existing records whose Editor field newly appears are treated as assigned today.
-    Editors who currently hold Translation done work with no stored date are marked
-    assigned today so a soon-empty queue is not treated as "never assigned."
-    Idle editors with no stored date are left unknown (eligible to ingest).
+    Editors with no stored date stay unknown so the weekly assignment can still run.
     """
     names = {name.strip() for name in editor_names if name.strip()}
     previous_by_id: dict[str, dict[str, Any]] = {}
@@ -132,9 +129,3 @@ def seed_editor_last_assigned(
         previous_editor = _editor_name(previous_fields)
         if previous_editor != editor:
             mark_editor_assigned(assigned, editor, when=today)
-
-    for name in names:
-        if name in assigned:
-            continue
-        if _has_active_editing_queue(records, name):
-            assigned[name] = today

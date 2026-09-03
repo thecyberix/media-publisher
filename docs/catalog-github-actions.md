@@ -399,11 +399,13 @@ Paste as one secret value (minified JSON):
 
 Field names must match Airtable **Translator** / **Editor** / **Timing Editor** single-select values. Optional translator `preferred_editor` routes that translator's videos to a specific editor (type preference ignored) and those assignments run first in a workflow pass.
 
-### Idle editor ingest (Translation done)
+### Weekly editor assignment (Translation done)
 
-If an editor has **no** videos in `2. Translation done` **and** their last new assignment was **at least 7 days ago** (Europe/Sofia), the daily orchestrator ingests a week of work directly into Translation done and assigns it to them. The queue only has to be empty *now*; we do not wait an extra week after it empties. Translator is set to **Sir Translatesalot**. Count and type follow that editor's `weekly_capacity_reels` and `preferred_editing_type`; with no type preference, the same reel/video ratio as translator ingest is used.
+Each **Monday** (Europe/Sofia; later days catch up if that week's assignment did not complete), the orchestrator assigns every editor a **new** batch equal to `weekly_capacity_reels`, independent of videos still in their queue. Work comes from **unassigned** `2. Translation done` rows of the matching `preferred_editing_type` (translator `preferred_editor` still wins and ignores type).
 
-Last-assigned dates live in `output/workflow/editor_last_assigned.json` (updated when an editor is assigned or idle-ingested) and are restored with the daily `workflow-state` artifact. That gap gives human translators a week to fill the queue after each assignment.
+When the unassigned pool is short, or has the wrong type, the rest of that week's batch is ingested directly into Translation done, assigned to that editor, with Translator **Sir Translatesalot**. Editors who already received this week's batch are not given another one mid-week even if they finish early.
+
+Last-assigned dates live in `output/workflow/editor_last_assigned.json` (written when a week's fill succeeds) and are restored with the daily `workflow-state` artifact.
 
 ## Repository variables (optional)
 

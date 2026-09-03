@@ -25,9 +25,9 @@ from catalog_parser.workflow.editor_idle import (
 from catalog_parser.workflow.rules import (
     WorkflowActionType,
     is_workflow_type,
-    plan_idle_editor_ingest_actions,
     plan_ingest_actions,
     plan_record_actions,
+    plan_weekly_editor_assignment_actions,
     resolve_assign_editor_actions,
     resolve_assign_timing_editor_actions,
 )
@@ -167,7 +167,7 @@ def run_workflow(
         try:
             previous_records = TableCache.from_backup_file(previous_path).records
         except ValueError as exc:
-            print(f"Warning: could not load previous backup for editor idle clock: {exc}")
+            print(f"Warning: could not load previous backup for editor last-assigned: {exc}")
     seed_editor_last_assigned(
         last_assigned,
         records=ingest_records,
@@ -175,15 +175,15 @@ def run_workflow(
         editor_names=editor_names,
         today=today,
     )
-    planned_actions.extend(
-        plan_idle_editor_ingest_actions(
-            ingest_records,
-            editors=editor_slots,
-            last_assigned=last_assigned,
-            today=today,
-            target_reel_to_video_ratio=config.target_reel_to_video_ratio,
-        )
+    weekly_actions, weekly_editors = plan_weekly_editor_assignment_actions(
+        ingest_records,
+        editors=editor_slots,
+        last_assigned=last_assigned,
+        today=today,
+        target_reel_to_video_ratio=config.target_reel_to_video_ratio,
+        preferred_editors_by_translator=preferred_editors_by_translator,
     )
+    planned_actions.extend(weekly_actions)
     planned_actions.extend(
         plan_ingest_actions(
             ingest_records,
@@ -193,6 +193,8 @@ def run_workflow(
             editor_names=editor_names,
         )
     )
+
+    weekly_failed_editors: set[str] = set()
 
     if not planned_actions:
         print("No workflow actions planned.")
@@ -237,24 +239,24 @@ def run_workflow(
             status = "OK" if result.success else "FAIL"
             print(f"    -> {status}: {result.message}")
             if (
-                result.success
-                and not dry_run
+                action in weekly_actions
                 and action.editor_name
-                and action.action_type
-                in {
-                    WorkflowActionType.ASSIGN_EDITOR,
-                    WorkflowActionType.INGEST_FOR_EDITOR,
-                }
+                and not result.success
             ):
-                mark_editor_assigned(last_assigned, action.editor_name, when=today)
+                weekly_failed_editors.add(action.editor_name)
 
         failures = sum(1 for result in results if not result.success)
         if not dry_run:
+            for editor_name in weekly_editors:
+                if editor_name not in weekly_failed_editors:
+                    mark_editor_assigned(last_assigned, editor_name, when=today)
             save_editor_last_assigned(last_assigned_path, last_assigned)
         if failures:
             return 1
 
     if not planned_actions and not dry_run:
+        for editor_name in weekly_editors:
+            mark_editor_assigned(last_assigned, editor_name, when=today)
         save_editor_last_assigned(last_assigned_path, last_assigned)
 
     approved_result = process_approved_review_thumbnails_in_workflow(

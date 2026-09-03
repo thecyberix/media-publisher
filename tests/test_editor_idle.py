@@ -11,6 +11,7 @@ from catalog_parser.workflow.editor_idle import (
     mark_editor_assigned,
     save_editor_last_assigned,
     seed_editor_last_assigned,
+    this_week_assignment_date,
 )
 
 
@@ -38,6 +39,20 @@ class EditorLastAssignedTests(unittest.TestCase):
         mark_editor_assigned(assigned, "Nina Rueva", when=date(2026, 8, 21))
         self.assertEqual(assigned["Nina Rueva"], date(2026, 8, 21))
 
+    def test_this_week_assignment_date_is_monday(self) -> None:
+        self.assertEqual(
+            this_week_assignment_date(date(2026, 8, 24)),
+            date(2026, 8, 24),
+        )
+        self.assertEqual(
+            this_week_assignment_date(date(2026, 8, 28)),
+            date(2026, 8, 24),
+        )
+        self.assertEqual(
+            this_week_assignment_date(date(2026, 8, 23)),
+            date(2026, 8, 17),
+        )
+
     def test_seed_does_not_start_clock_for_unknown_idle_editor(self) -> None:
         assigned: dict[str, date] = {}
         seed_editor_last_assigned(
@@ -49,7 +64,7 @@ class EditorLastAssignedTests(unittest.TestCase):
         )
         self.assertNotIn("Nina Rueva", assigned)
 
-    def test_seed_marks_unknown_editor_who_currently_has_work(self) -> None:
+    def test_seed_does_not_mark_unknown_editor_who_currently_has_work(self) -> None:
         assigned: dict[str, date] = {}
         seed_editor_last_assigned(
             assigned,
@@ -66,7 +81,7 @@ class EditorLastAssignedTests(unittest.TestCase):
             editor_names=["Nina Rueva"],
             today=date(2026, 8, 28),
         )
-        self.assertEqual(assigned["Nina Rueva"], date(2026, 8, 28))
+        self.assertNotIn("Nina Rueva", assigned)
 
     def test_seed_marks_editor_when_field_newly_set(self) -> None:
         assigned: dict[str, date] = {}

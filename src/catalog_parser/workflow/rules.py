@@ -83,7 +83,6 @@ def plan_record_actions(
     combined_media = fields.get(FIELD_COMBINED_MEDIA_FILE)
     translated_subtitles = fields.get(FIELD_TRANSLATED_SUBTITLES)
     translation_resources = fields.get(FIELD_TRANSLATION_RESOURCES)
-    editor = fields.get(FIELD_EDITOR)
     timing_editor = fields.get(FIELD_TIMING_EDITOR)
 
     if not is_workflow_type(record_type):
@@ -91,16 +90,6 @@ def plan_record_actions(
 
     actions: list[WorkflowAction] = []
     title_text = title if isinstance(title, str) else record_id
-
-    if status == STATUS_TRANSLATION_DONE and not editor:
-        actions.append(
-            WorkflowAction(
-                action_type=WorkflowActionType.ASSIGN_EDITOR,
-                record_id=record_id,
-                title=title_text,
-                reason="Translation done; needs editor assignment",
-            )
-        )
 
     if status == STATUS_EDITING_DONE and not timing_editor:
         actions.append(
@@ -577,32 +566,117 @@ def editor_due_for_weekly_assignment(
     *,
     last_assigned: date | None,
     today: date,
-    grace_days: int = 7,
+    assignment_weekday: int | None = None,
 ) -> bool:
-    """True on the same weekday next week (Monday → next Monday), not the day after.
+    """True until this week's assignment weekday fill has been recorded.
 
-    ``(today - last).days >= 7``: assigned Mon 17th is due Mon 24th, not Tue 25th.
+    Default weekday is Monday. Tuesday–Sunday catch up if last week's date is
+    still stored (Monday run missed or fill failed).
     """
+    from catalog_parser.workflow.editor_idle import (
+        EDITOR_ASSIGNMENT_WEEKDAY,
+        this_week_assignment_date,
+    )
+
+    weekday = (
+        EDITOR_ASSIGNMENT_WEEKDAY if assignment_weekday is None else assignment_weekday
+    )
+    week_date = this_week_assignment_date(today, weekday=weekday)
     if last_assigned is None:
         return True
-    return (today - last_assigned).days >= grace_days
+    return last_assigned < week_date
 
 
-def is_idle_editor_for_ingest(
+def _unassigned_translation_done_records(
     records: list[dict[str, Any]],
-    editor_name: str,
-    *,
-    last_assigned: dict[str, date],
-    today: date,
-    grace_days: int = 7,
-) -> bool:
-    if count_active_editing_reel_units(records, editor_name) > 0:
-        return False
-    return editor_due_for_weekly_assignment(
-        last_assigned=last_assigned.get(editor_name),
-        today=today,
-        grace_days=grace_days,
+) -> list[dict[str, Any]]:
+    unassigned: list[dict[str, Any]] = []
+    for record in records:
+        fields = record.get("fields")
+        if not isinstance(fields, dict):
+            continue
+        if fields.get(FIELD_STATUS) != STATUS_TRANSLATION_DONE:
+            continue
+        editor = fields.get(FIELD_EDITOR)
+        if isinstance(editor, str) and editor.strip():
+            continue
+        if not is_workflow_type(fields.get(FIELD_TYPE)):
+            continue
+        unassigned.append(record)
+    unassigned.sort(
+        key=lambda rec: (str(rec.get("createdTime") or ""), str(rec.get("id") or ""))
     )
+    return unassigned
+
+
+def _translator_preferred_editor(
+    fields: dict[str, Any],
+    preferred_editors_by_translator: dict[str, str],
+) -> str | None:
+    translator = fields.get(FIELD_TRANSLATOR)
+    if not isinstance(translator, str) or not translator.strip():
+        return None
+    return preferred_editors_by_translator.get(translator.strip())
+
+
+def _claim_unassigned_for_editor(
+    unassigned: list[dict[str, Any]],
+    *,
+    editor_name: str,
+    preferred_type: str | None,
+    remaining_units: int,
+    preferred_editors_by_translator: dict[str, str],
+    editor_names: frozenset[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    claimed: list[dict[str, Any]] = []
+    leftover: list[dict[str, Any]] = []
+    remaining = remaining_units
+
+    def try_claim(record: dict[str, Any], *, ignore_type: bool) -> None:
+        nonlocal remaining
+        fields = record.get("fields")
+        if not isinstance(fields, dict):
+            leftover.append(record)
+            return
+        units = record_reel_units(fields)
+        record_type = fields.get(FIELD_TYPE)
+        if units <= 0 or units > remaining:
+            leftover.append(record)
+            return
+        if not ignore_type and preferred_type and record_type != preferred_type:
+            leftover.append(record)
+            return
+        claimed.append(record)
+        remaining -= units
+
+    reserved_for_self: list[dict[str, Any]] = []
+    general: list[dict[str, Any]] = []
+    for record in unassigned:
+        fields = record.get("fields")
+        if not isinstance(fields, dict):
+            leftover.append(record)
+            continue
+        preferred = _translator_preferred_editor(
+            fields, preferred_editors_by_translator
+        )
+        if preferred == editor_name:
+            reserved_for_self.append(record)
+        elif preferred and preferred in editor_names:
+            leftover.append(record)
+        else:
+            general.append(record)
+
+    for record in reserved_for_self:
+        if remaining <= 0:
+            leftover.append(record)
+            continue
+        try_claim(record, ignore_type=True)
+    for record in general:
+        if remaining <= 0:
+            leftover.append(record)
+            continue
+        try_claim(record, ignore_type=False)
+    return claimed, leftover, remaining
 
 
 def stamp_pending_editor_ingest(
@@ -631,36 +705,73 @@ def stamp_pending_editor_ingest(
         )
 
 
-def plan_idle_editor_ingest_actions(
+def plan_weekly_editor_assignment_actions(
     records: list[dict[str, Any]],
     *,
     editors: list[tuple[str, int, str | None]],
     last_assigned: dict[str, date],
     today: date,
     target_reel_to_video_ratio: int,
-    grace_days: int = 7,
-) -> list[WorkflowAction]:
+    preferred_editors_by_translator: dict[str, str] | None = None,
+) -> tuple[list[WorkflowAction], list[str]]:
+    """Assign each due editor a full week of work from unassigned Translation done.
+
+    Already-assigned Translation done does not reduce this week's batch. Shortfall
+    (or the wrong type) is ingested as Translation done with translator Sir
+    Translatesalot. Returns actions plus editor names whose weekly pass was
+    attempted (mark last-assigned only if those actions succeed).
+    """
     from catalog_parser.workflow.editor_idle import SIR_TRANSLATESALOT
 
+    preferred_map = preferred_editors_by_translator or {}
+    editor_names = frozenset(name for name, _capacity, _preferred in editors)
     actions: list[WorkflowAction] = []
+    processed: list[str] = []
+    unassigned = _unassigned_translation_done_records(records)
     reels_pool, videos_pool = pool_type_counts(records)
 
     for editor_name, weekly_capacity_reels, preferred_type in editors:
-        if not is_idle_editor_for_ingest(
-            records,
-            editor_name,
-            last_assigned=last_assigned,
+        if not editor_due_for_weekly_assignment(
+            last_assigned=last_assigned.get(editor_name),
             today=today,
-            grace_days=grace_days,
         ):
             continue
+        processed.append(editor_name)
+        remaining = weekly_capacity_reels
+        claimed, unassigned, remaining = _claim_unassigned_for_editor(
+            unassigned,
+            editor_name=editor_name,
+            preferred_type=preferred_type,
+            remaining_units=remaining,
+            preferred_editors_by_translator=preferred_map,
+            editor_names=editor_names,
+        )
+        for record in claimed:
+            fields = record.get("fields")
+            if not isinstance(fields, dict):
+                continue
+            fields[FIELD_EDITOR] = editor_name
+            record_id = record.get("id")
+            title = fields.get(FIELD_TITLE)
+            title_text = title if isinstance(title, str) else str(record_id)
+            units = record_reel_units(fields)
+            actions.append(
+                WorkflowAction(
+                    action_type=WorkflowActionType.ASSIGN_EDITOR,
+                    record_id=record_id if isinstance(record_id, str) else None,
+                    title=title_text,
+                    editor_name=editor_name,
+                    reason=(
+                        f"weekly editor fill {editor_name}: assign {title_text} "
+                        f"({units}u)"
+                    ),
+                )
+            )
 
-        last = last_assigned.get(editor_name)
-        idle_days = (today - last).days if last is not None else grace_days
         chunks, reels_pool, videos_pool = plan_capacity_ingest_chunks(
             weekly_capacity_reels=weekly_capacity_reels,
             preferred_type=preferred_type,
-            active_units=0,
+            active_units=weekly_capacity_reels - remaining,
             reels_pool=reels_pool,
             videos_pool=videos_pool,
             target_reel_to_video_ratio=target_reel_to_video_ratio,
@@ -674,13 +785,19 @@ def plan_idle_editor_ingest_actions(
                 ingest_count=ingest_count,
                 target_status=STATUS_TRANSLATION_DONE,
                 reason=(
-                    f"idle editor {editor_name}: no assignment for {idle_days}d; "
+                    f"weekly editor fill {editor_name}: "
+                    f"{weekly_capacity_reels - remaining}/{weekly_capacity_reels} units; "
                     f"ingest {ingest_count} {ingest_type}(s) as Translation done"
                 ),
             )
             actions.append(action)
             stamp_pending_editor_ingest(records, action)
-    return actions
+            if ingest_type == TYPE_VIDEO:
+                remaining = max(0, remaining - VIDEO_REEL_EQUIVALENT)
+            else:
+                remaining = max(0, remaining - ingest_count)
+
+    return actions, processed
 
 
 def plan_ingest_actions(
