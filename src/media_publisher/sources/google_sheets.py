@@ -10,10 +10,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from media_publisher.transient_retry import (
+    call_with_transient_retry,
+    is_transient_exception,
+    is_transient_http_status,
+)
+
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+SHEETS_REQUEST_TIMEOUT_SECONDS = 120
 
 
 class GoogleSheetsError(RuntimeError):
@@ -37,6 +44,28 @@ def _format_sheets_http_error(status_code: int, detail: str) -> str:
 
 def _is_protected_cell_error(exc: GoogleSheetsError) -> bool:
     return "protected cell" in str(exc).casefold()
+
+
+def _is_transient_sheets_error(exc: BaseException) -> bool:
+    """Classify urllib Sheets failures without retrying permanent HTTP errors.
+
+    ``HTTPError`` is an ``OSError``, so the generic transient helper would retry
+    400/403/404 as well. Check status first, then other network/timeouts.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        return is_transient_http_status(exc.code)
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    return is_transient_exception(exc)
+
+
+def _read_sheets_response(request: urllib.request.Request) -> bytes:
+    with urllib.request.urlopen(
+        request, timeout=SHEETS_REQUEST_TIMEOUT_SECONDS
+    ) as response:
+        return response.read()
 
 
 @dataclass(frozen=True)
@@ -143,13 +172,17 @@ class GoogleSheetsClient:
             for key, value in headers.items():
                 request.add_header(key, value)
         try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                body = response.read()
+            body = call_with_transient_retry(
+                lambda: _read_sheets_response(request),
+                is_transient=_is_transient_sheets_error,
+            )
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace").strip()
             raise GoogleSheetsError(
                 _format_sheets_http_error(exc.code, detail)
             ) from exc
+        except TimeoutError as exc:
+            raise GoogleSheetsError("Google Sheets request timed out") from exc
         except urllib.error.URLError as exc:
             raise GoogleSheetsError(f"Google Sheets request failed: {exc.reason}") from exc
 
