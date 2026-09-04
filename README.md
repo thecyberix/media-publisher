@@ -28,6 +28,7 @@ python -m media_publisher --help
 python -m media_publisher --check-config
 python -m media_publisher                  # publish today's catalog videos
 python -m media_publisher --quotes           # publish today's quote posts
+python -m media_publisher --prepare-quote-texts  # sync EN quotes + AI/reuse BG text
 
 python -m catalog_parser                   # daily translation workflow (default)
 python -m catalog_parser ingest            # parse Google Sheet → enrich → Airtable
@@ -91,7 +92,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | `PUBLISH_JSON` | Publish schedule, e.g. `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}` |
 | `SMARTLINK_URL` | Metricool Smartlink URL used in captions |
 | `TARGET_LANGUAGE` | Language name for channel-report sheet tab and related copy (e.g. `Bulgarian`) |
-| `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes |
+| `ENGLISH_QUOTES_URL` | English source quotes spreadsheet (required for `--prepare-quote-texts`) |
 | `TRANSLATION_PROVIDER` | `anthropic` or `openai` (case-insensitive); `none` skips AI translation |
 | `WORKFLOW_PROFILES_JSON` | JSON with `translators`, `editors`, and `timing_editors` arrays |
 | `YOUTUBE_CHANNEL_HANDLE` | YouTube channel handle (no `@`) |

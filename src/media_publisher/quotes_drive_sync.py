@@ -247,12 +247,17 @@ def sync_generated_quotes_for_month(
     changes: list[GeneratedQuoteChange] = []
 
     try:
+        from media_publisher.quotes_text_sync import resolve_bulgarian_spreadsheet_id
+
         quotes = load_monthly_quote_texts(
             sheets_client,
             config,
             year=year,
             month=month,
             require_ready=True,
+            spreadsheet_id=resolve_bulgarian_spreadsheet_id(
+                drive=drive_client, config=config, year=year
+            ),
         )
     except (QuotesSheetError, GoogleSheetsError) as exc:
         warnings.append(f"{year:04d}-{month:02d}: skipped sheet ({exc})")

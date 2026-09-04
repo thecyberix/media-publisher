@@ -14,7 +14,7 @@ from media_publisher.sources.quotes_config import (
 )
 
 
-class TranslatedQuotesUrlTests(unittest.TestCase):
+class EnglishQuotesUrlTests(unittest.TestCase):
     def test_extract_spreadsheet_id_from_url_and_raw_id(self) -> None:
         self.assertEqual(
             extract_spreadsheet_id(
@@ -27,7 +27,7 @@ class TranslatedQuotesUrlTests(unittest.TestCase):
             "13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec",
         )
 
-    def test_load_quotes_sources_config_applies_translated_quotes_url(self) -> None:
+    def test_load_quotes_sources_config_applies_english_quotes_url(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "quotes_sources.json"
             path.write_text(
@@ -46,15 +46,16 @@ class TranslatedQuotesUrlTests(unittest.TestCase):
             )
             url = (
                 "https://docs.google.com/spreadsheets/d/"
-                "13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec/edit"
+                "1cZbIZB8uMdDNDTJVrtq8Tjo5C1eVmGZvGjZfXAl_U60/edit"
             )
-            with patch.dict(os.environ, {"TRANSLATED_QUOTES_URL": url}, clear=False):
+            with patch.dict(os.environ, {"ENGLISH_QUOTES_URL": url}, clear=False):
                 config = load_quotes_sources_config(path)
             self.assertEqual(
-                config.spreadsheet_id, "13Hj-v3bGVLs49ZutLx-LwQrcqUXoMcjIDNRP5h0Qmec"
+                config.english_spreadsheet_id,
+                "1cZbIZB8uMdDNDTJVrtq8Tjo5C1eVmGZvGjZfXAl_U60",
             )
 
-    def test_spreadsheet_id_requires_translated_quotes_url(self) -> None:
+    def test_english_spreadsheet_id_requires_url(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "quotes_sources.json"
             path.write_text(
@@ -68,10 +69,10 @@ class TranslatedQuotesUrlTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch.dict(os.environ, {"TRANSLATED_QUOTES_URL": ""}, clear=False):
+            with patch.dict(os.environ, {"ENGLISH_QUOTES_URL": ""}, clear=False):
                 config = load_quotes_sources_config(path)
                 with self.assertRaises(QuotesConfigError):
-                    _ = config.spreadsheet_id
+                    _ = config.english_spreadsheet_id
 
 
 if __name__ == "__main__":

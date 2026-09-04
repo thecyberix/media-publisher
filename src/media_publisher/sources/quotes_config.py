@@ -15,11 +15,15 @@ class QuotesConfigError(RuntimeError):
 SPREADSHEET_ID_PATTERN = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
 
 
-def extract_spreadsheet_id(value: str) -> str:
+def extract_spreadsheet_id(
+    value: str,
+    *,
+    env_name: str = "ENGLISH_QUOTES_URL",
+) -> str:
     text = (value or "").strip()
     if not text:
         raise QuotesConfigError(
-            "TRANSLATED_QUOTES_URL is required (Google Sheet URL or spreadsheet id)"
+            f"{env_name} is required (Google Sheet URL or spreadsheet id)"
         )
     match = SPREADSHEET_ID_PATTERN.search(text)
     if match:
@@ -27,25 +31,25 @@ def extract_spreadsheet_id(value: str) -> str:
     if re.fullmatch(r"[a-zA-Z0-9-_]+", text):
         return text
     raise QuotesConfigError(
-        "Invalid TRANSLATED_QUOTES_URL. Expected "
+        f"Invalid {env_name}. Expected "
         "https://docs.google.com/spreadsheets/d/<id>/..."
     )
 
 
-def translated_quotes_url_from_env() -> str:
-    return os.getenv("TRANSLATED_QUOTES_URL", "").strip()
+def english_quotes_url_from_env() -> str:
+    return os.getenv("ENGLISH_QUOTES_URL", "").strip()
 
 
-def apply_translated_quotes_url(payload: dict[str, Any]) -> dict[str, Any]:
-    url = translated_quotes_url_from_env()
+def apply_english_quotes_url(payload: dict[str, Any]) -> dict[str, Any]:
+    url = english_quotes_url_from_env()
     if not url:
         return payload
-    sheet_id = extract_spreadsheet_id(url)
+    sheet_id = extract_spreadsheet_id(url, env_name="ENGLISH_QUOTES_URL")
     updated = dict(payload)
-    sheet = dict(updated.get("quotes_sheet") or {})
-    sheet["spreadsheet_id"] = sheet_id
-    sheet["spreadsheet_url"] = url
-    updated["quotes_sheet"] = sheet
+    english = dict(updated.get("english_quotes") or {})
+    english["spreadsheet_id"] = sheet_id
+    english["spreadsheet_url"] = url
+    updated["english_quotes"] = english
     return updated
 
 
@@ -55,20 +59,41 @@ class QuotesSourcesConfig:
     payload: dict[str, Any]
 
     @property
-    def spreadsheet_id(self) -> str:
-        value = self.payload.get("quotes_sheet", {}).get("spreadsheet_id")
-        if not isinstance(value, str) or not value.strip():
-            raise QuotesConfigError(
-                "TRANSLATED_QUOTES_URL is required (Google Sheet URL or spreadsheet id)"
-            )
-        return value.strip()
-
-    @property
     def quotes_sheet(self) -> dict[str, Any]:
         sheet = self.payload.get("quotes_sheet")
         if not isinstance(sheet, dict):
             raise QuotesConfigError("quotes_sheet config is required")
         return sheet
+
+    @property
+    def english_quotes(self) -> dict[str, Any]:
+        english = self.payload.get("english_quotes")
+        if not isinstance(english, dict):
+            return {}
+        return english
+
+    def optional_english_spreadsheet_id(self) -> str | None:
+        value = self.english_quotes.get("spreadsheet_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    @property
+    def english_spreadsheet_id(self) -> str:
+        value = self.optional_english_spreadsheet_id()
+        if value:
+            return value
+        raise QuotesConfigError(
+            "ENGLISH_QUOTES_URL is required (Google Sheet URL or spreadsheet id)"
+        )
+
+    @property
+    def translated_quotes_drive(self) -> dict[str, Any]:
+        """Column/header settings for Bulgarian year workbooks under DRIVE_URL/Quotes."""
+        drive = self.payload.get("translated_quotes_drive")
+        if not isinstance(drive, dict):
+            return {}
+        return drive
 
     @property
     def backgrounds_drive(self) -> dict[str, Any]:
@@ -139,5 +164,5 @@ def load_quotes_sources_config(path: Path) -> QuotesSourcesConfig:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise QuotesConfigError(f"Invalid quotes sources config: {path}")
-    payload = apply_translated_quotes_url(payload)
+    payload = apply_english_quotes_url(payload)
     return QuotesSourcesConfig(path=path.resolve(), payload=payload)

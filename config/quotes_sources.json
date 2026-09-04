@@ -45,10 +45,27 @@
       }
     }
   },
+  "english_quotes": {
+    "sheet_title_pattern": "{month_abbr} {year}",
+    "date_column": "Date",
+    "english_columns": ["English", "Quote", "Quotes"],
+    "previously_posted_column": "Previously Posted on"
+  },
+  "translated_quotes_drive": {
+    "year_workbook_pattern": "Sadhguru Quotes Bulgarian {year}",
+    "date_column": "Date",
+    "english_column": "English",
+    "translation_column": "Translation",
+    "edited_column": "Edited",
+    "ready_column": "Ready",
+    "ready_column_candidates": ["Ready", "Proofread"],
+    "headers": ["Date", "English", "Translation", "Edited", "Ready", "Comment"]
+  },
   "quotes_sheet": {
     "sheet_title_pattern": "{month_abbr} {year}",
     "text_bg_column": "Translation",
     "text_en_column": "English",
+    "edited_column": "Edited",
     "ready_column": "Ready ",
     "date_column": "Date",
     "prefer_ready_text": true

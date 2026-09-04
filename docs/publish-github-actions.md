@@ -149,7 +149,7 @@ When Original Video Thumbnail is set but Drive override and Canva catalog have n
 
 | Variable | Used for |
 |----------|----------|
-| `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval` |
+| `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval`. Bulgarian quote year workbooks live in `Quotes`. |
 | `CANVA_URL` | Parent Canva folder; catalog thumbnails use `Long videos` and `Short videos` |
 | `HAPPYSCRIBE_URL` | Primary HappyScribe library for catalog video lookup. Required. If it has `Short videos` / `Long videos` children, only the folder matching the video type is searched. |
 | `HAPPYSCRIBE_REVIEW_URL` | Optional parent HappyScribe library. Publish also searches the type-matching child (`Short videos` or `Long videos`). Unset: skip that fallback. |
@@ -160,7 +160,7 @@ When Original Video Thumbnail is set but Drive override and Canva catalog have n
 | `META_INSTAGRAM_USERNAME` | Instagram username. Required for Meta publish. |
 | `TARGET_LANGUAGE` | Language key in `config/languages.json`. Required. |
 | `SMARTLINK_URL` | Metricool Smartlink for video captions. Required for publish. |
-| `TRANSLATED_QUOTES_URL` | Google Sheet of daily translated quotes. Required for quote publish. |
+| `ENGLISH_QUOTES_URL` | English source quotes spreadsheet. Required for `--prepare-quote-texts`. |
 | `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts. Unset: skip those emails. |
 | `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails. Unset: skip those emails. |
 | `PUBLISH_JSON` | Timezone and local hours: `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}`. Required. |

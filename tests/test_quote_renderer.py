@@ -17,10 +17,15 @@ from media_publisher.sources.quotes_sheet import parse_quote_sheet_date
 
 class QuoteSheetDateTests(unittest.TestCase):
     def test_parse_quote_sheet_date(self) -> None:
-        self.assertEqual(
-            parse_quote_sheet_date("1 Jul 2026"),
-            __import__("datetime").date(2026, 7, 1),
-        )
+        from datetime import date
+
+        self.assertEqual(parse_quote_sheet_date("1 Jul 2026"), date(2026, 7, 1))
+        self.assertEqual(parse_quote_sheet_date("31 July 2022"), date(2022, 7, 31))
+        self.assertEqual(parse_quote_sheet_date("09 December 2024"), date(2024, 12, 9))
+        self.assertEqual(parse_quote_sheet_date("12-Apr-24"), date(2024, 4, 12))
+        self.assertEqual(parse_quote_sheet_date("02-Jun-20"), date(2020, 6, 2))
+        self.assertIsNone(parse_quote_sheet_date(""))
+        self.assertIsNone(parse_quote_sheet_date("not a date"))
 
 
 class QuoteRendererTests(unittest.TestCase):

@@ -37,13 +37,16 @@ def probe_canva() -> None:
 
 
 def probe_sheets(*, year: int = 2026, month: int = 7) -> None:
+    from media_publisher.quotes_text_sync import resolve_bulgarian_spreadsheet_id
     from media_publisher.sources.quotes_config import load_quotes_sources_config
 
     config = load_quotes_sources_config(PROJECT_ROOT / "config" / "quotes_sources.json")
-    spreadsheet_id = config.spreadsheet_id
-
     sa_path = PROJECT_ROOT / "credentials" / "google-sheets-service-account.json"
     client = GoogleSheetsClient.from_service_account(sa_path)
+    drive = GoogleDriveClient.from_service_account(sa_path)
+    spreadsheet_id = resolve_bulgarian_spreadsheet_id(
+        drive=drive, config=config, year=year
+    )
     tab = client.resolve_sheet_tab_for_month(spreadsheet_id, year=year, month=month)
     print(f"[sheets] {year}-{month:02d} tab: {tab.title!r} (gid={tab.sheet_id})")
 

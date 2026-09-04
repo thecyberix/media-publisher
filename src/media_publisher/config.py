@@ -45,7 +45,7 @@ class Settings:
     canva_quotes_design_id: str | None = None
     quotes_publish_hour: int | None = None
     quotes_sources_config: str = "config/quotes_sources.json"
-    translated_quotes_url: str = ""
+    english_quotes_url: str = ""
     quotes_work_dir: str = "downloads/quotes"
     publish_timezone: str = ""
     videos_publish_hour: int | None = None
@@ -208,7 +208,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
             "QUOTES_SOURCES_CONFIG", "config/quotes_sources.json"
         ).strip()
         or "config/quotes_sources.json",
-        translated_quotes_url=os.getenv("TRANSLATED_QUOTES_URL", "").strip(),
+        english_quotes_url=os.getenv("ENGLISH_QUOTES_URL", "").strip(),
         quotes_work_dir=os.getenv("QUOTES_WORK_DIR", "downloads/quotes").strip()
         or "downloads/quotes",
         publish_timezone=publish_timing.timezone,
@@ -318,8 +318,6 @@ def missing_required_publish_settings(settings: Settings) -> list[str]:
         or settings.videos_publish_hour is None
     ):
         missing.append("PUBLISH_JSON")
-    if not settings.translated_quotes_url:
-        missing.append("TRANSLATED_QUOTES_URL")
     if not settings.smartlink_url:
         missing.append("SMARTLINK_URL")
     try:

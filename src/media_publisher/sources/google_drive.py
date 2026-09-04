@@ -12,6 +12,14 @@ from media_publisher.transient_retry import call_with_transient_retry
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document"
+GOOGLE_SHEETS_MIME_TYPE = "application/vnd.google-apps.spreadsheet"
+EXCEL_SHEETS_MIME_TYPES = frozenset(
+    {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    }
+)
+SPREADSHEET_MIME_TYPES = frozenset({GOOGLE_SHEETS_MIME_TYPE, *EXCEL_SHEETS_MIME_TYPES})
 DOCX_MIME_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
@@ -160,6 +168,62 @@ class GoogleDriveClient:
             if item.name.casefold().strip() == target:
                 return item
         return None
+
+    def list_spreadsheets(self, folder_id: str) -> list[DriveFile]:
+        """List Google Sheets and Excel workbooks in a folder."""
+        return [
+            item
+            for item in self.list_children(folder_id)
+            if item.mime_type in SPREADSHEET_MIME_TYPES
+        ]
+
+    def create_google_spreadsheet(self, parent_id: str, name: str) -> DriveFile:
+        """Create an empty Google Sheets file in a Drive folder."""
+        existing = self.find_child_by_name(parent_id, name)
+        if existing is not None and existing.mime_type == GOOGLE_SHEETS_MIME_TYPE:
+            return existing
+        try:
+            created = self._execute(
+                self._drive.files().create(
+                    body={
+                        "name": name,
+                        "mimeType": GOOGLE_SHEETS_MIME_TYPE,
+                        "parents": [parent_id],
+                    },
+                    fields="id,name,mimeType,md5Checksum,modifiedTime",
+                    supportsAllDrives=True,
+                )
+            )
+        except Exception as exc:
+            raise GoogleDriveError(
+                f"Failed to create spreadsheet {name!r} under {parent_id}: {exc}"
+            ) from exc
+        file_id = created.get("id")
+        file_name = created.get("name")
+        mime_type = created.get("mimeType")
+        if not (
+            isinstance(file_id, str)
+            and isinstance(file_name, str)
+            and isinstance(mime_type, str)
+        ):
+            raise GoogleDriveError(
+                f"Drive spreadsheet create for {name!r} returned an invalid response"
+            )
+        return DriveFile(
+            id=file_id,
+            name=file_name,
+            mime_type=mime_type,
+            md5_checksum=(
+                created.get("md5Checksum")
+                if isinstance(created.get("md5Checksum"), str)
+                else None
+            ),
+            modified_time=(
+                created.get("modifiedTime")
+                if isinstance(created.get("modifiedTime"), str)
+                else None
+            ),
+        )
 
     def find_child_folder(self, parent_id: str, folder_name: str) -> DriveFile | None:
         target = folder_name.casefold()

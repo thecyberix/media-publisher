@@ -442,6 +442,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--prepare-quote-texts",
+        action="store_true",
+        help=(
+            "Sync new/updated English quotes for the current and next month into the "
+            "Bulgarian quotes Drive folder, reuse prior Ready text when "
+            "'Previously Posted on' is set, otherwise AI-translate into Translation."
+        ),
+    )
+    parser.add_argument(
         "--platform",
         action="append",
         choices=["youtube", "facebook", "instagram"],
@@ -1196,6 +1205,7 @@ def cli_requested_action(args) -> bool:
             args.schedule_facebook,
             args.schedule_instagram,
             args.quotes,
+            args.prepare_quote_texts,
             args.watch is not None,
             args.inspect_channel_report,
             args.fix_channel_report_protection,
@@ -1559,9 +1569,66 @@ def validate_quotes_pipeline_settings(settings) -> list[str]:
         )
     if not (PROJECT_ROOT / settings.quotes_sources_config).exists():
         missing.append(f"Quotes sources config ({settings.quotes_sources_config})")
-    if not settings.translated_quotes_url:
-        missing.append("TRANSLATED_QUOTES_URL")
+    if not settings.drive_url:
+        missing.append("DRIVE_URL")
     return missing
+
+
+def run_prepare_quote_texts(settings, _args) -> int:
+    missing: list[str] = []
+    sa_path = PROJECT_ROOT / settings.google_sheets_service_account
+    if not sa_path.is_file():
+        missing.append(f"Google Sheets service account ({settings.google_sheets_service_account})")
+    if not (PROJECT_ROOT / settings.quotes_sources_config).exists():
+        missing.append(f"Quotes sources config ({settings.quotes_sources_config})")
+    if not settings.drive_url:
+        missing.append("DRIVE_URL")
+    if not settings.english_quotes_url:
+        missing.append("ENGLISH_QUOTES_URL")
+    if missing:
+        print("Missing required settings:", ", ".join(dict.fromkeys(missing)))
+        return 1
+
+    from datetime import datetime
+
+    from media_publisher.quotes_text_sync import (
+        QuotesTextSyncError,
+        sync_quote_texts_for_months,
+    )
+    from media_publisher.sources.quotes_config import (
+        QuotesConfigError,
+        load_quotes_sources_config,
+    )
+    from media_publisher.timezones import get_timezone
+
+    try:
+        quotes_config = load_quotes_sources_config(
+            PROJECT_ROOT / settings.quotes_sources_config
+        )
+        sheets_client = google_sheets_client_from_settings(settings)
+        drive_client = GoogleDriveClient.from_service_account(sa_path)
+        timezone_name = settings.publish_timezone or "Europe/Sofia"
+        reference = datetime.now(get_timezone(timezone_name)).date()
+        result = sync_quote_texts_for_months(
+            config=quotes_config,
+            sheets=sheets_client,
+            drive=drive_client,
+            reference_date=reference,
+            project_root=PROJECT_ROOT,
+            print_line=print_console,
+        )
+    except (QuotesConfigError, QuotesTextSyncError, GoogleSheetsError, GoogleDriveError) as exc:
+        print(f"Quote text prepare failed: {exc}")
+        return 1
+
+    for warning in result.warnings:
+        print_console(f"Warning: {warning}")
+    print_console(
+        "Quote text prepare complete: "
+        f"{result.added_count} added, {result.updated_count} updated, "
+        f"{result.reused_count} reused, {result.translated_count} AI-translated."
+    )
+    return 0
 
 
 def resolve_selected_platforms(args) -> tuple[PlatformName, ...] | None:
@@ -2628,6 +2695,9 @@ def main() -> int:
             capture_snapshots=not args.dry_run_channel_report,
         )
 
+    if args.prepare_quote_texts:
+        return run_prepare_quote_texts(settings, args)
+
     if args.quotes:
         return run_quotes_publish(settings, args)
 
@@ -2642,7 +2712,8 @@ def main() -> int:
         "--test-meta, --check-event-meta, --publish-event, --prune-past-events, "
         "--resolve-meta, "
         "--meta-setup-token, --schedule-youtube, "
-        "--schedule-facebook, --schedule-instagram, --quotes, --schedule, --watch, "
+        "--schedule-facebook, --schedule-instagram, --prepare-quote-texts, --quotes, "
+        "--schedule, --watch, "
         "--inspect-channel-report, or --update-channel-report"
     )
     return 2

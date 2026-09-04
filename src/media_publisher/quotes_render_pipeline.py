@@ -69,11 +69,16 @@ def render_monthly_quotes(
     overwrite: bool = False,
     day: int | None = None,
 ) -> list[RenderedQuoteImage]:
+    from media_publisher.quotes_text_sync import resolve_bulgarian_spreadsheet_id
+
     quotes = load_monthly_quote_texts(
         sheets_client,
         config,
         year=year,
         month=month,
+        spreadsheet_id=resolve_bulgarian_spreadsheet_id(
+            drive=drive_client, config=config, year=year
+        ),
     )
     if day is not None:
         quotes = [quote for quote in quotes if quote.day == day]
@@ -273,6 +278,8 @@ def prepare_quote_posts_for_publish(
     if not days:
         return [], {}
 
+    from media_publisher.quotes_text_sync import resolve_bulgarian_spreadsheet_id
+
     available_days = {
         quote.day
         for quote in load_monthly_quote_texts(
@@ -280,6 +287,9 @@ def prepare_quote_posts_for_publish(
             config,
             year=year,
             month=month,
+            spreadsheet_id=resolve_bulgarian_spreadsheet_id(
+                drive=drive_client, config=config, year=year
+            ),
         )
     }
     requested_days = sorted(days)

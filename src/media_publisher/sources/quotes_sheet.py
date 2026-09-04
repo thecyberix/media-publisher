@@ -1,16 +1,40 @@
 from __future__ import annotations
 
+import calendar
 import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from media_publisher.sources.google_sheets import GoogleSheetsClient, GoogleSheetsError
+from media_publisher.sources.google_sheets import (
+    GoogleSheetsClient,
+    GoogleSheetsError,
+    SheetTab,
+    format_sheet_tab_title,
+)
 from media_publisher.sources.quotes_config import QuotesSourcesConfig
 
 SHEET_DATE_RE = re.compile(
     r"^(?P<day>\d{1,2})\s+(?P<month>[A-Za-z]+)\s+(?P<year>\d{4})$"
 )
+SHEET_DATE_DASH_RE = re.compile(
+    r"^(?P<day>\d{1,2})-(?P<month>[A-Za-z]+)-(?P<year>\d{2,4})$"
+)
+
+_MONTH_MAP = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
 
 
 class QuotesSheetError(RuntimeError):
@@ -40,30 +64,53 @@ def _cell(row: list[str], index: int | None) -> str:
     return row[index].strip()
 
 
+def _resolve_year(raw: str) -> int:
+    year = int(raw)
+    if len(raw) == 2:
+        # Quote archive dates are 2000+ (e.g. 12-Apr-24 → 2024).
+        return 2000 + year
+    return year
+
+
 def parse_quote_sheet_date(value: str) -> date | None:
-    match = SHEET_DATE_RE.match(value.strip())
+    text = (value or "").strip()
+    if not text:
+        return None
+    match = SHEET_DATE_RE.match(text) or SHEET_DATE_DASH_RE.match(text)
     if match is None:
         return None
-    month_name = match.group("month").casefold()
-    month_map = {
-        "jan": 1,
-        "feb": 2,
-        "mar": 3,
-        "apr": 4,
-        "may": 5,
-        "jun": 6,
-        "jul": 7,
-        "aug": 8,
-        "sep": 9,
-        "oct": 10,
-        "nov": 11,
-        "dec": 12,
-    }
-    month_key = month_name[:3]
-    month = month_map.get(month_key)
+    month = _MONTH_MAP.get(match.group("month").casefold()[:3])
     if month is None:
         return None
-    return date(int(match.group("year")), month, int(match.group("day")))
+    try:
+        return date(_resolve_year(match.group("year")), month, int(match.group("day")))
+    except ValueError:
+        return None
+
+
+def resolve_month_quote_tab(
+    client: GoogleSheetsClient,
+    spreadsheet_id: str,
+    *,
+    year: int,
+    month: int,
+) -> SheetTab:
+    """Resolve a month tab, accepting both 'Jul 2024' and 'July 2024' titles."""
+    candidates = [
+        format_sheet_tab_title(year, month),
+        f"{calendar.month_name[month]} {year}",
+    ]
+    tabs = client.list_tabs(spreadsheet_id)
+    by_title = {tab.title.casefold().strip(): tab for tab in tabs}
+    for name in candidates:
+        match = by_title.get(name.casefold().strip())
+        if match is not None:
+            return match
+    return client.resolve_sheet_tab_for_month(
+        spreadsheet_id,
+        year=year,
+        month=month,
+    )
 
 
 def load_monthly_quote_texts(
@@ -73,15 +120,23 @@ def load_monthly_quote_texts(
     year: int,
     month: int,
     require_ready: bool = False,
+    spreadsheet_id: str | None = None,
 ) -> list[DailyQuoteText]:
     sheet_config = config.quotes_sheet
-    tab = client.resolve_sheet_tab_for_month(
-        config.spreadsheet_id,
+    resolved_id = spreadsheet_id
+    if not resolved_id:
+        raise QuotesSheetError(
+            "spreadsheet_id is required "
+            "(resolve the Bulgarian year workbook under DRIVE_URL/Quotes)"
+        )
+    tab = resolve_month_quote_tab(
+        client,
+        resolved_id,
         year=year,
         month=month,
     )
     escaped = tab.title.replace("'", "''")
-    rows = client.get_values(config.spreadsheet_id, f"'{escaped}'!A:Z")
+    rows = client.get_values(resolved_id, f"'{escaped}'!A:Z")
     if not rows:
         return []
 
@@ -98,6 +153,10 @@ def load_monthly_quote_texts(
     ready_index = _column_index(
         headers,
         str(sheet_config.get("ready_column", "Ready")),
+    )
+    edited_index = _column_index(
+        headers,
+        str(sheet_config.get("edited_column", "Edited")),
     )
     if date_index is None:
         raise QuotesSheetError("Quotes sheet is missing a Date column")
@@ -118,13 +177,14 @@ def load_monthly_quote_texts(
             continue
 
         ready_text = _cell(row, ready_index)
+        edited_text = _cell(row, edited_index)
         translation_text = _cell(row, translation_index)
         if require_ready:
             if not ready_text:
                 continue
             text_bg = ready_text
-        elif prefer_ready and ready_text:
-            text_bg = ready_text
+        elif prefer_ready:
+            text_bg = ready_text or edited_text or translation_text
         else:
             text_bg = translation_text
         if not text_bg:

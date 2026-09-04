@@ -1,0 +1,65 @@
+name: Prepare quote translations
+
+# Sync English quotes → Bulgarian month sheets (AI translate / reuse Ready).
+# Primary schedule: external cron (cron-job.org) → workflow_dispatch.
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: Optional year override (leave empty for current+next month)
+        required: false
+        type: string
+        default: ""
+      month:
+        description: Optional month override 1-12 (requires year)
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: prepare-quote-texts
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+  DRIVE_URL: ${{ vars.DRIVE_URL }}
+  ENGLISH_QUOTES_URL: ${{ vars.ENGLISH_QUOTES_URL }}
+  TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
+  TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
+  TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
+  TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
+  PUBLISH_JSON: ${{ vars.PUBLISH_JSON }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          extras: sheets
+
+      - name: Restore translation corpus
+        run: |
+          mkdir -p data/corpus
+          if [ -f data/translation-corpus.tar.gz ]; then
+            tar -xzf data/translation-corpus.tar.gz -C data/corpus
+          else
+            echo "No translation corpus archive; AI quotes will use plain prompts"
+          fi
+
+      - name: Prepare quote texts
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "${{ inputs.year }}" ] && [ -n "${{ inputs.month }}" ]; then
+            EXTRA_ARGS="--year ${{ inputs.year }} --month ${{ inputs.month }}"
+          fi
+          python scripts/prepare_quote_texts.py ${EXTRA_ARGS}
