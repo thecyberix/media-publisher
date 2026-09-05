@@ -140,7 +140,10 @@ class QuoteRenderPlanningTests(unittest.TestCase):
         ), patch(
             "media_publisher.quotes_render_pipeline.render_monthly_quotes",
             side_effect=[[rendered], [ig_rendered]],
-        ) as render_mock:
+        ) as render_mock, patch(
+            "media_publisher.quotes_text_sync.resolve_bulgarian_spreadsheet_id",
+            return_value="bg-quotes-sheet",
+        ):
             posts, ig_images = prepare_quote_posts_for_publish(
                 config=unittest.mock.Mock(),
                 sheets_client=unittest.mock.Mock(),
