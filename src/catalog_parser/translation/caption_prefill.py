@@ -141,7 +141,10 @@ def resolve_english_caption_lines(
     config: ChatConfig,
     drive_service: Resource | None = None,
 ) -> tuple[list[str], str | None]:
-    """Return (lines, source) with thumbnail vision first, Drive TN fallback."""
+    """Return (caption lines, source) with thumbnail vision first, Drive TN fallback.
+
+    Vision keeps only the designed overlay caption, not extra text on the image.
+    """
     try:
         vision_lines = extract_english_caption_from_thumbnail(record, config=config)
     except Exception:

@@ -134,14 +134,19 @@ def metadata_caption_system_prompt() -> str:
     )
 
 CAPTION_EXTRACT_PROMPT = (
-    "Extract the English overlay caption text from this video thumbnail image.\n"
-    "Return ONLY a JSON array of strings, one string per visual caption line "
-    "from top to bottom (e.g. [\"Line one\", \"Line two\"]).\n"
-    "Preserve the capitalization of each line as shown in the image.\n"
-    "Prefer complete caption lines over omitting part of the headline; a little "
-    "extra overlay text is better than missing title lines.\n"
-    "Ignore watermarks, logos, channel names, and non-caption UI chrome.\n"
-    "If there is no readable caption text, return []."
+    "Extract only the designed English thumbnail caption from this image.\n"
+    "The caption is the main title/headline overlay that should be translated. "
+    "Do not return every string on the image.\n"
+    "Return ONLY JSON: "
+    '{"caption": ["Line one", "Line two"], "ignored": ["other overlay"]}.\n'
+    "caption: lines that belong to that one designed caption block, top to "
+    "bottom. A multi-line title is still the caption; keep those lines together.\n"
+    "ignored: additional overlay that is not the caption (speaker or guest "
+    "names, dates, locations, campaign slogans or stamps, quotes that are not "
+    "the caption, lower-thirds, burned-in subtitles, logos, watermarks, "
+    "channel names, UI chrome).\n"
+    "Preserve the capitalization of each caption line as shown in the image.\n"
+    'If there is no designed caption, return {"caption": [], "ignored": []}.'
 )
 
 # Reel/Short subtitles are always displayed in ALL CAPS; long-form Video uses
@@ -985,20 +990,69 @@ def _anthropic_messages_multimodal(
     return _anthropic_text_from_content(content)
 
 
+def _nonempty_string_lines(items: Any) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    return [
+        item.strip()
+        for item in items
+        if isinstance(item, str) and item.strip()
+    ]
+
+
+def _slice_first_json_array(text: str) -> str | None:
+    """Return the first top-level ``[...]`` slice, respecting quoted strings."""
+    start = text.find("[")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index, char in enumerate(text[start:], start):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
+
+
+def _extract_named_json_string_array(text: str, key: str) -> list[str] | None:
+    """Leniently take the first JSON string array after ``"key":``."""
+    match = re.search(rf'"{re.escape(key)}"\s*:', text)
+    if match is None:
+        return None
+    sliced = _slice_first_json_array(text[match.end() :])
+    if sliced is None:
+        return None
+    return _extract_json_string_array(sliced)
+
+
 def parse_caption_lines_json(raw: str) -> list[str]:
-    """Parse vision caption extraction output into non-empty lines."""
+    """Parse vision caption extraction output into non-empty caption lines."""
     cleaned = _strip_code_fence(raw)
     try:
         parsed = json.loads(cleaned)
-        if isinstance(parsed, list):
-            lines = [
-                item.strip()
-                for item in parsed
-                if isinstance(item, str) and item.strip()
-            ]
-            return lines
     except json.JSONDecodeError:
-        pass
+        parsed = None
+    if isinstance(parsed, dict):
+        return _nonempty_string_lines(parsed.get("caption"))
+    if isinstance(parsed, list):
+        return _nonempty_string_lines(parsed)
+    named = _extract_named_json_string_array(cleaned, "caption")
+    if named is not None:
+        return [item.strip() for item in named if item.strip()]
     extracted = _extract_json_string_array(cleaned)
     if extracted is not None:
         return [item.strip() for item in extracted if item.strip()]

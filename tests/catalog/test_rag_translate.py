@@ -227,6 +227,31 @@ class RagTranslateTests(unittest.TestCase):
             ["А", "Б"],
         )
 
+    def test_parse_caption_lines_keeps_only_caption(self) -> None:
+        from catalog_parser.translation.rag_translate import (
+            CAPTION_EXTRACT_PROMPT,
+            parse_caption_lines_json,
+        )
+
+        self.assertIn("Do not return every string on the image.", CAPTION_EXTRACT_PROMPT)
+        self.assertIn('"ignored"', CAPTION_EXTRACT_PROMPT)
+        self.assertEqual(
+            parse_caption_lines_json(
+                '{"caption": ["Life on the Edge"], "ignored": ["Sadhguru", "2024"]}'
+            ),
+            ["Life on the Edge"],
+        )
+        self.assertEqual(
+            parse_caption_lines_json('{"caption": [], "ignored": ["SAVE SOIL"]}'),
+            [],
+        )
+        self.assertEqual(
+            parse_caption_lines_json(
+                '{"caption": ["Soak in", "ENLIGHTENMENT"], "ignored": ["with Sadhguru"]}'
+            ),
+            ["Soak in", "ENLIGHTENMENT"],
+        )
+
     def test_match_source_newlines_and_quote_repair(self) -> None:
         from catalog_parser.translation.rag_translate import (
             match_source_newlines,
