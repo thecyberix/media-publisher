@@ -69,6 +69,8 @@ class PendingReviewSortResult:
     decision: str
     action: str
     reason: str = ""
+    caption_action: str = "skipped"
+    caption_detail: str | None = None
 
 
 def _field_text(fields: dict[str, Any], key: str) -> str | None:
@@ -77,6 +79,44 @@ def _field_text(fields: dict[str, Any], key: str) -> str | None:
         return None
     text = value.strip()
     return text or None
+
+
+def _has_original_thumbnail(fields: dict[str, Any]) -> bool:
+    value = fields.get(FIELD_ORIGINAL_VIDEO_THUMBNAIL)
+    return isinstance(value, list) and bool(value)
+
+
+def _records_by_review_stem(records: list[Any]) -> dict[str, Any]:
+    return {
+        sanitize_review_stem(catalog_title(record.fields)): record
+        for record in records
+    }
+
+
+def _upload_approved_local_thumbnail(
+    airtable: AirtableClient,
+    record: Any,
+    local_path: Path,
+    *,
+    project_root: Path | None,
+    drive_service: Any | None,
+    translate_captions: bool,
+) -> tuple[str, str | None]:
+    """Upload Original Video Thumbnail and optionally fill empty caption."""
+    airtable.upload_attachment(
+        record.id,
+        FIELD_ORIGINAL_VIDEO_THUMBNAIL,
+        local_path,
+    )
+    if translate_captions:
+        return _translate_caption_for_approved_thumbnail(
+            airtable,
+            record,
+            local_path,
+            project_root=project_root,
+            drive_service=drive_service,
+        )
+    return "skipped", "disabled"
 
 
 def _translate_caption_for_approved_thumbnail(
@@ -232,9 +272,10 @@ def format_review_email(
         "",
         f"Review folder: {review_folder_url or os.getenv('DRIVE_URL', '').strip() or 'Thumbnails for approval'}",
         "",
-        "Move approved thumbnails (with a title) into the Approved subfolder.",
+        "Drive copies are informational. The daily workflow auto-approves titled",
+        "originals into Airtable immediately and archives them under Approved.",
         "Move subtitle-only and empty backgrounds into Rejected when that folder exists.",
-        "Leave Canva download placeholders in this folder.",
+        "Leave Canva download placeholders in this folder for manual download.",
         "",
     ]
     for item in sorted(items, key=lambda row: row.title.casefold()):
@@ -346,14 +387,24 @@ def process_pending_review_thumbnails(
     approved_subfolder: str = DEFAULT_APPROVED_SUBFOLDER,
     apply: bool,
     classify: Callable[[Path], tuple[str, str]] | None = None,
+    airtable: AirtableClient | None = None,
+    records: list[Any] | None = None,
+    project_root: Path | None = None,
+    translate_captions: bool = True,
 ) -> list[PendingReviewSortResult]:
-    """Sort review-queue originals; keep only Canva placeholders in the review folder."""
+    """Sort review-queue originals; keep only Canva placeholders in the review folder.
+
+    On approve, uploads to Airtable immediately when ``airtable`` and ``records`` are
+    provided, then archives the Drive file under Approved for visibility.
+    """
     classify_fn = classify or classify_original_background_thumbnail
     results: list[PendingReviewSortResult] = []
     approved_folder = None
     rejected_folder = drive.find_child_folder(
         review_folder_id, DEFAULT_REJECTED_SUBFOLDER
     )
+    records_by_stem = _records_by_review_stem(records or [])
+    drive_service = getattr(drive, "drive_service", None)
 
     with tempfile.TemporaryDirectory(prefix="tn-review-sort-") as tmp:
         tmp_path = Path(tmp)
@@ -386,19 +437,46 @@ def process_pending_review_thumbnails(
 
             if decision == "approve":
                 action = "planned-approve"
+                caption_action = "skipped"
+                caption_detail: str | None = "dry-run" if not apply else None
                 if apply:
+                    title_stem = title_from_review_filename(item.name)
+                    record = (
+                        records_by_stem.get(title_stem)
+                        if title_stem is not None and airtable is not None
+                        else None
+                    )
+                    if airtable is not None and record is not None:
+                        caption_action, caption_detail = (
+                            _upload_approved_local_thumbnail(
+                                airtable,
+                                record,
+                                local_path,
+                                project_root=project_root,
+                                drive_service=drive_service,
+                                translate_captions=translate_captions,
+                            )
+                        )
+                        action = "uploaded-approved"
+                    elif airtable is not None:
+                        caption_action = "skipped"
+                        caption_detail = "no matching Airtable record"
+                        action = "moved-approved"
+                    else:
+                        action = "moved-approved"
                     if approved_folder is None:
                         approved_folder = drive.ensure_folder(
                             review_folder_id, approved_subfolder
                         )
                     drive.move_file(item.id, approved_folder.id)
-                    action = "moved-approved"
                 results.append(
                     PendingReviewSortResult(
                         drive_file=item.name,
                         decision="approve",
                         action=action,
                         reason=reason,
+                        caption_action=caption_action,
+                        caption_detail=caption_detail,
                     )
                 )
                 continue
@@ -453,14 +531,15 @@ def process_approved_review_thumbnails(
     project_root: Path | None = None,
     translate_captions: bool = True,
 ) -> list[ApprovedUploadResult]:
+    """Upload leftover Approved Drive files that are not yet on the Airtable record.
+
+    Files stay in Drive Approved for visibility (no delete after upload).
+    """
     approved_folder = drive.find_child_folder(review_folder_id, approved_subfolder)
     if approved_folder is None:
         return []
 
-    records_by_stem = {
-        sanitize_review_stem(catalog_title(record.fields)): record
-        for record in records
-    }
+    records_by_stem = _records_by_review_stem(records)
     results: list[ApprovedUploadResult] = []
     drive_service = getattr(drive, "drive_service", None)
 
@@ -477,30 +556,27 @@ def process_approved_review_thumbnails(
                 continue
 
             title = catalog_title(record.fields)
+            fields = record.fields if hasattr(record, "fields") else {}
+            if not isinstance(fields, dict):
+                fields = {}
+            if _has_original_thumbnail(fields):
+                # Already applied by auto-approve (or earlier run); keep Drive copy.
+                continue
+
             action = "planned-approved"
             caption_action = "skipped"
             caption_detail: str | None = "dry-run" if not apply else None
             if apply:
                 local_path = tmp_path / item.name
                 drive.download_file(item.id, local_path)
-                airtable.upload_attachment(
-                    record.id,
-                    FIELD_ORIGINAL_VIDEO_THUMBNAIL,
+                caption_action, caption_detail = _upload_approved_local_thumbnail(
+                    airtable,
+                    record,
                     local_path,
+                    project_root=project_root,
+                    drive_service=drive_service,
+                    translate_captions=translate_captions,
                 )
-                if translate_captions:
-                    caption_action, caption_detail = (
-                        _translate_caption_for_approved_thumbnail(
-                            airtable,
-                            record,
-                            local_path,
-                            project_root=project_root,
-                            drive_service=drive_service,
-                        )
-                    )
-                else:
-                    caption_action, caption_detail = "skipped", "disabled"
-                drive.remove_file(item.id)
                 action = "uploaded-approved"
 
             results.append(

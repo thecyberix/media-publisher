@@ -71,6 +71,8 @@ class ThumbnailReviewTests(unittest.TestCase):
         self.assertIn("Sample Video", body)
         self.assertIn("Approved", body)
         self.assertIn("Rejected", body)
+        self.assertIn("informational", body)
+        self.assertIn("auto-approves", body)
 
     def test_parse_background_review_decision(self) -> None:
         decision, reason = parse_background_review_decision(
@@ -130,6 +132,47 @@ class ThumbnailReviewTests(unittest.TestCase):
         drive.find_child_folder.assert_called_with("review-id", "Rejected")
         drive.ensure_folder.assert_called_once_with("review-id", "Approved")
 
+    def test_process_pending_uploads_to_airtable_on_approve(self) -> None:
+        airtable = MagicMock()
+        drive = MagicMock()
+        drive.drive_service = object()
+        drive.list_children.return_value = [
+            DriveFile(id="a1", name="Sample Video.review.jpg", mime_type="image/jpeg"),
+        ]
+        drive.find_child_folder.return_value = SimpleNamespace(id="rejected-id")
+        drive.download_file.side_effect = lambda _fid, dest: dest.write_bytes(b"x")
+        drive.ensure_folder.side_effect = lambda _parent, name: SimpleNamespace(
+            id=f"{name.casefold()}-id"
+        )
+        record = SimpleNamespace(
+            id="rec1",
+            fields={
+                FIELD_TITLE: "Sample Video",
+                FIELD_VIDEO_FOLDER: "https://drive.google.com/drive/folders/abc",
+            },
+        )
+
+        with patch(
+            "media_publisher.sources.thumbnail_review._translate_caption_for_approved_thumbnail",
+            return_value=("translated", "source=thumbnail"),
+        ):
+            results = process_pending_review_thumbnails(
+                drive,
+                review_folder_id="review-id",
+                apply=True,
+                classify=lambda _path: ("approve", "has title"),
+                airtable=airtable,
+                records=[record],
+                project_root=Path("."),
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].action, "uploaded-approved")
+        self.assertEqual(results[0].caption_action, "translated")
+        airtable.upload_attachment.assert_called_once()
+        drive.move_file.assert_called_once_with("a1", "approved-id")
+        drive.remove_file.assert_not_called()
+
     def test_process_pending_skips_rejected_moves_when_folder_missing(self) -> None:
         drive = MagicMock()
         drive.list_children.return_value = [
@@ -174,18 +217,11 @@ class ThumbnailReviewTests(unittest.TestCase):
             },
         )
 
-        def fake_translate(catalog_record, **_kwargs):
-            catalog_record["bgCaption"] = "Превод"
-            from catalog_parser.translation.caption_prefill import CaptionTranslateResult
-
-            return CaptionTranslateResult(
-                ok=True,
-                caption_translated=True,
-                source="thumbnail",
-            )
+        def fake_translate(*_args, **_kwargs):
+            return "translated", "source=thumbnail"
 
         with patch(
-            "catalog_parser.translation.caption_prefill.translate_record_caption_if_needed",
+            "media_publisher.sources.thumbnail_review._translate_caption_for_approved_thumbnail",
             side_effect=fake_translate,
         ) as translate:
             results = process_approved_review_thumbnails(
@@ -201,12 +237,40 @@ class ThumbnailReviewTests(unittest.TestCase):
         self.assertEqual(results[0].action, "uploaded-approved")
         self.assertEqual(results[0].caption_action, "translated")
         airtable.upload_attachment.assert_called_once()
-        airtable.update_record.assert_called_once_with(
-            "rec1",
-            {FIELD_VIDEO_CAPTION_TRANSLATED: "Превод"},
-        )
         translate.assert_called_once()
-        drive.remove_file.assert_called_once_with("file1")
+        drive.remove_file.assert_not_called()
+
+    def test_process_approved_skips_when_airtable_already_has_thumbnail(self) -> None:
+        airtable = MagicMock()
+        drive = MagicMock()
+        drive.find_child_folder.return_value = SimpleNamespace(id="approved-id")
+        drive.list_children.return_value = [
+            DriveFile(
+                id="file1",
+                name="Sample Video.review.jpg",
+                mime_type="image/jpeg",
+            )
+        ]
+        record = SimpleNamespace(
+            id="rec1",
+            fields={
+                FIELD_TITLE: "Sample Video",
+                FIELD_ORIGINAL_VIDEO_THUMBNAIL: [{"url": "https://example/thumb.jpg"}],
+            },
+        )
+
+        results = process_approved_review_thumbnails(
+            airtable,
+            drive,
+            [record],
+            review_folder_id="review-id",
+            apply=True,
+        )
+
+        self.assertEqual(results, [])
+        airtable.upload_attachment.assert_not_called()
+        drive.download_file.assert_not_called()
+        drive.remove_file.assert_not_called()
 
     def test_process_approved_skips_caption_when_already_set(self) -> None:
         airtable = MagicMock()
@@ -229,20 +293,16 @@ class ThumbnailReviewTests(unittest.TestCase):
             },
         )
 
-        with patch(
-            "catalog_parser.translation.caption_prefill.translate_record_caption_if_needed"
-        ) as translate:
-            results = process_approved_review_thumbnails(
-                airtable,
-                drive,
-                [record],
-                review_folder_id="review-id",
-                apply=True,
-            )
+        results = process_approved_review_thumbnails(
+            airtable,
+            drive,
+            [record],
+            review_folder_id="review-id",
+            apply=True,
+        )
 
         self.assertEqual(results[0].caption_action, "skipped")
         self.assertEqual(results[0].caption_detail, "caption already set")
-        translate.assert_not_called()
         airtable.update_record.assert_not_called()
         airtable.upload_attachment.assert_called_once()
         args = airtable.upload_attachment.call_args
@@ -262,21 +322,17 @@ class ThumbnailReviewTests(unittest.TestCase):
         ]
         record = SimpleNamespace(id="rec1", fields={FIELD_TITLE: "Sample Video"})
 
-        with patch(
-            "catalog_parser.translation.caption_prefill.translate_record_caption_if_needed"
-        ) as translate:
-            results = process_approved_review_thumbnails(
-                airtable,
-                drive,
-                [record],
-                review_folder_id="review-id",
-                apply=False,
-            )
+        results = process_approved_review_thumbnails(
+            airtable,
+            drive,
+            [record],
+            review_folder_id="review-id",
+            apply=False,
+        )
 
         self.assertEqual(results[0].action, "planned-approved")
         self.assertEqual(results[0].caption_action, "skipped")
         self.assertEqual(results[0].caption_detail, "dry-run")
-        translate.assert_not_called()
         airtable.upload_attachment.assert_not_called()
         drive.download_file.assert_not_called()
 

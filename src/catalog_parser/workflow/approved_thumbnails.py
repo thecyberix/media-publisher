@@ -106,11 +106,13 @@ class PendingReviewSortRunResult:
 def process_pending_review_thumbnails_in_workflow(
     *,
     project_root: Path,
+    records: list[dict[str, Any]],
     dry_run: bool,
     log: LogFn = print,
 ) -> PendingReviewSortRunResult:
     from catalog_parser.translation.prefill import ai_prefill_enabled
     from media_publisher.config import load_settings
+    from media_publisher.sources.airtable import AirtableClient
     from media_publisher.sources.google_drive import GoogleDriveClient
     from media_publisher.sources.thumbnail_review import process_pending_review_thumbnails
 
@@ -127,6 +129,23 @@ def process_pending_review_thumbnails_in_workflow(
         log("Review auto-sort: skipped (AI vision not configured)")
         return PendingReviewSortRunResult(sorted_count=0, skipped_run=True)
 
+    airtable: AirtableClient | None = None
+    if (
+        settings.airtable_token
+        and settings.airtable_base_id
+        and settings.airtable_table_name
+    ):
+        airtable = AirtableClient(
+            settings.airtable_token,
+            settings.airtable_base_id,
+            settings.airtable_table_name,
+        )
+    else:
+        log(
+            "Review auto-sort: Airtable env vars missing; "
+            "will archive to Drive Approved only"
+        )
+
     drive = GoogleDriveClient.from_service_account(service_account_path)
     from media_publisher.sources.drive_layout import resolve_thumbnails_for_approval_id
 
@@ -134,11 +153,18 @@ def process_pending_review_thumbnails_in_workflow(
         drive,
         drive_url=getattr(settings, "drive_url", "") or "",
     )
+    adapted_records = [
+        SimpleNamespace(id=record["id"], fields=record.get("fields", {}))
+        for record in records
+    ]
     results = process_pending_review_thumbnails(
         drive,
         review_folder_id=review_folder_id,
         approved_subfolder=settings.thumbnail_review_approved_subfolder,
         apply=not dry_run,
+        airtable=airtable,
+        records=adapted_records,
+        project_root=project_root,
     )
     if not results:
         log("Review auto-sort: no pending original backgrounds in review folder")
@@ -154,7 +180,13 @@ def process_pending_review_thumbnails_in_workflow(
     )
     for item in sorted(results, key=lambda row: row.drive_file.casefold()):
         detail = f" ({item.reason})" if item.reason else ""
-        log(f"  - {item.drive_file}: {item.action}{detail}")
+        caption = ""
+        if item.decision == "approve":
+            caption_label = item.caption_action
+            if item.caption_detail:
+                caption_label = f"{item.caption_action} ({item.caption_detail})"
+            caption = f"; caption={caption_label}"
+        log(f"  - {item.drive_file}: {item.action}{detail}{caption}")
     return PendingReviewSortRunResult(
         sorted_count=len(results),
         approved=approved,

@@ -78,12 +78,14 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
     @patch("media_publisher.sources.drive_layout.resolve_thumbnails_for_approval_id", return_value="folder-id")
     @patch("media_publisher.sources.thumbnail_review.process_pending_review_thumbnails")
     @patch("media_publisher.sources.google_drive.GoogleDriveClient.from_service_account")
+    @patch("media_publisher.sources.airtable.AirtableClient")
     @patch("catalog_parser.translation.prefill.ai_prefill_enabled", return_value=True)
     @patch("media_publisher.config.load_settings")
     def test_auto_sorts_pending_review_files(
         self,
         load_settings,
         _ai_enabled,
+        airtable_client,
         from_service_account,
         process_pending,
         _resolve_review_folder,
@@ -94,6 +96,9 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
             service_account.parent.mkdir(parents=True)
             service_account.write_text("{}", encoding="utf-8")
             load_settings.return_value = SimpleNamespace(
+                airtable_token="token",
+                airtable_base_id="base",
+                airtable_table_name="table",
                 google_sheets_service_account="credentials/google-sheets-service-account.json",
                 drive_url="https://drive.google.com/drive/folders/parent",
                 thumbnail_review_approved_subfolder="Approved",
@@ -102,12 +107,15 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
                 SimpleNamespace(
                     drive_file="Titled.review.jpg",
                     decision="approve",
-                    action="moved-approved",
+                    action="uploaded-approved",
                     reason="has title",
+                    caption_action="translated",
+                    caption_detail="source=thumbnail",
                 )
             ]
             result = process_pending_review_thumbnails_in_workflow(
                 project_root=root,
+                records=[{"id": "rec1", "fields": {"Title": "Titled"}}],
                 dry_run=False,
                 log=lambda *_args, **_kwargs: None,
             )
@@ -115,7 +123,15 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
             self.assertEqual(result.approved, 1)
             process_pending.assert_called_once()
             self.assertTrue(process_pending.call_args.kwargs["apply"])
+            self.assertEqual(
+                process_pending.call_args.kwargs["project_root"],
+                root,
+            )
+            self.assertIsNotNone(process_pending.call_args.kwargs["airtable"])
+            self.assertEqual(len(process_pending.call_args.kwargs["records"]), 1)
             self.assertNotIn("rejected_subfolder", process_pending.call_args.kwargs)
+            airtable_client.assert_called_once()
+            from_service_account.assert_called_once()
 
     @patch("catalog_parser.translation.prefill.ai_prefill_enabled", return_value=False)
     @patch("media_publisher.config.load_settings")
@@ -130,6 +146,7 @@ class ApprovedThumbnailWorkflowTests(unittest.TestCase):
             )
             result = process_pending_review_thumbnails_in_workflow(
                 project_root=root,
+                records=[],
                 dry_run=False,
                 log=lambda *_args, **_kwargs: None,
             )

@@ -267,6 +267,7 @@ def run_workflow(
     )
     sort_result = process_pending_review_thumbnails_in_workflow(
         project_root=project_root,
+        records=table_cache.records,
         dry_run=dry_run,
         log=print,
     )
