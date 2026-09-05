@@ -46,6 +46,7 @@ class LocalQuotePost:
     publish_at: datetime
     caption: str
     stem: str
+    caption_source: str = "ready"
 
 
 def _publish_datetime(

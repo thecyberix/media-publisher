@@ -27,7 +27,7 @@ class QuotesSourcesConfigStub:
 
 
 class QuoteSheetTextPriorityTests(unittest.TestCase):
-    def _load(self, rows: list[list[str]], *, require_ready: bool = False):
+    def _load(self, rows: list[list[str]], *, require_ready: bool = True):
         client = MagicMock()
         client.list_tabs.return_value = [
             SimpleNamespace(sheet_id=1, title="Sep 2026"),
@@ -43,7 +43,6 @@ class QuoteSheetTextPriorityTests(unittest.TestCase):
                 "text_en_column": "English",
                 "edited_column": "Edited",
                 "ready_column": "Ready",
-                "prefer_ready_text": True,
             },
         )
         return load_monthly_quote_texts(
@@ -55,7 +54,7 @@ class QuoteSheetTextPriorityTests(unittest.TestCase):
             spreadsheet_id="sheet-id",
         )
 
-    def test_prefers_ready_then_edited_then_translation(self) -> None:
+    def test_uses_ready_only_when_required(self) -> None:
         quotes = self._load(
             [
                 ["Date", "English", "Translation", "Edited", "Ready"],
@@ -66,10 +65,29 @@ class QuoteSheetTextPriorityTests(unittest.TestCase):
             ]
         )
         by_day = {quote.day: quote.text_bg for quote in quotes}
-        self.assertEqual(by_day[1], "RD1")
-        self.assertEqual(by_day[2], "ED2")
-        self.assertEqual(by_day[3], "TR3")
-        self.assertNotIn(4, by_day)
+        self.assertEqual(by_day, {1: "RD1"})
+        self.assertEqual(quotes[0].text_source, "ready")
+
+    def test_falls_back_to_edited_then_translation_when_ready_empty(self) -> None:
+        quotes = self._load(
+            [
+                ["Date", "English", "Translation", "Edited", "Ready"],
+                ["1 Sep 2026", "EN1", "TR1", "ED1", "RD1"],
+                ["2 Sep 2026", "EN2", "TR2", "ED2", ""],
+                ["3 Sep 2026", "EN3", "TR3", "", ""],
+                ["4 Sep 2026", "EN4", "", "", ""],
+            ],
+            require_ready=False,
+        )
+        by_day = {quote.day: (quote.text_bg, quote.text_source) for quote in quotes}
+        self.assertEqual(
+            by_day,
+            {
+                1: ("RD1", "ready"),
+                2: ("ED2", "edited"),
+                3: ("TR3", "translation"),
+            },
+        )
 
     def test_require_ready_skips_rows_without_ready(self) -> None:
         quotes = self._load(
@@ -82,6 +100,18 @@ class QuoteSheetTextPriorityTests(unittest.TestCase):
         )
         self.assertEqual([quote.day for quote in quotes], [2])
         self.assertEqual(quotes[0].text_bg, "RD2")
+
+    def test_missing_ready_column_raises(self) -> None:
+        from media_publisher.sources.quotes_sheet import QuotesSheetError
+
+        with self.assertRaises(QuotesSheetError) as caught:
+            self._load(
+                [
+                    ["Date", "English", "Translation", "Edited"],
+                    ["1 Sep 2026", "EN1", "TR1", "ED1"],
+                ]
+            )
+        self.assertIn("Ready column", str(caught.exception))
 
 
 if __name__ == "__main__":

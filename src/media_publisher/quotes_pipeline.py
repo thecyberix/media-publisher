@@ -15,6 +15,7 @@ from media_publisher.publishers.youtube import (
     YouTubePublishError,
     flush_configured_daily_playlist,
 )
+from media_publisher.quotes_drive_sync import GeneratedQuoteChange
 from media_publisher.quotes_render_pipeline import (
     QuotesRenderPipelineError,
     prepare_quote_posts_for_publish,
@@ -182,6 +183,7 @@ def run_quotes_pipeline(
     drive_client: GoogleDriveClient | None = None,
     quotes_config: QuotesSourcesConfig | None = None,
     print_line: Callable[[str], None] = print,
+    substitute_drive_changes: list[GeneratedQuoteChange] | None = None,
 ) -> tuple[int, list[PlatformPublishResult]]:
     """Render quotes from Google Sheet + Drive backgrounds and schedule/publish them."""
     def flush_daily_playlist() -> None:
@@ -291,6 +293,7 @@ def run_quotes_pipeline(
     results: list[PlatformPublishResult] = []
     processed_any = False
     quote_video_dir = settings.work_dir / QUOTE_VIDEO_DIRNAME
+    uploaded_substitutes: set[str] = set()
 
     for post, target_platforms, publish_immediately in work_items:
         due_platforms = pending_platforms(post, state, platforms=target_platforms)
@@ -310,6 +313,8 @@ def run_quotes_pipeline(
         publish_at = None if publish_immediately else post.publish_at
 
         caption_note = "with caption" if post.caption else "image only"
+        if post.caption_source != "ready":
+            caption_note = f"{caption_note}; {post.caption_source} substitute"
         print_line(
             f"Processing {post.stem}\t{post.publish_at.isoformat()}\t{caption_note}"
         )
@@ -392,6 +397,32 @@ def run_quotes_pipeline(
                         permalink=permalink,
                     )
                 )
+                if (
+                    post.caption_source != "ready"
+                    and post.stem not in uploaded_substitutes
+                    and drive_client is not None
+                ):
+                    from media_publisher.quotes_drive_sync import (
+                        upload_published_substitute_quote,
+                    )
+
+                    year, month, day = (int(part) for part in post.stem.split("-"))
+                    change, upload_warnings = upload_published_substitute_quote(
+                        drive_client=drive_client,
+                        project_root=settings.project_root,
+                        image_path=post.image_path,
+                        year=year,
+                        month=month,
+                        day=day,
+                        caption=post.caption,
+                        source=post.caption_source,
+                        print_line=print_line,
+                    )
+                    for warning in upload_warnings:
+                        print_line(f"Warning: {warning}")
+                    if change is not None and substitute_drive_changes is not None:
+                        substitute_drive_changes.append(change)
+                    uploaded_substitutes.add(post.stem)
             except (
                 YouTubePublishError,
                 FacebookPublishError,

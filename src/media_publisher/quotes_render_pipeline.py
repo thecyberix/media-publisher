@@ -34,6 +34,7 @@ class RenderedQuoteImage:
     layout_key: str
     line_count: int
     background_name: str
+    caption_source: str = "ready"
 
 
 def _background_cache_path(
@@ -68,6 +69,7 @@ def render_monthly_quotes(
     font_path: Path | None = None,
     overwrite: bool = False,
     day: int | None = None,
+    require_ready: bool = True,
 ) -> list[RenderedQuoteImage]:
     from media_publisher.quotes_text_sync import resolve_bulgarian_spreadsheet_id
 
@@ -76,6 +78,7 @@ def render_monthly_quotes(
         config,
         year=year,
         month=month,
+        require_ready=require_ready,
         spreadsheet_id=resolve_bulgarian_spreadsheet_id(
             drive=drive_client, config=config, year=year
         ),
@@ -147,6 +150,7 @@ def render_monthly_quotes(
                         layout_key="cached",
                         line_count=0,
                         background_name=background.name,
+                        caption_source=quote.text_source,
                     )
                 )
                 continue
@@ -177,6 +181,7 @@ def render_monthly_quotes(
                     layout_key=plan.layout_key,
                     line_count=len(plan.lines),
                     background_name=background.name,
+                    caption_source=quote.text_source,
                 )
             )
 
@@ -248,6 +253,7 @@ def build_local_quote_posts(
                 ),
                 caption=item.caption,
                 stem=item.stem,
+                caption_source=item.caption_source,
             )
         )
     return posts
@@ -290,6 +296,7 @@ def prepare_quote_posts_for_publish(
             spreadsheet_id=resolve_bulgarian_spreadsheet_id(
                 drive=drive_client, config=config, year=year
             ),
+            require_ready=False,
         )
     }
     requested_days = sorted(days)
@@ -325,6 +332,7 @@ def prepare_quote_posts_for_publish(
                     variants=("fbyt",),
                     overwrite=overwrite,
                     day=day,
+                    require_ready=False,
                 )
             )
         if need_instagram:
@@ -338,6 +346,7 @@ def prepare_quote_posts_for_publish(
                     variants=("ig",),
                     overwrite=overwrite,
                     day=day,
+                    require_ready=False,
                 )
             )
 

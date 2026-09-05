@@ -149,6 +149,16 @@ def _service_account_access_token(credentials: dict[str, Any]) -> str:
     return creds.token
 
 
+def _parse_value_rows(values: Any) -> list[list[str]]:
+    if not isinstance(values, list):
+        return []
+    rows: list[list[str]] = []
+    for row in values:
+        if isinstance(row, list):
+            rows.append([str(cell) for cell in row])
+    return rows
+
+
 class GoogleSheetsClient:
     def __init__(self, *, access_token: str) -> None:
         self.access_token = access_token
@@ -266,14 +276,29 @@ class GoogleSheetsClient:
         encoded_range = urllib.parse.quote(range_a1, safe="")
         url = f"{SHEETS_API_BASE}/{spreadsheet_id}/values/{encoded_range}"
         payload = self._request("GET", url)
-        values = payload.get("values", [])
-        if not isinstance(values, list):
+        return _parse_value_rows(payload.get("values", []))
+
+    def batch_get_values(
+        self,
+        spreadsheet_id: str,
+        ranges: list[str],
+    ) -> list[list[list[str]]]:
+        """Read many A1 ranges in one Sheets request (one value list per range)."""
+        if not ranges:
             return []
-        rows: list[list[str]] = []
-        for row in values:
-            if isinstance(row, list):
-                rows.append([str(cell) for cell in row])
-        return rows
+        query = urllib.parse.urlencode([("ranges", range_a1) for range_a1 in ranges])
+        url = f"{SHEETS_API_BASE}/{spreadsheet_id}/values:batchGet?{query}"
+        payload = self._request("GET", url)
+        value_ranges = payload.get("valueRanges", [])
+        if not isinstance(value_ranges, list):
+            return [[] for _ in ranges]
+        rows_by_range = [
+            _parse_value_rows(item.get("values")) if isinstance(item, dict) else []
+            for item in value_ranges
+        ]
+        if len(rows_by_range) < len(ranges):
+            rows_by_range.extend([] for _ in range(len(ranges) - len(rows_by_range)))
+        return rows_by_range[: len(ranges)]
 
     def batch_update_values(
         self,
@@ -352,6 +377,27 @@ class GoogleSheetsClient:
             raise GoogleSheetsError("Google Sheets batchUpdate response is invalid")
         return payload
 
+    def clear_cells_text_format(
+        self,
+        spreadsheet_id: str,
+        cells: list[tuple[int, int, int]],
+    ) -> None:
+        """Drop font color/style so written quote text uses the sheet default."""
+        requests = text_format_clear_requests(cells)
+        if requests:
+            self.batch_update_spreadsheet(spreadsheet_id, requests)
+
+    def set_cells_background(
+        self,
+        spreadsheet_id: str,
+        cells: list[tuple[int, int, int]],
+        color: dict[str, float] | None,
+    ) -> None:
+        """Set or clear a cell fill. ``color`` is RGB 0–1; ``None`` restores default."""
+        requests = cell_background_requests(cells, color)
+        if requests:
+            self.batch_update_spreadsheet(spreadsheet_id, requests)
+
 
 def column_index_to_a1(column_index: int) -> str:
     if column_index < 0:
@@ -362,6 +408,60 @@ def column_index_to_a1(column_index: int) -> str:
         value, remainder = divmod(value - 1, 26)
         label = chr(ord("A") + remainder) + label
     return label
+
+
+def text_format_clear_requests(
+    cells: list[tuple[int, int, int]],
+) -> list[dict[str, Any]]:
+    """Build spreadsheets.batchUpdate requests that drop font color/style."""
+    requests: list[dict[str, Any]] = []
+    for sheet_id, row_number, column_index in cells:
+        if row_number < 1 or column_index < 0:
+            continue
+        requests.append(
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_number - 1,
+                        "endRowIndex": row_number,
+                        "startColumnIndex": column_index,
+                        "endColumnIndex": column_index + 1,
+                    },
+                    "cell": {"userEnteredFormat": {"textFormat": {}}},
+                    "fields": "userEnteredFormat.textFormat",
+                }
+            }
+        )
+    return requests
+
+
+def cell_background_requests(
+    cells: list[tuple[int, int, int]],
+    color: dict[str, float] | None,
+) -> list[dict[str, Any]]:
+    """Build spreadsheets.batchUpdate requests that set or clear cell fill."""
+    requests: list[dict[str, Any]] = []
+    background: dict[str, Any] = {} if color is None else {"backgroundColor": dict(color)}
+    for sheet_id, row_number, column_index in cells:
+        if row_number < 1 or column_index < 0:
+            continue
+        requests.append(
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_number - 1,
+                        "endRowIndex": row_number,
+                        "startColumnIndex": column_index,
+                        "endColumnIndex": column_index + 1,
+                    },
+                    "cell": {"userEnteredFormat": background},
+                    "fields": "userEnteredFormat.backgroundColor",
+                }
+            }
+        )
+    return requests
 
 
 def a1_cell(sheet_title: str, row: int, column_index: int) -> str:

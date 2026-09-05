@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import calendar
+import json
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from media_publisher.sources.drive_layout import resolve_quotes_folder_id
 from media_publisher.sources.google_drive import (
+    GOOGLE_SHEETS_MIME_TYPE,
     GoogleDriveClient,
     GoogleDriveError,
     format_month_folder_name,
@@ -25,10 +29,14 @@ from media_publisher.sources.quotes_sheet import parse_quote_sheet_date
 
 PrintFn = Callable[[str], None]
 
-DEFAULT_DEST_HEADERS = ("Date", "English", "Translation", "Edited", "Ready")
+DEFAULT_DEST_HEADERS = ("Date", "English", "Translation", "Edited", "Ready", "Comment")
 DEFAULT_ENGLISH_COLUMNS = ("English", "Quote", "Quotes")
 # Older month tabs use Proofread instead of Ready; some use trailing spaces.
 DEFAULT_READY_COLUMN_CANDIDATES = ("Ready", "Proofread")
+QUOTES_READY_INDEX_RELATIVE = "data/quotes_ready_index.json"
+READY_INDEX_VERSION = 1
+DEFAULT_QUOTE_RAG_TOP_K = 8
+STALE_READY_BACKGROUND = {"red": 1.0, "green": 1.0, "blue": 0.0}
 
 
 def current_and_next_months(reference: date) -> list[tuple[int, int]]:
@@ -59,6 +67,15 @@ class DestinationSheetRef:
     spreadsheet_name: str
     tab: SheetTab
     created: bool = False
+
+
+@dataclass(frozen=True)
+class ReadyQuoteMatch:
+    ready: str
+    spreadsheet_name: str
+    tab_title: str
+    date_label: str = ""
+    english: str = ""
 
 
 @dataclass(frozen=True)
@@ -111,6 +128,23 @@ def _normalize_text(value: str) -> str:
     return " ".join((value or "").split())
 
 
+_ENGLISH_PUNCT_TRANSLATE = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+    }
+)
+
+
+def _normalize_english(value: str) -> str:
+    """Collapse whitespace, normalize quotes/dashes, and ignore case for archive matching."""
+    return _normalize_text((value or "").translate(_ENGLISH_PUNCT_TRANSLATE)).casefold()
+
+
 def _unique_names(*names: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -155,6 +189,50 @@ def workbook_name_stems(file_name: str) -> set[str]:
 def matches_year_workbook_name(file_name: str, expected_name: str) -> bool:
     expected = expected_name.casefold().strip()
     return expected in workbook_name_stems(file_name)
+
+
+def _year_from_bulgarian_workbook_name(
+    file_name: str, config: QuotesSourcesConfig | None = None
+) -> int | None:
+    pattern = "Sadhguru Quotes Bulgarian {year}"
+    if config is not None:
+        raw = config.translated_quotes_drive.get("year_workbook_pattern")
+        if isinstance(raw, str) and raw.strip():
+            pattern = raw.strip()
+    prefix, separator, suffix = pattern.partition("{year}")
+    if not separator:
+        return None
+    regex = re.compile(
+        r"^"
+        + re.escape(prefix.strip())
+        + r"\s+(\d{4})"
+        + (r"\s+" + re.escape(suffix.strip()) if suffix.strip() else "")
+        + r"$",
+        re.IGNORECASE,
+    )
+    for stem in workbook_name_stems(file_name):
+        match = regex.match(stem.strip())
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def list_bulgarian_year_workbooks(
+    drive: GoogleDriveClient,
+    config: QuotesSourcesConfig,
+) -> list[tuple[str, str, int]]:
+    """Google Sheets year workbooks under DRIVE_URL/Quotes, newest year first."""
+    folder_id = resolve_quotes_folder_id(drive)
+    found: list[tuple[str, str, int]] = []
+    for item in drive.list_spreadsheets(folder_id):
+        if item.mime_type != GOOGLE_SHEETS_MIME_TYPE:
+            continue
+        year = _year_from_bulgarian_workbook_name(item.name, config)
+        if year is None:
+            continue
+        found.append((item.id, item.name, year))
+    found.sort(key=lambda item: item[2], reverse=True)
+    return found
 
 
 def year_workbook_name(year: int, config: QuotesSourcesConfig | None = None) -> str:
@@ -250,13 +328,17 @@ def _ensure_month_tab(
     return SheetTab(sheet_id=sheet_id, title=preferred_title)
 
 
+def _sheet_a1_range(tab_title: str, cells: str = "A:Z") -> str:
+    escaped = tab_title.replace("'", "''")
+    return f"'{escaped}'!{cells}"
+
+
 def _read_sheet_rows(
     sheets: GoogleSheetsClient,
     spreadsheet_id: str,
     tab_title: str,
 ) -> list[list[str]]:
-    escaped = tab_title.replace("'", "''")
-    return sheets.get_values(spreadsheet_id, f"'{escaped}'!A:Z")
+    return sheets.get_values(spreadsheet_id, _sheet_a1_range(tab_title))
 
 
 def load_english_quote_rows(
@@ -472,68 +554,296 @@ def extract_ready_text_from_row(
     return ready or None
 
 
-def lookup_ready_translation(
+def _english_column_candidates(config: QuotesSourcesConfig) -> list[str]:
+    dest_cfg = config.translated_quotes_drive
+    sheet_cfg = config.quotes_sheet
+    return _unique_names(
+        str(dest_cfg.get("english_column") or ""),
+        str(sheet_cfg.get("text_en_column") or ""),
+        *DEFAULT_ENGLISH_COLUMNS,
+    )
+
+
+def lookup_ready_by_english(
+    english: str,
+    ready_by_english: Mapping[str, ReadyQuoteMatch],
+) -> ReadyQuoteMatch | None:
+    key = _normalize_english(english)
+    if not key:
+        return None
+    return ready_by_english.get(key)
+
+
+def quotes_ready_index_path(project_root: Path | None = None) -> Path:
+    root = project_root or Path.cwd()
+    return root / QUOTES_READY_INDEX_RELATIVE
+
+
+def _ready_index_quotes_payload(
+    index: Mapping[str, ReadyQuoteMatch],
+) -> list[dict[str, str]]:
+    quotes = [
+        {
+            "english_key": key,
+            "english": match.english,
+            "ready": match.ready,
+            "spreadsheet_name": match.spreadsheet_name,
+            "tab_title": match.tab_title,
+            "date_label": match.date_label,
+        }
+        for key, match in index.items()
+    ]
+    quotes.sort(key=lambda item: item["english_key"])
+    return quotes
+
+
+def load_ready_index_file(path: Path) -> dict[str, ReadyQuoteMatch]:
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return {}
+    quotes = payload.get("quotes")
+    if not isinstance(quotes, list):
+        return {}
+    index: dict[str, ReadyQuoteMatch] = {}
+    for item in quotes:
+        if not isinstance(item, dict):
+            continue
+        english = str(item.get("english") or "")
+        key = str(item.get("english_key") or "").strip() or _normalize_english(english)
+        ready = str(item.get("ready") or "").strip()
+        if not key or not ready:
+            continue
+        index[key] = ReadyQuoteMatch(
+            ready=ready,
+            spreadsheet_name=str(item.get("spreadsheet_name") or ""),
+            tab_title=str(item.get("tab_title") or ""),
+            date_label=str(item.get("date_label") or ""),
+            english=english,
+        )
+    return index
+
+
+def save_ready_index_file(path: Path, index: Mapping[str, ReadyQuoteMatch]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": READY_INDEX_VERSION,
+        "updated_at": datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "quotes": _ready_index_quotes_payload(index),
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _ready_matches_from_rows(
+    rows: list[list[str]],
+    *,
+    config: QuotesSourcesConfig,
+    spreadsheet_name: str,
+    tab_title: str,
+    english_names: list[str],
+    date_names: list[str],
+) -> dict[str, ReadyQuoteMatch]:
+    matches: dict[str, ReadyQuoteMatch] = {}
+    if not rows:
+        return matches
+    headers = rows[0]
+    english_index = _column_index(headers, *english_names)
+    if english_index is None:
+        return matches
+    date_index = _column_index(headers, *date_names)
+    for row in rows[1:]:
+        english = _cell(row, english_index)
+        key = _normalize_english(english)
+        if not key or key in matches:
+            continue
+        ready = extract_ready_text_from_row(row, headers, config)
+        if not ready:
+            continue
+        matches[key] = ReadyQuoteMatch(
+            ready=ready,
+            spreadsheet_name=spreadsheet_name,
+            tab_title=tab_title,
+            date_label=_cell(row, date_index),
+            english=english,
+        )
+    return matches
+
+
+def index_workbook_ready_quotes(
+    sheets: GoogleSheetsClient,
+    config: QuotesSourcesConfig,
+    *,
+    spreadsheet_id: str,
+    spreadsheet_name: str,
+) -> dict[str, ReadyQuoteMatch]:
+    """Read one year workbook with a single values:batchGet call."""
+    dest_cfg = config.translated_quotes_drive
+    sheet_cfg = config.quotes_sheet
+    english_names = _english_column_candidates(config)
+    date_names = _unique_names(
+        str(dest_cfg.get("date_column") or ""),
+        str(sheet_cfg.get("date_column") or ""),
+        "Date",
+    )
+    tabs = sheets.list_tabs(spreadsheet_id)
+    if not tabs:
+        return {}
+    ranges = [_sheet_a1_range(tab.title) for tab in tabs]
+    rows_by_tab = sheets.batch_get_values(spreadsheet_id, ranges)
+    index: dict[str, ReadyQuoteMatch] = {}
+    for tab, rows in zip(tabs, rows_by_tab):
+        for key, match in _ready_matches_from_rows(
+            rows,
+            config=config,
+            spreadsheet_name=spreadsheet_name,
+            tab_title=tab.title,
+            english_names=english_names,
+            date_names=date_names,
+        ).items():
+            if key not in index:
+                index[key] = match
+    return index
+
+
+def _merge_ready_indexes(
+    *,
+    workbooks: list[tuple[str, str, int]],
+    cached: Mapping[str, ReadyQuoteMatch],
+    live_by_spreadsheet: Mapping[str, dict[str, ReadyQuoteMatch] | None],
+) -> dict[str, ReadyQuoteMatch]:
+    cached_by_book: dict[str, dict[str, ReadyQuoteMatch]] = {}
+    for key, match in cached.items():
+        cached_by_book.setdefault(match.spreadsheet_name, {})[key] = match
+
+    merged: dict[str, ReadyQuoteMatch] = {}
+    seen_names: set[str] = set()
+    for _spreadsheet_id, spreadsheet_name, _year in workbooks:
+        seen_names.add(spreadsheet_name)
+        source = live_by_spreadsheet.get(spreadsheet_name)
+        if source is None:
+            source = cached_by_book.get(spreadsheet_name, {})
+        for key, match in source.items():
+            if key not in merged:
+                merged[key] = match
+    for spreadsheet_name, entries in cached_by_book.items():
+        if spreadsheet_name in seen_names:
+            continue
+        for key, match in entries.items():
+            if key not in merged:
+                merged[key] = match
+    return merged
+
+
+def load_ready_translations_by_english(
     *,
     drive: GoogleDriveClient,
     sheets: GoogleSheetsClient,
     config: QuotesSourcesConfig,
-    posted_on: date,
-) -> str | None:
-    dest = resolve_destination_month_sheet(
-        drive=drive,
-        sheets=sheets,
-        config=config,
-        year=posted_on.year,
-        month=posted_on.month,
-        create_if_missing=False,
-    )
-    if dest is None:
-        return None
-
-    dest_cfg = config.translated_quotes_drive
-    sheet_cfg = config.quotes_sheet
-    rows = _read_sheet_rows(sheets, dest.spreadsheet_id, dest.tab.title)
-    if not rows:
-        return None
-    headers = rows[0]
-    date_index = _column_index(
-        headers,
-        str(dest_cfg.get("date_column") or sheet_cfg.get("date_column", "Date")),
-    )
-    if date_index is None:
-        return None
-
-    for row in rows[1:]:
-        label = _cell(row, date_index)
-        row_date = parse_quote_sheet_date(label) if label else None
-        if row_date != posted_on:
-            continue
-        return extract_ready_text_from_row(row, headers, config)
-    return None
-
-
-def translate_quote_text(
-    english: str,
-    *,
     project_root: Path | None = None,
-) -> str:
-    """Translate a daily quote with the shared translation provider."""
-    from catalog_parser.translation.prefill import ai_prefill_enabled
-    from catalog_parser.translation.rag_translate import (
-        chat_completion,
-        chat_config_from_env,
-        translation_provider_disabled,
+    cache_path: Path | None = None,
+    persist: bool = True,
+) -> tuple[dict[str, ReadyQuoteMatch], list[str]]:
+    """
+    Index approved Bulgarian text by normalized English quote.
+
+    Uses ``data/quotes_ready_index.json`` as a persistent cache, then refreshes
+    from Drive with one batch read per year workbook. Failed workbooks keep
+    their cached rows. Newer years win when the same English appears twice.
+    """
+    warnings: list[str] = []
+    path = cache_path or quotes_ready_index_path(project_root)
+    try:
+        cached = load_ready_index_file(path)
+    except (OSError, json.JSONDecodeError) as exc:
+        cached = {}
+        warnings.append(f"Could not read Ready quote cache {path}: {exc}")
+
+    try:
+        workbooks = list_bulgarian_year_workbooks(drive, config)
+    except (QuotesTextSyncError, QuotesConfigError, GoogleDriveError) as exc:
+        if cached:
+            warnings.append(
+                f"Using cached Ready quotes ({len(cached)}); "
+                f"could not list Bulgarian quote workbooks: {exc}"
+            )
+            return cached, warnings
+        return {}, [f"Could not list Bulgarian quote workbooks: {exc}"]
+
+    live_by_spreadsheet: dict[str, dict[str, ReadyQuoteMatch] | None] = {}
+    for spreadsheet_id, spreadsheet_name, _year in workbooks:
+        try:
+            live_by_spreadsheet[spreadsheet_name] = index_workbook_ready_quotes(
+                sheets,
+                config,
+                spreadsheet_id=spreadsheet_id,
+                spreadsheet_name=spreadsheet_name,
+            )
+        except GoogleSheetsError as exc:
+            live_by_spreadsheet[spreadsheet_name] = None
+            detail = str(exc).split("\n", 1)[0]
+            warnings.append(f"{spreadsheet_name}: {detail}")
+
+    index = _merge_ready_indexes(
+        workbooks=workbooks,
+        cached=cached,
+        live_by_spreadsheet=live_by_spreadsheet,
     )
+    if persist:
+        new_quotes = _ready_index_quotes_payload(index)
+        old_quotes = _ready_index_quotes_payload(cached)
+        if new_quotes != old_quotes:
+            try:
+                save_ready_index_file(path, index)
+            except OSError as exc:
+                warnings.append(f"Could not write Ready quote cache {path}: {exc}")
+    return index, warnings
 
-    text = (english or "").strip()
-    if not text:
-        raise QuotesTextSyncError("Cannot translate empty quote text")
-    if translation_provider_disabled() or not ai_prefill_enabled():
-        raise QuotesTextSyncError(
-            "AI translation is disabled "
-            "(set TRANSLATION_PROVIDER=anthropic|openai and TRANSLATION_API_KEY)"
+
+def ready_quote_retrieval_docs(
+    ready_by_english: Mapping[str, ReadyQuoteMatch],
+) -> list[Any]:
+    """Turn the Ready cache into BM25 docs (English query text, Bulgarian Ready)."""
+    from catalog_parser.translation.index import CorpusDoc
+
+    docs: list[Any] = []
+    seen: set[str] = set()
+    for key, match in ready_by_english.items():
+        english = (match.english or "").strip() or key
+        ready = (match.ready or "").strip()
+        if not english or not ready:
+            continue
+        norm = _normalize_english(english)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        docs.append(
+            CorpusDoc(
+                en=english,
+                bg=ready,
+                video_title=match.spreadsheet_name,
+            )
         )
+    return docs
 
+
+def build_quote_retrieval_index(ready_by_english: Mapping[str, ReadyQuoteMatch]):
+    from catalog_parser.translation.index import Bm25Index
+
+    return Bm25Index(ready_quote_retrieval_docs(ready_by_english))
+
+
+def build_quote_translation_messages(
+    english: str,
+    examples: list[Any],
+) -> list[dict[str, str]]:
+    from catalog_parser.translation.rag_translate import format_examples
     from media_publisher.languages import selected_language
 
     language = selected_language()
@@ -544,50 +854,87 @@ def translate_quote_text(
         "Preserve meaning and spiritual tone. Keep the quote concise and natural. "
         f"Use {name} quotation marks {ingest.quote_open}…{ingest.quote_close} "
         "when the English uses quotation marks. "
+        "Match the terminology and register of the example Ready translations. "
         "Do not add attribution, explanations, or hashtags. "
         f"Return only the {name} quote text."
     )
-    user = f"Translate this daily quote into {name}:\n\n{text}"
+    user = (
+        f"Translate this daily quote into {name}.\n"
+        "Use the examples only as style references unless one is the same quote.\n\n"
+        f"Examples from prior approved quote translations:\n"
+        f"{format_examples(examples)}\n\n"
+        f"English quote:\n{english}\n\n"
+        f"Respond with {name} quote text only."
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
 
-    # Prefer RAG title examples when the corpus is available.
+
+def _ready_archive_for_translation(
+    ready_by_english: Mapping[str, ReadyQuoteMatch] | None,
+    project_root: Path | None,
+) -> dict[str, ReadyQuoteMatch]:
+    if ready_by_english is not None:
+        return dict(ready_by_english)
     try:
-        from catalog_parser.translation.index import (
-            DEFAULT_HOLDOUT_PATH,
-            DEFAULT_METADATA_PAIRS_PATH,
-            DEFAULT_METADATA_TITLE_INDEX_PATH,
-            load_or_build_metadata_index,
-        )
-        from catalog_parser.translation.rag_translate import translate_metadata_field
+        return load_ready_index_file(quotes_ready_index_path(project_root))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
-        root = project_root or Path.cwd()
-        pairs = root / DEFAULT_METADATA_PAIRS_PATH
-        if pairs.is_file():
-            index = load_or_build_metadata_index(
-                "title",
-                index_path=root / DEFAULT_METADATA_TITLE_INDEX_PATH,
-                pairs_path=pairs,
-                holdout_path=root / DEFAULT_HOLDOUT_PATH,
-            )
-            chat = chat_config_from_env()
-            return translate_metadata_field(
-                text,
-                kind="caption",
-                index=index,
-                config=chat,
-            ).strip()
-    except Exception:
-        pass
+
+def translate_quote_text(
+    english: str,
+    *,
+    project_root: Path | None = None,
+    ready_by_english: Mapping[str, ReadyQuoteMatch] | None = None,
+    retrieval_index: Any | None = None,
+    top_k: int = DEFAULT_QUOTE_RAG_TOP_K,
+) -> str:
+    """Translate a daily quote using Ready-cache RAG examples when available."""
+    from catalog_parser.translation.prefill import ai_prefill_enabled
+    from catalog_parser.translation.rag_translate import (
+        chat_completion,
+        chat_config_from_env,
+        translation_provider_disabled,
+    )
+
+    text = (english or "").strip()
+    if not text:
+        raise QuotesTextSyncError("Cannot translate empty quote text")
+
+    archive = _ready_archive_for_translation(ready_by_english, project_root)
+    exact = lookup_ready_by_english(text, archive)
+    if exact is not None:
+        return exact.ready
+
+    if translation_provider_disabled() or not ai_prefill_enabled():
+        raise QuotesTextSyncError(
+            "AI translation is disabled "
+            "(set TRANSLATION_PROVIDER=anthropic|openai and TRANSLATION_API_KEY)"
+        )
+
+    index = retrieval_index
+    if index is None and archive:
+        index = build_quote_retrieval_index(archive)
+
+    examples: list[Any] = []
+    if index is not None:
+        hits = list(index.retrieve(text, k=max(top_k, 1)))
+        query_key = _normalize_english(text)
+        for hit in hits:
+            if _normalize_english(hit.en) == query_key:
+                return hit.bg
+        examples = hits[:top_k]
 
     chat = chat_config_from_env()
     translated = chat_completion(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
+        build_quote_translation_messages(text, examples),
         chat,
     ).strip()
     if not translated:
-        raise QuotesTextSyncError("Empty quote translation returned by model")
+        raise QuotesTextSyncError("Empty quote translation returned by the model")
     return translated
 
 
@@ -625,6 +972,11 @@ def _destination_column_map(
         str(dest_cfg.get("ready_column") or sheet_cfg.get("ready_column", "Ready")),
         "Ready",
     )
+    comment_index = _column_index(
+        headers,
+        str(dest_cfg.get("comment_column") or sheet_cfg.get("comment_column", "Comment")),
+        "Comment",
+    )
     missing = [
         name
         for name, index in (
@@ -647,7 +999,40 @@ def _destination_column_map(
         "translation": translation_index,
         "edited": edited_index if edited_index is not None else -1,
         "ready": ready_index if ready_index is not None else -1,
+        "comment": comment_index if comment_index is not None else -1,
     }
+
+
+def reuse_source_comment(match: ReadyQuoteMatch) -> str:
+    if match.date_label.strip():
+        return f"Reused from {match.date_label.strip()}"
+    if match.tab_title.strip():
+        return f"Reused from {match.tab_title.strip()}"
+    return "Reused from archive"
+
+
+def _ensure_destination_columns(
+    *,
+    sheets: GoogleSheetsClient,
+    dest: DestinationSheetRef,
+    headers: list[str],
+    columns: dict[str, int],
+    extras: tuple[tuple[str, str], ...],
+) -> list[str]:
+    updated = list(headers)
+    added = False
+    for key, title in extras:
+        if columns.get(key, -1) < 0:
+            updated.append(title)
+            columns[key] = len(updated) - 1
+            added = True
+    if added:
+        escaped = dest.tab.title.replace("'", "''")
+        sheets.batch_update_values(
+            dest.spreadsheet_id,
+            [(f"'{escaped}'!A1", [updated])],
+        )
+    return updated
 
 
 def sync_month_quote_texts(
@@ -660,9 +1045,18 @@ def sync_month_quote_texts(
     project_root: Path | None = None,
     print_line: PrintFn | None = None,
     translate_fn: Callable[[str], str] | None = None,
+    ready_by_english: Mapping[str, ReadyQuoteMatch] | None = None,
 ) -> QuotesTextSyncResult:
     log = print_line or (lambda _msg: None)
     result = QuotesTextSyncResult()
+    archive = ready_by_english
+    if archive is None:
+        archive, index_warnings = load_ready_translations_by_english(
+            drive=drive,
+            sheets=sheets,
+            config=config,
+        )
+        result.warnings.extend(index_warnings)
 
     try:
         english_rows = load_english_quote_rows(
@@ -706,15 +1100,17 @@ def sync_month_quote_texts(
 
     headers = rows[0]
     columns = _destination_column_map(headers, config)
-    # Ensure Edited column exists when reuse is needed.
-    if columns["edited"] < 0:
-        headers = list(headers) + ["Edited"]
-        columns["edited"] = len(headers) - 1
-        escaped = dest.tab.title.replace("'", "''")
-        sheets.batch_update_values(
-            dest.spreadsheet_id,
-            [(f"'{escaped}'!A1", [headers])],
-        )
+    headers = _ensure_destination_columns(
+        sheets=sheets,
+        dest=dest,
+        headers=headers,
+        columns=columns,
+        extras=(
+            ("edited", "Edited"),
+            ("ready", "Ready"),
+            ("comment", "Comment"),
+        ),
+    )
 
     existing_by_day: dict[int, tuple[int, list[str]]] = {}
     for row_number, row in enumerate(rows[1:], start=2):
@@ -727,15 +1123,37 @@ def sync_month_quote_texts(
         existing_by_day[row_date.day] = (row_number, row)
 
     updates: list[tuple[str, list[list[Any]]]] = []
+    format_clears: list[tuple[int, int, int]] = []
+    stale_ready_cells: list[tuple[int, int, int]] = []
+    reset_ready_backgrounds: list[tuple[int, int, int]] = []
     next_append_row = len(rows) + 1
-    translator = translate_fn or (
-        lambda text: translate_quote_text(text, project_root=project_root)
-    )
+    translator = translate_fn
+    if translator is None:
+        retrieval_index = (
+            build_quote_retrieval_index(archive) if archive else None
+        )
+        translator = lambda text: translate_quote_text(
+            text,
+            project_root=project_root,
+            ready_by_english=archive,
+            retrieval_index=retrieval_index,
+        )
 
     for quote in english_rows:
         existing = existing_by_day.get(quote.day)
         existing_english = _cell(existing[1], columns["english"]) if existing else ""
-        if existing and _normalize_text(existing_english) == _normalize_text(quote.english):
+        english_unchanged = bool(
+            existing
+            and _normalize_text(existing_english) == _normalize_text(quote.english)
+        )
+        existing_ready = ""
+        if existing:
+            existing_ready = (
+                extract_ready_text_from_row(existing[1], headers, config) or ""
+            )
+        if english_unchanged and existing_ready:
+            continue
+        if english_unchanged and lookup_ready_by_english(quote.english, archive) is None:
             continue
 
         action = "updated" if existing else "added"
@@ -747,7 +1165,13 @@ def sync_month_quote_texts(
             row_number = existing[0]
             prior_row = existing[1]
 
-        width = max(len(headers), columns["edited"] + 1, columns["translation"] + 1)
+        width = max(
+            len(headers),
+            columns["edited"] + 1,
+            columns["translation"] + 1,
+            columns["ready"] + 1,
+            columns["comment"] + 1,
+        )
         new_row = [""] * width
         for index, value in enumerate(prior_row):
             if index < width:
@@ -757,34 +1181,30 @@ def sync_month_quote_texts(
 
         translation_detail = ""
         reuse_text: str | None = None
-        if quote.previously_posted_on is not None:
-            reuse_text = lookup_ready_translation(
-                drive=drive,
-                sheets=sheets,
-                config=config,
-                posted_on=quote.previously_posted_on,
+        match = lookup_ready_by_english(quote.english, archive)
+        if match is not None:
+            reuse_text = match.ready
+            origin = f"{match.spreadsheet_name} / {match.tab_title}"
+            if match.date_label:
+                origin = f"{origin} ({match.date_label})"
+            translation_detail = f"reused Ready from {origin}"
+            new_row[columns["ready"]] = reuse_text
+            if columns["comment"] >= 0:
+                new_row[columns["comment"]] = reuse_source_comment(match)
+            if columns["ready"] >= 0:
+                reset_ready_backgrounds.append(
+                    (dest.tab.sheet_id, row_number, columns["ready"])
+                )
+            result.changes.append(
+                QuoteTextChange(
+                    action="reused",
+                    year=year,
+                    month=month,
+                    day=quote.day,
+                    date_label=quote.date_label,
+                    detail=translation_detail,
+                )
             )
-            if reuse_text:
-                new_row[columns["edited"]] = reuse_text
-                translation_detail = (
-                    f"reused Ready from {quote.previously_posted_label}"
-                )
-                result.changes.append(
-                    QuoteTextChange(
-                        action="reused",
-                        year=year,
-                        month=month,
-                        day=quote.day,
-                        date_label=quote.date_label,
-                        detail=translation_detail,
-                    )
-                )
-            else:
-                result.warnings.append(
-                    f"{quote.date_label}: Previously Posted on "
-                    f"{quote.previously_posted_label!r} but Ready text not found; "
-                    "falling back to AI translation"
-                )
 
         if not reuse_text:
             try:
@@ -808,15 +1228,34 @@ def sync_month_quote_texts(
                     )
                 )
 
+        stale_ready = bool(
+            existing
+            and not english_unchanged
+            and existing_ready
+            and not reuse_text
+            and columns["ready"] >= 0
+        )
+        if stale_ready:
+            stale_ready_cells.append(
+                (dest.tab.sheet_id, row_number, columns["ready"])
+            )
+            stale_note = "stale Ready highlighted"
+            translation_detail = (
+                f"{translation_detail}; {stale_note}"
+                if translation_detail
+                else stale_note
+            )
+
         for column_key, column_index in (
             ("date", columns["date"]),
             ("english", columns["english"]),
             ("translation", columns["translation"]),
-            ("edited", columns["edited"]),
+            ("ready", columns["ready"]),
+            ("comment", columns["comment"]),
         ):
             if column_index < 0:
                 continue
-            if column_key == "edited" and not reuse_text:
+            if column_key in {"ready", "comment"} and not reuse_text:
                 continue
             if column_key == "translation" and (reuse_text or not new_row[column_index]):
                 continue
@@ -826,6 +1265,10 @@ def sync_month_quote_texts(
                     [[new_row[column_index]]],
                 )
             )
+            if column_key in {"ready", "translation"}:
+                format_clears.append(
+                    (dest.tab.sheet_id, row_number, column_index)
+                )
 
         existing_by_day[quote.day] = (row_number, new_row)
         result.changes.append(
@@ -844,7 +1287,24 @@ def sync_month_quote_texts(
         )
 
     if updates:
-        sheets.batch_update_values(dest.spreadsheet_id, updates)
+        sheets.batch_update_values(
+            dest.spreadsheet_id,
+            updates,
+            value_input_option="RAW",
+        )
+        sheets.clear_cells_text_format(dest.spreadsheet_id, format_clears)
+    if stale_ready_cells:
+        sheets.set_cells_background(
+            dest.spreadsheet_id,
+            stale_ready_cells,
+            STALE_READY_BACKGROUND,
+        )
+    if reset_ready_backgrounds:
+        sheets.set_cells_background(
+            dest.spreadsheet_id,
+            reset_ready_backgrounds,
+            None,
+        )
 
     return result
 
@@ -862,6 +1322,20 @@ def sync_quote_texts_for_months(
 ) -> QuotesTextSyncResult:
     targets = months or current_and_next_months(reference_date)
     combined = QuotesTextSyncResult()
+    log = print_line or (lambda _msg: None)
+    ready_by_english, index_warnings = load_ready_translations_by_english(
+        drive=drive,
+        sheets=sheets,
+        config=config,
+        project_root=project_root,
+    )
+    combined.warnings.extend(index_warnings)
+    cache_name = quotes_ready_index_path(project_root).name
+    log(
+        f"Indexed {len(ready_by_english)} Ready quotes from "
+        f"{len({match.spreadsheet_name for match in ready_by_english.values()})} "
+        f"Bulgarian workbooks ({cache_name})"
+    )
     for year, month in targets:
         month_result = sync_month_quote_texts(
             config=config,
@@ -872,6 +1346,7 @@ def sync_quote_texts_for_months(
             project_root=project_root,
             print_line=print_line,
             translate_fn=translate_fn,
+            ready_by_english=ready_by_english,
         )
         combined.changes.extend(month_result.changes)
         combined.warnings.extend(month_result.warnings)

@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -63,3 +63,15 @@ jobs:
             EXTRA_ARGS="--year ${{ inputs.year }} --month ${{ inputs.month }}"
           fi
           python scripts/prepare_quote_texts.py ${EXTRA_ARGS}
+
+      - name: Commit Ready quote cache
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/quotes_ready_index.json
+          if git diff --staged --quiet; then
+            echo "No Ready quote cache changes to commit."
+          else
+            git commit -m "Update Ready quote translation cache"
+            git push
+          fi

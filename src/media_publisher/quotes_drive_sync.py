@@ -24,6 +24,7 @@ from media_publisher.sources.google_drive import (
     QuoteBackgroundImage,
     UploadAction,
     format_month_folder_name,
+    local_file_md5,
 )
 from media_publisher.sources.google_sheets import GoogleSheetsClient, GoogleSheetsError
 from media_publisher.sources.quotes_config import QuotesSourcesConfig
@@ -53,6 +54,7 @@ class GeneratedQuoteChange:
     drive_name: str
     caption: str
     fingerprint: str
+    source: str = "ready"
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,84 @@ def pair_fingerprint(*, background: QuoteBackgroundImage, text: str) -> str:
     bg_token = background.md5_checksum or background.modified_time or background.file_id
     payload = f"{background.file_id}|{bg_token}|{text.strip()}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def substitute_quote_fingerprint(*, image_path: Path, caption: str) -> str:
+    payload = f"substitute|{local_file_md5(image_path)}|{caption.strip()}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def upload_published_substitute_quote(
+    *,
+    drive_client: GoogleDriveClient,
+    project_root: Path,
+    image_path: Path,
+    year: int,
+    month: int,
+    day: int,
+    caption: str,
+    source: str = "edited",
+    print_line: Callable[[str], None] | None = None,
+) -> tuple[GeneratedQuoteChange | None, list[str]]:
+    """Upload a scheduled/published quote that used Edited or Translation."""
+    log = print_line or (lambda _message: None)
+    warnings: list[str] = []
+    if not image_path.is_file():
+        warnings.append(
+            f"{year:04d}-{month:02d}-{day:02d}: substitute Drive upload skipped "
+            f"(missing {image_path})"
+        )
+        return None, warnings
+
+    state_path = project_root / SYNC_STATE_RELATIVE_PATH
+    state = load_sync_state(state_path)
+    fingerprint = substitute_quote_fingerprint(image_path=image_path, caption=caption)
+    drive_name = f"{year:04d}-{month:02d}-{day:02d}.jpg"
+    output_month_name = format_month_folder_name(
+        GENERATED_MONTH_FOLDER_PATTERN,
+        year=year,
+        month=month,
+    )
+    try:
+        output_month = drive_client.ensure_folder(
+            resolve_quotes_folder_id(drive_client),
+            output_month_name,
+        )
+        upload = drive_client.upload_or_update_file(
+            output_month.id,
+            image_path,
+            name=drive_name,
+            mime_type="image/jpeg",
+        )
+    except GoogleDriveError as exc:
+        warnings.append(f"{drive_name}: substitute Drive upload failed ({exc})")
+        return None, warnings
+
+    state[state_key(year=year, month=month, day=day)] = {
+        "fingerprint": fingerprint,
+        "drive_file_id": upload.file.id,
+    }
+    save_sync_state(state_path, state)
+    if upload.action == "unchanged":
+        log(f"Unchanged Drive quote: {output_month_name}/{drive_name} (substitute)")
+        return None, warnings
+    log(
+        f"{upload.action.capitalize()} Drive quote: "
+        f"{output_month_name}/{drive_name} (substitute)"
+    )
+    return (
+        GeneratedQuoteChange(
+            action=upload.action,
+            year=year,
+            month=month,
+            day=day,
+            drive_name=drive_name,
+            caption=caption,
+            fingerprint=fingerprint,
+            source=source,
+        ),
+        warnings,
+    )
 
 
 def state_key(*, year: int, month: int, day: int, variant: str = DEFAULT_VARIANT) -> str:
@@ -120,6 +200,16 @@ def generated_quotes_notify_recipients() -> list[str]:
     return _parse_email_list(os.getenv("GENERATED_QUOTES_NOTIFY_EMAIL", ""))
 
 
+def _email_change_line(item: GeneratedQuoteChange) -> str:
+    excerpt = item.caption.replace("\n", " ").strip()
+    if len(excerpt) > 120:
+        excerpt = excerpt[:117] + "..."
+    line = f"  - {item.drive_name}: {excerpt}"
+    if item.source != "ready":
+        line += f" ({item.source} substitute)"
+    return line
+
+
 def format_generated_quotes_email(
     changes: list[GeneratedQuoteChange],
     *,
@@ -146,18 +236,12 @@ def format_generated_quotes_email(
     if added:
         lines.append("Added:")
         for item in added:
-            excerpt = item.caption.replace("\n", " ").strip()
-            if len(excerpt) > 120:
-                excerpt = excerpt[:117] + "..."
-            lines.append(f"  - {item.drive_name}: {excerpt}")
+            lines.append(_email_change_line(item))
         lines.append("")
     if updated:
         lines.append("Updated:")
         for item in updated:
-            excerpt = item.caption.replace("\n", " ").strip()
-            if len(excerpt) > 120:
-                excerpt = excerpt[:117] + "..."
-            lines.append(f"  - {item.drive_name}: {excerpt}")
+            lines.append(_email_change_line(item))
         lines.append("")
     return subject, "\n".join(lines).rstrip() + "\n"
 
@@ -199,6 +283,36 @@ def send_generated_quotes_notification_email(
             body=body,
         )
     return True
+
+
+def notify_generated_quote_changes(
+    changes: list[GeneratedQuoteChange],
+    *,
+    drive_folder_url: str = "",
+    print_line: Callable[[str], None] | None = None,
+) -> list[str]:
+    """Email Drive add/update summary. Returns warnings; does not raise."""
+    if not changes:
+        return []
+    log = print_line or (lambda _message: None)
+    warnings: list[str] = []
+    recipients = generated_quotes_notify_recipients()
+    try:
+        sent = send_generated_quotes_notification_email(
+            changes, drive_folder_url=drive_folder_url
+        )
+    except Exception as exc:  # noqa: BLE001 — email must not fail the sync
+        return [f"Failed to send generated-quotes email: {exc}"]
+    if sent:
+        log(f"Sent generated-quotes email ({len(recipients)} recipient(s))")
+        return []
+    reason = (
+        "missing GENERATED_QUOTES_NOTIFY_EMAIL"
+        if not recipients
+        else "missing Gmail SMTP settings"
+    )
+    warnings.append(f"Generated-quotes email skipped ({reason})")
+    return warnings
 
 
 def _days_needing_render(
@@ -416,25 +530,13 @@ def sync_generated_quotes_for_months(
 
     save_sync_state(state_path, state)
 
-    if send_email and all_changes:
-        recipients = generated_quotes_notify_recipients()
-        try:
-            sent = send_generated_quotes_notification_email(
-                all_changes, drive_folder_url=quotes_folder_link
+    if send_email:
+        all_warnings.extend(
+            notify_generated_quote_changes(
+                all_changes,
+                drive_folder_url=quotes_folder_link,
+                print_line=log,
             )
-        except Exception as exc:  # noqa: BLE001 - email must not fail the sync
-            all_warnings.append(f"Failed to send generated-quotes email: {exc}")
-        else:
-            if sent:
-                log(
-                    f"Sent generated-quotes email ({len(recipients)} recipient(s))"
-                )
-            else:
-                reason = (
-                    "missing GENERATED_QUOTES_NOTIFY_EMAIL"
-                    if not recipients
-                    else "missing Gmail SMTP settings"
-                )
-                all_warnings.append(f"Generated-quotes email skipped ({reason})")
+        )
 
     return GeneratedQuotesSyncResult(changes=all_changes, warnings=all_warnings)

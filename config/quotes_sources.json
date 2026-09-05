@@ -58,6 +58,7 @@
     "translation_column": "Translation",
     "edited_column": "Edited",
     "ready_column": "Ready",
+    "comment_column": "Comment",
     "ready_column_candidates": ["Ready", "Proofread"],
     "headers": ["Date", "English", "Translation", "Edited", "Ready", "Comment"]
   },
@@ -67,8 +68,7 @@
     "text_en_column": "English",
     "edited_column": "Edited",
     "ready_column": "Ready ",
-    "date_column": "Date",
-    "prefer_ready_text": true
+    "date_column": "Date"
   },
   "renders": {
     "fbyt_dir": "downloads/quotes/renders/fbyt",

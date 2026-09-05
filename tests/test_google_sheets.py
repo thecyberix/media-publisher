@@ -10,6 +10,8 @@ from media_publisher.sources.google_sheets import (
     GoogleSheetsClient,
     GoogleSheetsError,
     _is_transient_sheets_error,
+    cell_background_requests,
+    text_format_clear_requests,
 )
 
 
@@ -75,6 +77,24 @@ class GoogleSheetsRequestRetryTests(unittest.TestCase):
         self.assertEqual(result, {"spreadsheetId": "x"})
         self.assertEqual(urlopen.call_count, 2)
 
+    def test_batch_get_values_returns_one_block_per_range(self) -> None:
+        payload = {
+            "valueRanges": [
+                {"range": "Aug 2022!A1:Z", "values": [["Date"], ["1 Aug"]]},
+                {"range": "Sep 2022!A1:Z"},
+            ]
+        }
+        with patch(
+            "media_publisher.sources.google_sheets.urllib.request.urlopen",
+            return_value=_ok_response(payload),
+        ):
+            rows = self.client.batch_get_values(
+                "sheet-id",
+                ["'Aug 2022'!A:Z", "'Sep 2022'!A:Z"],
+            )
+        self.assertEqual(rows[0], [["Date"], ["1 Aug"]])
+        self.assertEqual(rows[1], [])
+
     def test_does_not_retry_permanent_http_errors(self) -> None:
         with patch(
             "media_publisher.sources.google_sheets.urllib.request.urlopen",
@@ -99,6 +119,38 @@ class GoogleSheetsRequestRetryTests(unittest.TestCase):
 
         self.assertEqual(str(caught.exception), "Google Sheets request timed out")
         self.assertEqual(urlopen.call_count, 3)
+
+
+class QuoteCellFormatTests(unittest.TestCase):
+    def test_text_format_clear_requests_target_single_cells(self) -> None:
+        requests = text_format_clear_requests([(12, 5, 3)])
+        self.assertEqual(len(requests), 1)
+        repeat = requests[0]["repeatCell"]
+        self.assertEqual(repeat["range"]["sheetId"], 12)
+        self.assertEqual(repeat["range"]["startRowIndex"], 4)
+        self.assertEqual(repeat["range"]["endRowIndex"], 5)
+        self.assertEqual(repeat["range"]["startColumnIndex"], 3)
+        self.assertEqual(repeat["fields"], "userEnteredFormat.textFormat")
+
+    def test_cell_background_requests_set_and_clear_fill(self) -> None:
+        yellow = cell_background_requests([(12, 5, 4)], {"red": 1.0, "green": 1.0, "blue": 0.0})
+        self.assertEqual(len(yellow), 1)
+        repeat = yellow[0]["repeatCell"]
+        self.assertEqual(repeat["range"]["sheetId"], 12)
+        self.assertEqual(repeat["range"]["startRowIndex"], 4)
+        self.assertEqual(repeat["range"]["startColumnIndex"], 4)
+        self.assertEqual(
+            repeat["cell"]["userEnteredFormat"]["backgroundColor"],
+            {"red": 1.0, "green": 1.0, "blue": 0.0},
+        )
+        self.assertEqual(repeat["fields"], "userEnteredFormat.backgroundColor")
+
+        cleared = cell_background_requests([(12, 5, 4)], None)
+        self.assertEqual(cleared[0]["repeatCell"]["cell"]["userEnteredFormat"], {})
+        self.assertEqual(
+            cleared[0]["repeatCell"]["fields"],
+            "userEnteredFormat.backgroundColor",
+        )
 
 
 if __name__ == "__main__":

@@ -446,8 +446,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Sync new/updated English quotes for the current and next month into the "
-            "Bulgarian quotes Drive folder, reuse prior Ready text when "
-            "'Previously Posted on' is set, otherwise AI-translate into Translation."
+            "Bulgarian quotes Drive folder, reuse Ready text when the same English "
+            "quote already exists in a Bulgarian year workbook, otherwise AI-translate "
+            "into Translation."
         ),
     )
     parser.add_argument(
@@ -1673,10 +1674,17 @@ def run_quotes_publish(settings, args) -> int:
             PROJECT_ROOT / settings.google_sheets_service_account
         )
 
-        # Keep Drive in sync with rendered FB/YT quotes for current + next month.
+        # Keep Drive in sync with Ready FB/YT quotes for current + next month.
         from datetime import datetime
 
-        from media_publisher.quotes_drive_sync import sync_generated_quotes_for_months
+        from media_publisher.quotes_drive_sync import (
+            notify_generated_quote_changes,
+            sync_generated_quotes_for_months,
+        )
+        from media_publisher.sources.drive_layout import (
+            drive_folder_url as quotes_drive_folder_link,
+            resolve_quotes_folder_id,
+        )
         from media_publisher.sources.quotes_config import load_quotes_sources_config
         from media_publisher.timezones import get_timezone
 
@@ -1694,7 +1702,7 @@ def run_quotes_publish(settings, args) -> int:
             project_root=PROJECT_ROOT,
             reference_date=sync_reference,
             print_line=print_console,
-            send_email=True,
+            send_email=False,
         )
         for warning in sync_result.warnings:
             print_console(f"Warning: {warning}")
@@ -1706,21 +1714,42 @@ def run_quotes_publish(settings, args) -> int:
         else:
             print_console("Generated quotes Drive sync: no changes")
 
-        exit_code, _ = run_quotes_pipeline(
-            build_quotes_pipeline_settings(
-                settings,
-                meta_page_id=page_id,
-                meta_instagram_account_id=instagram_account_id,
-                publish_mode=publish_mode,
-                private_test=private_test,
-                reference_date=reference_date,
-                platforms=platforms,
-            ),
-            meta_client=meta_client,
-            sheets_client=sheets_client,
-            drive_client=drive_client,
+        substitute_drive_changes = []
+        try:
+            exit_code, _ = run_quotes_pipeline(
+                build_quotes_pipeline_settings(
+                    settings,
+                    meta_page_id=page_id,
+                    meta_instagram_account_id=instagram_account_id,
+                    publish_mode=publish_mode,
+                    private_test=private_test,
+                    reference_date=reference_date,
+                    platforms=platforms,
+                ),
+                meta_client=meta_client,
+                sheets_client=sheets_client,
+                drive_client=drive_client,
+                print_line=print_console,
+                substitute_drive_changes=substitute_drive_changes,
+            )
+        except (MetaError, RuntimeError, QuotesRenderPipelineError, GoogleDriveError, GoogleSheetsError) as exc:
+            print(f"Quotes pipeline failed: {exc}")
+            exit_code = 1
+
+        drive_changes = list(sync_result.changes) + substitute_drive_changes
+        quotes_folder_link = quotes_drive_folder_link(resolve_quotes_folder_id(drive_client))
+        for warning in notify_generated_quote_changes(
+            drive_changes,
+            drive_folder_url=quotes_folder_link,
             print_line=print_console,
-        )
+        ):
+            print_console(f"Warning: {warning}")
+        if substitute_drive_changes:
+            print_console(
+                "Substitute Drive uploads: "
+                f"{sum(1 for item in substitute_drive_changes if item.action == 'added')} added, "
+                f"{sum(1 for item in substitute_drive_changes if item.action == 'updated')} updated"
+            )
     except (MetaError, RuntimeError, QuotesRenderPipelineError, GoogleDriveError, GoogleSheetsError) as exc:
         print(f"Quotes pipeline failed: {exc}")
         return 1

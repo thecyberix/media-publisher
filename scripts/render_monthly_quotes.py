@@ -61,8 +61,9 @@ def main() -> int:
         "--sync-drive",
         action="store_true",
         help=(
-            "Pre-generate FB/YT quotes for the current and next month, upload to the "
-            "generated-quotes Drive folder, and email on adds/updates"
+            "Pre-generate FB/YT quotes from the Ready column for the current and "
+            "next month, upload to the generated-quotes Drive folder, and email "
+            "on adds/updates"
         ),
     )
     parser.add_argument(

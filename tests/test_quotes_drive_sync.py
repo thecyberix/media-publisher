@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import date
@@ -13,6 +14,8 @@ from media_publisher.quotes_drive_sync import (
     generated_quotes_notify_recipients,
     pair_fingerprint,
     state_key,
+    substitute_quote_fingerprint,
+    upload_published_substitute_quote,
 )
 from media_publisher.sources.google_drive import (
     DriveFile,
@@ -97,6 +100,23 @@ class QuotesDriveSyncHelpersTests(unittest.TestCase):
         self.assertIn("First quote", body)
         self.assertIn("drive.google.com/drive/folders/", body)
 
+        subject, body = format_generated_quotes_email(
+            [
+                GeneratedQuoteChange(
+                    action="added",
+                    year=2026,
+                    month=9,
+                    day=5,
+                    drive_name="2026-09-05.jpg",
+                    caption="Edited text",
+                    fingerprint="c",
+                    source="edited",
+                )
+            ]
+        )
+        self.assertIn("2026-09-05.jpg", body)
+        self.assertIn("edited substitute", body)
+
     def test_generated_quotes_notify_recipients_from_env_list(self) -> None:
         import os
         from unittest.mock import patch
@@ -149,6 +169,58 @@ class QuotesDriveSyncHelpersTests(unittest.TestCase):
             )
             self.assertEqual(result.action, "unchanged")
             client._drive.files.assert_not_called()
+
+    def test_upload_published_substitute_quote_writes_drive_and_state(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "2026-09-05.jpg"
+            image.write_bytes(b"quote-bytes")
+            drive = MagicMock()
+            drive.ensure_folder.return_value = DriveFile(
+                id="folder-sep",
+                name="09 Sep 2026",
+                mime_type="application/vnd.google-apps.folder",
+            )
+            drive.upload_or_update_file.return_value = DriveUploadResult(
+                action="added",
+                file=DriveFile(
+                    id="file-1",
+                    name="2026-09-05.jpg",
+                    mime_type="image/jpeg",
+                ),
+            )
+            with patch(
+                "media_publisher.quotes_drive_sync.resolve_quotes_folder_id",
+                return_value="quotes-root",
+            ):
+                change, warnings = upload_published_substitute_quote(
+                    drive_client=drive,
+                    project_root=root,
+                    image_path=image,
+                    year=2026,
+                    month=9,
+                    day=5,
+                    caption="Edited substitute",
+                    source="edited",
+                )
+            self.assertEqual(warnings, [])
+            self.assertIsNotNone(change)
+            self.assertEqual(change.action, "added")
+            self.assertEqual(change.source, "edited")
+            self.assertEqual(change.drive_name, "2026-09-05.jpg")
+            drive.upload_or_update_file.assert_called_once()
+            state_path = root / "downloads/quotes/generated-sync-state.json"
+            self.assertTrue(state_path.is_file())
+            self.assertEqual(
+                json.loads(state_path.read_text(encoding="utf-8"))[
+                    state_key(year=2026, month=9, day=5)
+                ]["fingerprint"],
+                substitute_quote_fingerprint(
+                    image_path=image, caption="Edited substitute"
+                ),
+            )
 
 
 if __name__ == "__main__":

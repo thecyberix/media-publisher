@@ -48,6 +48,25 @@ class DailyQuoteText:
     date_label: str
     text_bg: str
     text_en: str | None = None
+    text_source: str = "ready"
+
+
+def _quote_text_from_row(
+    *,
+    ready_text: str,
+    edited_text: str,
+    translation_text: str,
+    require_ready: bool,
+) -> tuple[str, str] | None:
+    if ready_text:
+        return ready_text, "ready"
+    if require_ready:
+        return None
+    if edited_text:
+        return edited_text, "edited"
+    if translation_text:
+        return translation_text, "translation"
+    return None
 
 
 def _column_index(headers: list[str], name: str) -> int | None:
@@ -119,9 +138,14 @@ def load_monthly_quote_texts(
     *,
     year: int,
     month: int,
-    require_ready: bool = False,
+    require_ready: bool = True,
     spreadsheet_id: str | None = None,
 ) -> list[DailyQuoteText]:
+    """Load quote rows for render/publish/Drive.
+
+    ``require_ready=True`` (Drive dump) uses only Ready. Scheduling/publishing
+    passes ``require_ready=False`` so Edited, then Translation, can substitute.
+    """
     sheet_config = config.quotes_sheet
     resolved_id = spreadsheet_id
     if not resolved_id:
@@ -142,10 +166,6 @@ def load_monthly_quote_texts(
 
     headers = rows[0]
     date_index = _column_index(headers, str(sheet_config.get("date_column", "Date")))
-    translation_index = _column_index(
-        headers,
-        str(sheet_config.get("text_bg_column", "Translation")),
-    )
     english_index = _column_index(
         headers,
         str(sheet_config.get("text_en_column", "English")),
@@ -158,12 +178,24 @@ def load_monthly_quote_texts(
         headers,
         str(sheet_config.get("edited_column", "Edited")),
     )
+    translation_index = _column_index(
+        headers,
+        str(sheet_config.get("text_bg_column", "Translation")),
+    )
     if date_index is None:
         raise QuotesSheetError("Quotes sheet is missing a Date column")
-    if translation_index is None:
-        raise QuotesSheetError("Quotes sheet is missing a Translation column")
+    if require_ready and ready_index is None:
+        raise QuotesSheetError("Quotes sheet is missing a Ready column")
+    if (
+        not require_ready
+        and ready_index is None
+        and edited_index is None
+        and translation_index is None
+    ):
+        raise QuotesSheetError(
+            "Quotes sheet is missing Ready, Edited, and Translation columns"
+        )
 
-    prefer_ready = bool(sheet_config.get("prefer_ready_text", True))
     quotes: list[DailyQuoteText] = []
 
     for row in rows[1:]:
@@ -176,19 +208,15 @@ def load_monthly_quote_texts(
         if publish_date.year != year or publish_date.month != month:
             continue
 
-        ready_text = _cell(row, ready_index)
-        edited_text = _cell(row, edited_index)
-        translation_text = _cell(row, translation_index)
-        if require_ready:
-            if not ready_text:
-                continue
-            text_bg = ready_text
-        elif prefer_ready:
-            text_bg = ready_text or edited_text or translation_text
-        else:
-            text_bg = translation_text
-        if not text_bg:
+        selected = _quote_text_from_row(
+            ready_text=_cell(row, ready_index),
+            edited_text=_cell(row, edited_index),
+            translation_text=_cell(row, translation_index),
+            require_ready=require_ready,
+        )
+        if selected is None:
             continue
+        text_bg, text_source = selected
 
         quotes.append(
             DailyQuoteText(
@@ -197,6 +225,7 @@ def load_monthly_quote_texts(
                 date_label=date_label,
                 text_bg=text_bg,
                 text_en=_cell(row, english_index) or None,
+                text_source=text_source,
             )
         )
 
