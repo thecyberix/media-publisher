@@ -239,10 +239,10 @@ def render_event(
             program.learn_more_url,
             "",
             f"{events.registration_cta} {link}",
-            "",
-            *events.closing_lines,
         ]
     )
+    if events.closing_lines:
+        body_lines.extend(["", *events.closing_lines])
     full_text = "\n".join(body_lines)
 
     # Facebook caption: one-line title; learn-more line is URL-only.
@@ -265,10 +265,10 @@ def render_event(
             f"{program.learn_more_intro} {program.learn_more_url}",
             "",
             f"{events.registration_cta} {link}",
-            "",
-            *events.closing_lines,
         ]
     )
+    if events.closing_lines:
+        facebook_post_lines.extend(["", *events.closing_lines])
     facebook_post_text = "\n".join(facebook_post_lines)
 
     html_body = _html_section(

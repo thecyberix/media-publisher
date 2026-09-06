@@ -28,10 +28,7 @@
       },
       "registration_cta": "👉 Регистрация тук:",
       "html_registration_label": "Регистрация",
-      "closing_lines": [
-        "💫 С любов, светлина и смях,",
-        "Доброволци"
-      ],
+      "closing_lines": [],
       "page_heading": "Събития",
       "empty_state": "Очаквайте скоро!",
       "profile_alt": "Садгуру"

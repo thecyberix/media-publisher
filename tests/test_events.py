@@ -106,6 +106,13 @@ class EventTemplateTests(unittest.TestCase):
             f"Вижте какво казва Садгуру: {SURYA_YT}",
             rendered.facebook_post_text,
         )
+        self.assertNotIn("Доброволци", rendered.facebook_post_text)
+        self.assertNotIn("С любов, светлина и смях", rendered.facebook_post_text)
+        self.assertTrue(
+            rendered.facebook_post_text.rstrip().endswith(
+                "👉 Регистрация тук: https://example.com/register"
+            )
+        )
         self.assertNotIn(SURYA_KRIYA_LEARN_MORE_LABEL, rendered.facebook_post_text)
         self.assertIn(
             '☀️ Програма "Суря крия" в София, България ☀️',

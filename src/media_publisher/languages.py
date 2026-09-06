@@ -172,7 +172,9 @@ def _parse_events_config(language: str, raw: Any) -> EventLanguageConfig | None:
         html_registration_label=_required_str(
             raw, "html_registration_label", language=language
         ),
-        closing_lines=_str_tuple(raw, "closing_lines", language=language),
+        closing_lines=_str_tuple(
+            raw, "closing_lines", language=language, allow_empty=True
+        ),
         page_heading=_required_str(raw, "page_heading", language=language),
         empty_state=_required_str(raw, "empty_state", language=language),
         profile_alt=_required_str(raw, "profile_alt", language=language),
