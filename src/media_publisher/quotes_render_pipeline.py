@@ -320,35 +320,45 @@ def prepare_quote_posts_for_publish(
 
     fbyt_renders: list[RenderedQuoteImage] = []
     ig_renders: list[RenderedQuoteImage] = []
+    skipped_errors: list[str] = []
     for day in sorted(days):
-        if need_fbyt:
-            fbyt_renders.extend(
-                render_monthly_quotes(
-                    config=config,
-                    sheets_client=sheets_client,
-                    drive_client=drive_client,
-                    year=year,
-                    month=month,
-                    variants=("fbyt",),
-                    overwrite=overwrite,
-                    day=day,
-                    require_ready=False,
+        try:
+            if need_fbyt:
+                fbyt_renders.extend(
+                    render_monthly_quotes(
+                        config=config,
+                        sheets_client=sheets_client,
+                        drive_client=drive_client,
+                        year=year,
+                        month=month,
+                        variants=("fbyt",),
+                        overwrite=overwrite,
+                        day=day,
+                        require_ready=False,
+                    )
                 )
-            )
-        if need_instagram:
-            ig_renders.extend(
-                render_monthly_quotes(
-                    config=config,
-                    sheets_client=sheets_client,
-                    drive_client=drive_client,
-                    year=year,
-                    month=month,
-                    variants=("ig",),
-                    overwrite=overwrite,
-                    day=day,
-                    require_ready=False,
+            if need_instagram:
+                ig_renders.extend(
+                    render_monthly_quotes(
+                        config=config,
+                        sheets_client=sheets_client,
+                        drive_client=drive_client,
+                        year=year,
+                        month=month,
+                        variants=("ig",),
+                        overwrite=overwrite,
+                        day=day,
+                        require_ready=False,
+                    )
                 )
-            )
+        except QuotesRenderPipelineError as exc:
+            skipped_errors.append(str(exc))
+            continue
+
+    if not fbyt_renders:
+        if skipped_errors:
+            raise QuotesRenderPipelineError("; ".join(skipped_errors))
+        raise QuotesRenderPipelineError("Failed to prepare quote images.")
 
     posts = build_local_quote_posts(
         fbyt_renders,

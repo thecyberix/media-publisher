@@ -161,6 +161,126 @@ class QuoteRenderPlanningTests(unittest.TestCase):
         rendered_days = {call.kwargs["day"] for call in render_mock.call_args_list}
         self.assertEqual(rendered_days, {15})
 
+    def test_prepare_skips_missing_background_for_one_day(self) -> None:
+        from media_publisher.quotes_render_pipeline import (
+            QuotesRenderPipelineError,
+            RenderedQuoteImage,
+            prepare_quote_posts_for_publish,
+        )
+        from media_publisher.sources.quotes_sheet import DailyQuoteText
+
+        today_quote = DailyQuoteText(
+            day=15,
+            publish_date=date(2026, 7, 15),
+            date_label="15 Jul 2026",
+            text_bg="Днешна цитат",
+        )
+        tomorrow_quote = DailyQuoteText(
+            day=16,
+            publish_date=date(2026, 7, 16),
+            date_label="16 Jul 2026",
+            text_bg="Утрешна цитат",
+        )
+        rendered = RenderedQuoteImage(
+            variant="fbyt",
+            day=15,
+            stem="2026-07-15",
+            image_path=Path("2026-07-15.jpg"),
+            caption="Днешна цитат",
+            layout_key="default",
+            line_count=1,
+            background_name="15.jpg",
+        )
+        ig_rendered = RenderedQuoteImage(
+            variant="ig",
+            day=15,
+            stem="2026-07-15",
+            image_path=Path("ig-2026-07-15.jpg"),
+            caption="Днешна цитат",
+            layout_key="default",
+            line_count=1,
+            background_name="15.jpg",
+        )
+
+        def render_side_effect(*, day: int, variants: tuple[str, ...], **kwargs):
+            if day == 16:
+                raise QuotesRenderPipelineError(
+                    "No fbyt background found for day 16 in '07 Jul 2026'"
+                )
+            if variants == ("fbyt",):
+                return [rendered]
+            return [ig_rendered]
+
+        with patch(
+            "media_publisher.quotes_render_pipeline.load_monthly_quote_texts",
+            return_value=[today_quote, tomorrow_quote],
+        ), patch(
+            "media_publisher.quotes_render_pipeline.render_monthly_quotes",
+            side_effect=render_side_effect,
+        ) as render_mock, patch(
+            "media_publisher.quotes_text_sync.resolve_bulgarian_spreadsheet_id",
+            return_value="bg-quotes-sheet",
+        ):
+            posts, ig_images = prepare_quote_posts_for_publish(
+                config=unittest.mock.Mock(),
+                sheets_client=unittest.mock.Mock(),
+                drive_client=unittest.mock.Mock(),
+                year=2026,
+                month=7,
+                publish_timezone="Europe/Sofia",
+                publish_hour=8,
+                publish_mode="staggered",
+                reference_date=date(2026, 7, 15),
+            )
+
+        self.assertEqual([post.stem for post in posts], ["2026-07-15"])
+        self.assertEqual(set(ig_images), {"2026-07-15"})
+        rendered_days = {call.kwargs["day"] for call in render_mock.call_args_list}
+        self.assertEqual(rendered_days, {15, 16})
+
+    def test_prepare_raises_when_every_day_fails(self) -> None:
+        from media_publisher.quotes_render_pipeline import (
+            QuotesRenderPipelineError,
+            prepare_quote_posts_for_publish,
+        )
+        from media_publisher.sources.quotes_sheet import DailyQuoteText
+
+        today_quote = DailyQuoteText(
+            day=15,
+            publish_date=date(2026, 7, 15),
+            date_label="15 Jul 2026",
+            text_bg="Днешна цитат",
+        )
+
+        with patch(
+            "media_publisher.quotes_render_pipeline.load_monthly_quote_texts",
+            return_value=[today_quote],
+        ), patch(
+            "media_publisher.quotes_render_pipeline.render_monthly_quotes",
+            side_effect=QuotesRenderPipelineError(
+                "No fbyt background found for day 15 in '07 Jul 2026'"
+            ),
+        ), patch(
+            "media_publisher.quotes_text_sync.resolve_bulgarian_spreadsheet_id",
+            return_value="bg-quotes-sheet",
+        ):
+            with self.assertRaisesRegex(
+                QuotesRenderPipelineError,
+                "No fbyt background found for day 15",
+            ):
+                prepare_quote_posts_for_publish(
+                    config=unittest.mock.Mock(),
+                    sheets_client=unittest.mock.Mock(),
+                    drive_client=unittest.mock.Mock(),
+                    year=2026,
+                    month=7,
+                    publish_timezone="Europe/Sofia",
+                    publish_hour=8,
+                    publish_mode="staggered",
+                    reference_date=date(2026, 7, 15),
+                    platforms=("instagram",),
+                )
+
 
 class QuoteCanvaTitleTests(unittest.TestCase):
     def test_quote_canva_design_title(self) -> None:
@@ -455,6 +575,124 @@ class QuotesPipelineTests(unittest.TestCase):
             self.assertEqual(
                 publish_mock.call_args.kwargs["caption"],
                 "Кармата на този момент е твоята отговорност.",
+            )
+
+    def test_run_quotes_pipeline_staggered_publishes_ig_before_scheduling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            today_post, ig_image = self._sample_posts(work_dir, stem="2026-09-06")
+            tomorrow_post, _ = self._sample_posts(work_dir, stem="2026-09-07")
+            settings = self._settings(
+                work_dir,
+                reference_date=date(2026, 9, 6),
+            )
+            logs: list[str] = []
+
+            def prepare_side_effect(*, platforms=None, **kwargs):
+                if platforms == ("instagram",):
+                    return [today_post], {today_post.stem: ig_image}
+                if platforms == ("youtube", "facebook"):
+                    return [tomorrow_post], {}
+                raise AssertionError(f"unexpected platforms: {platforms!r}")
+
+            with patch(
+                "media_publisher.quotes_pipeline.facebook_can_schedule",
+                return_value=True,
+            ), patch(
+                "media_publisher.quotes_pipeline.prepare_quote_posts_for_publish",
+                side_effect=prepare_side_effect,
+            ) as prepare_mock, patch(
+                "media_publisher.quotes_pipeline.publish_local_quote",
+                side_effect=[
+                    "https://www.instagram.com/p/today/",
+                    "https://www.youtube.com/watch?v=tomorrow",
+                    "https://www.facebook.com/photo/?fbid=tomorrow",
+                ],
+            ) as publish_mock:
+                exit_code, results = run_quotes_pipeline(
+                    settings,
+                    meta_client=unittest.mock.Mock(),
+                    sheets_client=unittest.mock.Mock(),
+                    drive_client=unittest.mock.Mock(),
+                    quotes_config=unittest.mock.Mock(),
+                    print_line=logs.append,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(
+                [result.platform for result in results],
+                ["instagram", "youtube", "facebook"],
+            )
+            self.assertTrue(all(result.success for result in results))
+            self.assertEqual(
+                [call.kwargs["platforms"] for call in prepare_mock.call_args_list],
+                [("instagram",), ("youtube", "facebook")],
+            )
+            self.assertEqual(
+                [call.kwargs["platform"] for call in publish_mock.call_args_list],
+                ["instagram", "youtube", "facebook"],
+            )
+            self.assertIsNone(publish_mock.call_args_list[0].kwargs["publish_at"])
+            self.assertIsNotNone(publish_mock.call_args_list[1].kwargs["publish_at"])
+            self.assertTrue(
+                any("Instagram immediately" in line for line in logs)
+            )
+
+    def test_run_quotes_pipeline_staggered_keeps_ig_when_tomorrow_background_missing(
+        self,
+    ) -> None:
+        from media_publisher.quotes_render_pipeline import QuotesRenderPipelineError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            today_post, ig_image = self._sample_posts(work_dir, stem="2026-09-06")
+            settings = self._settings(
+                work_dir,
+                reference_date=date(2026, 9, 6),
+            )
+            logs: list[str] = []
+
+            def prepare_side_effect(*, platforms=None, **kwargs):
+                if platforms == ("instagram",):
+                    return [today_post], {today_post.stem: ig_image}
+                if platforms == ("youtube", "facebook"):
+                    raise QuotesRenderPipelineError(
+                        "No fbyt background found for day 7 in '09 Sep 2026'"
+                    )
+                raise AssertionError(f"unexpected platforms: {platforms!r}")
+
+            with patch(
+                "media_publisher.quotes_pipeline.prepare_quote_posts_for_publish",
+                side_effect=prepare_side_effect,
+            ) as prepare_mock, patch(
+                "media_publisher.quotes_pipeline.publish_local_quote",
+                return_value="https://www.instagram.com/p/today/",
+            ) as publish_mock:
+                exit_code, results = run_quotes_pipeline(
+                    settings,
+                    meta_client=unittest.mock.Mock(),
+                    sheets_client=unittest.mock.Mock(),
+                    drive_client=unittest.mock.Mock(),
+                    quotes_config=unittest.mock.Mock(),
+                    print_line=logs.append,
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(results[0].platform, "instagram")
+            self.assertTrue(results[0].success)
+            self.assertEqual(
+                {result.platform for result in results if not result.success},
+                {"youtube", "facebook"},
+            )
+            self.assertEqual(prepare_mock.call_count, 2)
+            publish_mock.assert_called_once()
+            self.assertEqual(publish_mock.call_args.kwargs["platform"], "instagram")
+            self.assertIsNone(publish_mock.call_args.kwargs["publish_at"])
+            self.assertTrue(
+                any(
+                    "Failed to prepare tomorrow YouTube/Facebook quotes" in line
+                    for line in logs
+                )
             )
 
     def test_filter_quotes_for_local_date(self) -> None:

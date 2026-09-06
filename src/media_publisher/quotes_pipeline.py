@@ -175,126 +175,32 @@ def quotes_need_instagram_images(settings: QuotesPipelineSettings) -> bool:
     return True
 
 
-def run_quotes_pipeline(
-    settings: QuotesPipelineSettings,
+def staggered_instagram_first(settings: QuotesPipelineSettings) -> bool:
+    """Publish today's Instagram quote before preparing tomorrow's YT/FB images."""
+    if settings.publish_mode != "staggered":
+        return False
+    if not quotes_need_instagram_images(settings):
+        return False
+    if settings.platforms is None:
+        return True
+    return any(platform in settings.platforms for platform in ("youtube", "facebook"))
+
+
+def _process_quote_work_items(
+    work_items: list[tuple[LocalQuotePost, tuple[PlatformName, ...], bool]],
     *,
+    settings: QuotesPipelineSettings,
+    state: dict[str, dict[str, object]],
+    ig_images_by_stem: dict[str, Path],
     meta_client: MetaClient,
-    sheets_client: GoogleSheetsClient | None = None,
-    drive_client: GoogleDriveClient | None = None,
-    quotes_config: QuotesSourcesConfig | None = None,
-    print_line: Callable[[str], None] = print,
-    substitute_drive_changes: list[GeneratedQuoteChange] | None = None,
-) -> tuple[int, list[PlatformPublishResult]]:
-    """Render quotes from Google Sheet + Drive backgrounds and schedule/publish them."""
-    def flush_daily_playlist() -> None:
-        try:
-            synced_slots = flush_configured_daily_playlist(
-                client_secrets_path=settings.youtube_client_secrets,
-                token_path=settings.youtube_token,
-                expected_channel_handle=settings.youtube_channel_handle,
-                daily_playlist_id=settings.youtube_daily_playlist_id,
-                daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
-            )
-            if synced_slots:
-                print_line(
-                    "Daily playlist updated for public slots: "
-                    + ", ".join(synced_slots)
-                )
-        except Exception as exc:
-            print_line(f"Daily playlist flush skipped: {exc}")
-
-    flush_daily_playlist()
-
-    year, month = resolve_quote_month(
-        settings.reference_date,
-        publish_timezone=settings.publish_timezone,
-    )
-
-    config = quotes_config or load_quotes_sources_config(settings.quotes_sources_config)
-    if sheets_client is None:
-        sheets_client = GoogleSheetsClient.from_service_account(settings.google_service_account)
-    if drive_client is None:
-        drive_client = GoogleDriveClient.from_service_account(settings.google_service_account)
-
-    try:
-        posts, ig_images_by_stem = prepare_quote_posts_for_publish(
-            config=config,
-            sheets_client=sheets_client,
-            drive_client=drive_client,
-            year=year,
-            month=month,
-            publish_timezone=settings.publish_timezone,
-            publish_hour=settings.publish_hour,
-            publish_mode=settings.publish_mode,
-            reference_date=settings.reference_date,
-            platforms=settings.platforms,
-        )
-    except QuotesRenderPipelineError as exc:
-        print_line(f"Failed to prepare quote images: {exc}")
-        return 1, []
-
-    if not posts:
-        print_line(f"No quote posts found for {year}-{month:02d}.")
-        return 0, []
-
-    print_line(
-        f"Using rendered quotes from Google Sheet + Drive backgrounds "
-        f"({len(posts)} day(s) prepared for {year}-{month:02d})."
-    )
-
-    if settings.private_test:
-        print_line(
-            "Private test: schedule public YouTube and Facebook quote posts for the "
-            "next publish slot. Instagram skipped."
-        )
-    elif settings.publish_mode == "staggered":
-        print_line(
-            "Staggered publish: today's quote to Instagram immediately; "
-            "tomorrow's quote scheduled on YouTube and Facebook for review."
-        )
-    elif settings.publish_mode == "immediate":
-        print_line(
-            "Daily quote images are converted to short videos for YouTube. "
-            "Facebook and Instagram use the rendered image. Publishing immediately."
-        )
-    else:
-        print_line(
-            "Daily quote images are converted to short videos for YouTube (scheduled via API). "
-            "Facebook and Instagram use the rendered image (Instagram is published "
-            "automatically near the scheduled time)."
-        )
-
-    try:
-        work_items = quote_work_items(posts, settings=settings)
-    except ValueError as exc:
-        print_line(str(exc))
-        return 1, []
-
-    if not work_items:
-        if settings.publish_mode == "staggered" and settings.reference_date is not None:
-            tomorrow = (settings.reference_date + timedelta(days=1)).isoformat()
-            print_line(
-                "No quote posts ready for staggered publish "
-                f"(Instagram today {settings.reference_date.isoformat()}, "
-                f"YouTube/Facebook tomorrow {tomorrow})."
-            )
-        elif settings.reference_date is not None:
-            print_line(
-                f"No quote posts found for {settings.reference_date.isoformat()}."
-            )
-        else:
-            print_line("No quote posts ready to publish.")
-        return 0, []
-
-    if quotes_need_instagram_images(settings) and not ig_images_by_stem:
-        print_line("Warning: no Instagram quote renders were prepared.")
-
-    state = load_quote_state(settings.work_dir)
-    results: list[PlatformPublishResult] = []
+    drive_client: GoogleDriveClient | None,
+    substitute_drive_changes: list[GeneratedQuoteChange] | None,
+    uploaded_substitutes: set[str],
+    quote_video_dir: Path,
+    print_line: Callable[[str], None],
+    results: list[PlatformPublishResult],
+) -> bool:
     processed_any = False
-    quote_video_dir = settings.work_dir / QUOTE_VIDEO_DIRNAME
-    uploaded_substitutes: set[str] = set()
-
     for post, target_platforms, publish_immediately in work_items:
         due_platforms = pending_platforms(post, state, platforms=target_platforms)
         if not due_platforms:
@@ -367,12 +273,12 @@ def run_quotes_pipeline(
                     youtube_client_secrets=settings.youtube_client_secrets,
                     youtube_token=settings.youtube_token,
                     youtube_channel_handle=settings.youtube_channel_handle,
-                    youtube_work_dir=quote_video_dir,
                     youtube_playlist_id=settings.youtube_playlist_id,
                     youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
                     youtube_daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
                     ffmpeg_path=settings.ffmpeg_path,
                     template_urls=settings.template_urls,
+                    youtube_work_dir=quote_video_dir,
                 )
                 mark_platform_scheduled_in_state(
                     state,
@@ -440,8 +346,217 @@ def run_quotes_pipeline(
                         error=message,
                     )
                 )
+    return processed_any
+
+
+def run_quotes_pipeline(
+    settings: QuotesPipelineSettings,
+    *,
+    meta_client: MetaClient,
+    sheets_client: GoogleSheetsClient | None = None,
+    drive_client: GoogleDriveClient | None = None,
+    quotes_config: QuotesSourcesConfig | None = None,
+    print_line: Callable[[str], None] = print,
+    substitute_drive_changes: list[GeneratedQuoteChange] | None = None,
+) -> tuple[int, list[PlatformPublishResult]]:
+    """Render quotes from Google Sheet + Drive backgrounds and schedule/publish them."""
+    def flush_daily_playlist() -> None:
+        try:
+            synced_slots = flush_configured_daily_playlist(
+                client_secrets_path=settings.youtube_client_secrets,
+                token_path=settings.youtube_token,
+                expected_channel_handle=settings.youtube_channel_handle,
+                daily_playlist_id=settings.youtube_daily_playlist_id,
+                daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
+            )
+            if synced_slots:
+                print_line(
+                    "Daily playlist updated for public slots: "
+                    + ", ".join(synced_slots)
+                )
+        except Exception as exc:
+            print_line(f"Daily playlist flush skipped: {exc}")
+
+    flush_daily_playlist()
+
+    year, month = resolve_quote_month(
+        settings.reference_date,
+        publish_timezone=settings.publish_timezone,
+    )
+
+    config = quotes_config or load_quotes_sources_config(settings.quotes_sources_config)
+    if sheets_client is None:
+        sheets_client = GoogleSheetsClient.from_service_account(settings.google_service_account)
+    if drive_client is None:
+        drive_client = GoogleDriveClient.from_service_account(settings.google_service_account)
+
+    def prepare_for(
+        platforms: tuple[PlatformName, ...] | None,
+    ) -> tuple[list[LocalQuotePost], dict[str, Path]]:
+        return prepare_quote_posts_for_publish(
+            config=config,
+            sheets_client=sheets_client,
+            drive_client=drive_client,
+            year=year,
+            month=month,
+            publish_timezone=settings.publish_timezone,
+            publish_hour=settings.publish_hour,
+            publish_mode=settings.publish_mode,
+            reference_date=settings.reference_date,
+            platforms=platforms,
+        )
+
+    def announce_mode() -> None:
+        if settings.private_test:
+            print_line(
+                "Private test: schedule public YouTube and Facebook quote posts for the "
+                "next publish slot. Instagram skipped."
+            )
+        elif settings.publish_mode == "staggered":
+            print_line(
+                "Staggered publish: today's quote to Instagram immediately; "
+                "tomorrow's quote scheduled on YouTube and Facebook for review."
+            )
+        elif settings.publish_mode == "immediate":
+            print_line(
+                "Daily quote images are converted to short videos for YouTube. "
+                "Facebook and Instagram use the rendered image. Publishing immediately."
+            )
+        else:
+            print_line(
+                "Daily quote images are converted to short videos for YouTube "
+                "(scheduled via API). "
+                "Facebook and Instagram use the rendered image (Instagram is published "
+                "automatically near the scheduled time)."
+            )
+
+    def dispatch_posts(
+        posts: list[LocalQuotePost],
+        ig_images_by_stem: dict[str, Path],
+        *,
+        require_instagram: bool,
+    ) -> bool:
+        nonlocal processed_any, work_items_error
+        if not posts:
+            return False
+        print_line(
+            f"Using rendered quotes from Google Sheet + Drive backgrounds "
+            f"({len(posts)} day(s) prepared for {year}-{month:02d})."
+        )
+        if require_instagram and not ig_images_by_stem:
+            print_line("Warning: no Instagram quote renders were prepared.")
+        try:
+            work_items = quote_work_items(posts, settings=settings)
+        except ValueError as exc:
+            print_line(str(exc))
+            work_items_error = True
+            return False
+        if not work_items:
+            return False
+        processed_any = (
+            _process_quote_work_items(
+                work_items,
+                settings=settings,
+                state=state,
+                ig_images_by_stem=ig_images_by_stem,
+                meta_client=meta_client,
+                drive_client=drive_client,
+                substitute_drive_changes=substitute_drive_changes,
+                uploaded_substitutes=uploaded_substitutes,
+                quote_video_dir=quote_video_dir,
+                print_line=print_line,
+                results=results,
+            )
+            or processed_any
+        )
+        return True
+
+    def record_ytfb_prepare_failure(message: str) -> None:
+        nonlocal ytfb_prepare_failed
+        ytfb_prepare_failed = True
+        print_line(f"Failed to prepare tomorrow YouTube/Facebook quotes: {message}")
+        record_id = (
+            (settings.reference_date + timedelta(days=1)).isoformat()
+            if settings.reference_date is not None
+            else "tomorrow"
+        )
+        allowed = settings.platforms
+        for platform in ("youtube", "facebook"):
+            if allowed is not None and platform not in allowed:
+                continue
+            results.append(
+                PlatformPublishResult(
+                    record_id=record_id,
+                    platform=platform,
+                    title=record_id,
+                    error=message,
+                )
+            )
+
+    announce_mode()
+    state = load_quote_state(settings.work_dir)
+    results: list[PlatformPublishResult] = []
+    processed_any = False
+    quote_video_dir = settings.work_dir / QUOTE_VIDEO_DIRNAME
+    uploaded_substitutes: set[str] = set()
+    ig_prepare_failed = False
+    ytfb_prepare_failed = False
+    work_items_error = False
+
+    if staggered_instagram_first(settings):
+        try:
+            ig_posts, ig_images_by_stem = prepare_for(("instagram",))
+        except QuotesRenderPipelineError as exc:
+            print_line(f"Failed to prepare today's Instagram quote: {exc}")
+            ig_prepare_failed = True
+            ig_posts, ig_images_by_stem = [], {}
+        if ig_posts:
+            dispatch_posts(ig_posts, ig_images_by_stem, require_instagram=True)
+
+        try:
+            yt_posts, _ = prepare_for(("youtube", "facebook"))
+        except QuotesRenderPipelineError as exc:
+            record_ytfb_prepare_failure(str(exc))
+            yt_posts = []
+        if yt_posts:
+            dispatch_posts(yt_posts, {}, require_instagram=False)
+        elif not ytfb_prepare_failed:
+            record_ytfb_prepare_failure("no posts found")
+    else:
+        try:
+            posts, ig_images_by_stem = prepare_for(settings.platforms)
+        except QuotesRenderPipelineError as exc:
+            print_line(f"Failed to prepare quote images: {exc}")
+            return 1, []
+        if not posts:
+            print_line(f"No quote posts found for {year}-{month:02d}.")
+            return 0, []
+        if not dispatch_posts(
+            posts,
+            ig_images_by_stem,
+            require_instagram=quotes_need_instagram_images(settings),
+        ):
+            if settings.publish_mode == "staggered" and settings.reference_date is not None:
+                tomorrow = (settings.reference_date + timedelta(days=1)).isoformat()
+                print_line(
+                    "No quote posts ready for staggered publish "
+                    f"(Instagram today {settings.reference_date.isoformat()}, "
+                    f"YouTube/Facebook tomorrow {tomorrow})."
+                )
+            elif settings.reference_date is not None:
+                print_line(
+                    f"No quote posts found for {settings.reference_date.isoformat()}."
+                )
+            else:
+                print_line("No quote posts ready to publish.")
+            return 0, []
+
+    if work_items_error:
+        return 1, results
 
     if not processed_any:
+        if ig_prepare_failed or ytfb_prepare_failed:
+            return 1, results
         print_line(
             "No quote posts ready to publish."
             if settings.publish_mode == "immediate"
@@ -457,4 +572,4 @@ def run_quotes_pipeline(
         f"across {len({result.record_id for result in results})} day(s)."
     )
     flush_daily_playlist()
-    return (1 if failures else 0), results
+    return (1 if failures or ig_prepare_failed or ytfb_prepare_failed else 0), results
