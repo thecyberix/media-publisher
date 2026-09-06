@@ -119,6 +119,7 @@ PROGRAMS: dict[str, ProgramTemplate] = {
         learn_more_url="",
         learn_more_label=YOGASANA_LEARN_MORE_LABEL,
         facebook_image_folder="Yogasanas",
+        benefits_heading="Те спомагат за:",
     ),
 }
 

@@ -206,6 +206,9 @@ class EventTemplateTests(unittest.TestCase):
         self.assertIn("Йогасани", rendered.title)
         self.assertIn("\nв Пловдив, България", rendered.title)
         self.assertIn(YOGASANA_YT, rendered.full_text)
+        self.assertIn("Те спомагат за:", rendered.full_text)
+        self.assertIn("<strong>Те спомагат за:</strong>", rendered.html_body)
+        self.assertNotIn("<strong>Ползи:</strong>", rendered.html_body)
         self.assertIn("✅ Облекчаване на хронични здравословни проблеми", rendered.html_body)
         self.assertEqual(rendered.facebook_image_folder, "Yogasanas")
 
