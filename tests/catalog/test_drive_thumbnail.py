@@ -433,9 +433,7 @@ class DriveThumbnailTests(unittest.TestCase):
             destination = Path(tmp) / "thumb.jpg"
             with patch(
                 "catalog_parser.drive_thumbnail._resolve_canva_attachment",
-                side_effect=CanvaError(
-                    'Canva POST /exports failed with HTTP 403: {"code":"permission_denied"}'
-                ),
+                side_effect=CanvaError("Canva POST /exports failed with HTTP 500"),
             ), patch(
                 "media_publisher.sources.canva_share_preview.download_canva_share_preview",
                 side_effect=lambda _url, path: path.write_bytes(b"jpg") or path,
@@ -447,6 +445,29 @@ class DriveThumbnailTests(unittest.TestCase):
                 )
             self.assertEqual(source, "canva-share-preview")
             self.assertEqual(destination.read_bytes(), b"jpg")
+
+    def test_download_canva_thumbnail_skips_preview_on_permission_denied(self) -> None:
+        from catalog_parser.canva import CanvaError
+        from catalog_parser.drive_thumbnail import download_canva_thumbnail
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "thumb.jpg"
+            with patch(
+                "catalog_parser.drive_thumbnail._resolve_canva_attachment",
+                side_effect=CanvaError(
+                    'Canva POST /exports failed with HTTP 403: {"code":"permission_denied"}'
+                ),
+            ), patch(
+                "media_publisher.sources.canva_share_preview.download_canva_share_preview"
+            ) as preview_mock:
+                with self.assertRaises(DriveThumbnailError):
+                    download_canva_thumbnail(
+                        "https://www.canva.com/design/DAGabc/view",
+                        destination,
+                        canva_client=MagicMock(),
+                    )
+            preview_mock.assert_not_called()
 
 
 if __name__ == "__main__":

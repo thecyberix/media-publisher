@@ -100,6 +100,44 @@ class BackfillCanvaThumbnailsTests(unittest.TestCase):
         )
         caption_mock.assert_called_once()
 
+    def test_apply_translates_caption_when_thumbnail_fails(self) -> None:
+        airtable = MagicMock()
+        airtable.list_records.return_value = [
+            {
+                "id": "rec1",
+                "fields": {
+                    FIELD_TITLE: "Sample",
+                    FIELD_STATUS: STATUS_TODO,
+                    FIELD_TYPE: "Reel",
+                    FIELD_VIDEO_FOLDER: "https://drive.google.com/drive/folders/abc123",
+                },
+            }
+        ]
+        with patch(
+            "catalog_parser.workflow.backfill_canva_thumbnails.discover_package_canva_url",
+            return_value="https://www.canva.com/design/DAGabc",
+        ), patch(
+            "catalog_parser.workflow.backfill_canva_thumbnails.download_canva_thumbnail",
+            side_effect=RuntimeError("permission_denied"),
+        ), patch(
+            "catalog_parser.workflow.backfill_canva_thumbnails._translate_caption_if_missing",
+            return_value=("translated", "source=drive_tn"),
+        ):
+            result = backfill_canva_thumbnails(
+                airtable=airtable,
+                drive_service=MagicMock(),
+                docs_service=MagicMock(),
+                canva_client=MagicMock(),
+                dry_run=False,
+                log=lambda _msg: None,
+            )
+        self.assertEqual(result.uploaded, 0)
+        self.assertEqual(result.failed, 1)
+        self.assertEqual(result.captions_translated, 1)
+        self.assertEqual(result.items[0].caption_action, "translated")
+        self.assertEqual(len(result.modified_items), 1)
+        airtable.upload_attachment.assert_not_called()
+
     def test_apply_skips_caption_when_already_set(self) -> None:
         airtable = MagicMock()
         airtable.list_records.return_value = [

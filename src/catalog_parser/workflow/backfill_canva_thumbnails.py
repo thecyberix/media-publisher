@@ -86,11 +86,11 @@ def _translate_caption_if_missing(
     airtable: Any,
     record_id: str,
     fields: dict[str, Any],
-    local_path: Path,
+    local_path: Path | None,
     drive_service: Any,
     project_root: Path | None,
 ) -> tuple[str, str | None]:
-    """Fill empty Video caption translated from the Canva thumbnail image."""
+    """Fill empty Video caption translated from Canva image and/or Drive TN."""
     if _field_text(fields, FIELD_VIDEO_CAPTION_TRANSLATED):
         return "skipped", "caption already set"
 
@@ -99,10 +99,11 @@ def _translate_caption_if_missing(
     )
 
     catalog_record: dict[str, Any] = {
-        "_originalThumbnailPath": str(local_path),
         "pkgLink": _field_text(fields, FIELD_VIDEO_FOLDER),
         "bgCaption": None,
     }
+    if local_path is not None and local_path.is_file():
+        catalog_record["_originalThumbnailPath"] = str(local_path)
     try:
         result = translate_record_caption_if_needed(
             catalog_record,
@@ -269,16 +270,33 @@ def backfill_canva_thumbnails(
                 item.caption_detail = caption_detail
                 if caption_action == "translated":
                     result.captions_translated += 1
-                log(f"  caption: {caption_action}" + (f" ({caption_detail})" if caption_detail else ""))
+                log(
+                    f"  caption: {caption_action}"
+                    + (f" ({caption_detail})" if caption_detail else "")
+                )
         except Exception as exc:  # noqa: BLE001
             if is_canva_auth_error(exc):
                 raise
             item.action = "failed"
             item.detail = str(exc)
-            item.caption_action = "skipped"
-            item.caption_detail = "thumbnail upload failed"
             result.failed += 1
             log(f"FAIL [{item.status}] {title}: {exc}")
+            caption_action, caption_detail = _translate_caption_if_missing(
+                airtable=airtable,
+                record_id=record_id,
+                fields=fields,
+                local_path=None,
+                drive_service=drive_service,
+                project_root=project_root,
+            )
+            item.caption_action = caption_action
+            item.caption_detail = caption_detail
+            if caption_action == "translated":
+                result.captions_translated += 1
+            log(
+                f"  caption: {caption_action}"
+                + (f" ({caption_detail})" if caption_detail else "")
+            )
         result.items.append(item)
 
     modified = result.modified_items

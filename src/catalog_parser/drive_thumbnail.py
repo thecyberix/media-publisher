@@ -429,7 +429,7 @@ def download_canva_thumbnail(
 
     Prefers the Canva Connect API export. When the authenticated account cannot
     access the design (``permission_denied``), falls back to the public share
-    preview image.
+    preview image when available.
     """
     try:
         attachment, source = _resolve_canva_attachment(
@@ -448,6 +448,17 @@ def download_canva_thumbnail(
     except Exception as exc:
         if is_canva_auth_error(exc):
             raise
+        message = str(exc).casefold()
+        # permission_denied means the OAuth account cannot export this design.
+        # Share-preview scraping is usually blocked by Cloudflare for those same
+        # links, so skip the slow browser path unless it looks like a transient
+        # non-permission failure.
+        if "permission_denied" in message or "not allowed to access design" in message:
+            raise DriveThumbnailError(
+                f"Canva API export denied for this design ({exc}). "
+                "Share the design with the connected Canva account, or re-auth "
+                "with the account that owns it."
+            ) from exc
         from media_publisher.sources.canva_share_preview import (
             download_canva_share_preview,
         )

@@ -104,21 +104,28 @@ def _fetch_dom_playwright(canva_url: str) -> str:
             browser.close()
     if len(html) < 1000:
         raise RuntimeError(f"Canva page DOM was empty for {canva_url!r} (playwright)")
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.I | re.S)
+    title = title_match.group(1).strip().casefold() if title_match else ""
+    if "just a moment" in title or "attention required" in title:
+        raise RuntimeError(
+            f"Canva share page blocked by bot challenge for {canva_url!r}"
+        )
     return html
 
 
 def _fetch_dom(canva_url: str) -> str:
-    browser = _find_chrome()
+    # Prefer Playwright first: system Chrome headless often hangs on Canva/Cloudflare.
     errors: list[str] = []
-    if browser:
-        try:
-            return _fetch_dom_chrome(canva_url, browser)
-        except Exception as exc:  # noqa: BLE001 — try Playwright next
-            errors.append(f"chrome: {exc}")
     try:
         return _fetch_dom_playwright(canva_url)
     except Exception as exc:  # noqa: BLE001
         errors.append(f"playwright: {exc}")
+    browser = _find_chrome()
+    if browser:
+        try:
+            return _fetch_dom_chrome(canva_url, browser)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"chrome: {exc}")
     detail = "; ".join(errors) if errors else "no browser available"
     raise RuntimeError(
         f"Chrome/Edge or Playwright Chromium is required for Canva share-link "
