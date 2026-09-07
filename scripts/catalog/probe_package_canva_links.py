@@ -64,7 +64,7 @@ TODAY_ASPECT_MISMATCH_TITLES = (
 )
 
 CANVA_ANY_RE = re.compile(
-    r"https?://[^\s\"'<>]*canva[^\s\"'<>]*",
+    r"https?://(?:www\.)?canva\.link/[A-Za-z0-9_-]+|https?://(?:www\.)?canva\.com/[^\s\"'<>]+",
     re.IGNORECASE,
 )
 

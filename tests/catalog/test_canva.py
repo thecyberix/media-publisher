@@ -14,6 +14,7 @@ from catalog_parser.canva import (
     CanvaToken,
     build_authorization_url,
     ensure_canva_ready,
+    extract_canva_design_url,
     parse_canva_design_url,
 )
 
@@ -28,6 +29,17 @@ class CanvaParsingTests(unittest.TestCase):
         )
         self.assertIsNone(parse_canva_design_url("https://example.com/design/abc"))
 
+    def test_extract_resolves_canva_link_shortlink(self) -> None:
+        with patch(
+            "media_publisher.sources.canva.resolve_canva_url",
+            return_value=(
+                "https://www.canva.com/design/DAHKegUvggY/view?utm_source=share"
+            ),
+        ):
+            self.assertEqual(
+                extract_canva_design_url("https://canva.link/rbgbets4hffvol0"),
+                "https://www.canva.com/design/DAHKegUvggY",
+            )
 
 class CanvaClientTests(unittest.TestCase):
     def test_build_authorization_url_contains_pkce_params(self) -> None:

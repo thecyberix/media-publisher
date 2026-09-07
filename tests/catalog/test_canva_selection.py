@@ -64,6 +64,17 @@ class DocxCanvaExtractionTests(unittest.TestCase):
         urls, _below = extract_canva_links_from_docx(document)
         self.assertEqual(urls, ["https://www.canva.com/design/DAFieldCode123"])
 
+    def test_extracts_canva_link_shortlink_from_field_code(self) -> None:
+        document = Document()
+        paragraph = document.add_paragraph()
+        _add_field_code_hyperlink(paragraph, "https://canva.link/rbgbets4hffvol0")
+        with patch(
+            "media_publisher.sources.canva.resolve_canva_url",
+            return_value="https://www.canva.com/design/DAHKegUvggY/view",
+        ):
+            urls, _below = extract_canva_links_from_docx(document)
+        self.assertEqual(urls, ["https://www.canva.com/design/DAHKegUvggY"])
+
     def test_extracts_field_code_hyperlink_in_table_cell(self) -> None:
         document = Document()
         table = document.add_table(rows=2, cols=1)

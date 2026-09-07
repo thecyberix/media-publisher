@@ -38,6 +38,11 @@ CANVA_DESIGN_URL_PATTERN = re.compile(
     r"https?://(?:www\.)?canva\.com/design/(?P<design_id>[A-Za-z0-9_-]+)",
     re.IGNORECASE,
 )
+CANVA_SHORTLINK_PATTERN = re.compile(
+    r"https?://(?:www\.)?canva\.link/(?P<slug>[A-Za-z0-9_-]+)",
+    re.IGNORECASE,
+)
+_SHORTLINK_RESOLVE_CACHE: dict[str, str | None] = {}
 
 
 class CanvaError(RuntimeError):
@@ -124,13 +129,46 @@ def parse_canva_design_url(value: str) -> str | None:
     return match.group("design_id")
 
 
-def extract_canva_design_url(value: str) -> str | None:
+def extract_canva_shortlink_url(value: str) -> str | None:
     if not isinstance(value, str):
         return None
-    match = CANVA_DESIGN_URL_PATTERN.search(value.strip())
+    match = CANVA_SHORTLINK_PATTERN.search(value.strip())
     if not match:
         return None
     return match.group(0)
+
+
+def _resolve_shortlink_to_design_url(shortlink: str) -> str | None:
+    if shortlink in _SHORTLINK_RESOLVE_CACHE:
+        return _SHORTLINK_RESOLVE_CACHE[shortlink]
+    try:
+        from media_publisher.sources.canva import resolve_canva_url
+
+        resolved = resolve_canva_url(shortlink)
+    except Exception:
+        _SHORTLINK_RESOLVE_CACHE[shortlink] = None
+        return None
+    match = CANVA_DESIGN_URL_PATTERN.search(resolved)
+    design_url = match.group(0) if match else None
+    _SHORTLINK_RESOLVE_CACHE[shortlink] = design_url
+    return design_url
+
+
+def extract_canva_design_url(value: str) -> str | None:
+    """Return a normalized ``https://...canva.com/design/<id>`` URL if present.
+
+    Also resolves ``canva.link/...`` short links to the underlying design URL.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    match = CANVA_DESIGN_URL_PATTERN.search(text)
+    if match:
+        return match.group(0)
+    shortlink = extract_canva_shortlink_url(text)
+    if shortlink:
+        return _resolve_shortlink_to_design_url(shortlink)
+    return None
 
 
 def _basic_auth_header(client_id: str, client_secret: str) -> str:

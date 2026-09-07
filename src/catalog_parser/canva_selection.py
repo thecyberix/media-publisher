@@ -12,7 +12,7 @@ from media_publisher.sources.source_thumbnail import (
 )
 
 CANVA_URL_RE = re.compile(
-    r"https?://(?:www\.)?canva\.com/design/[A-Za-z0-9_-]+(?:/[^\s\"'<>]*)?",
+    r"https?://(?:www\.)?(?:canva\.com/design/[A-Za-z0-9_-]+(?:/[^\s\"'<>]*)?|canva\.link/[A-Za-z0-9_-]+)",
     re.IGNORECASE,
 )
 # Classic Word field codes: HYPERLINK "url" or HYPERLINK url
@@ -28,8 +28,10 @@ def dedupe_canva_urls(urls: list[str]) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
     for raw in urls:
-        normalized = extract_canva_design_url(raw) or raw.strip()
-        if not normalized or normalized in seen:
+        normalized = extract_canva_design_url(raw)
+        if not normalized:
+            continue
+        if normalized in seen:
             continue
         seen.add(normalized)
         ordered.append(normalized)
