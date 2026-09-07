@@ -57,6 +57,7 @@ def execute_action(
     use_console: bool = False,
     table_cache: TableCache | None = None,
     project_root: Path | None = None,
+    pending_review_items: list[Any] | None = None,
 ) -> ActionResult:
     if action.action_type == WorkflowActionType.COMBINE_MEDIA:
         return _combine_media(
@@ -77,6 +78,7 @@ def execute_action(
             dry_run=dry_run,
             use_console=use_console,
             table_cache=table_cache,
+            pending_review_items=pending_review_items,
         )
     if action.action_type == WorkflowActionType.INGEST_FOR_EDITOR:
         return _ingest_for_editor(
@@ -88,6 +90,7 @@ def execute_action(
             dry_run=dry_run,
             use_console=use_console,
             table_cache=table_cache,
+            pending_review_items=pending_review_items,
         )
     if action.action_type == WorkflowActionType.ASSIGN_EDITOR:
         return _assign_editor(
@@ -278,6 +281,7 @@ def _ingest_for_translator(
     dry_run: bool,
     use_console: bool,
     table_cache: TableCache | None = None,
+    pending_review_items: list[Any] | None = None,
 ) -> ActionResult:
     if not action.translator_name:
         return ActionResult(action=action, success=False, message="Missing translator_name")
@@ -294,6 +298,7 @@ def _ingest_for_translator(
         use_console=use_console,
         table_cache=table_cache,
         dry_run=dry_run,
+        pending_review_items=pending_review_items,
     )
     if dry_run:
         return ActionResult(
@@ -330,6 +335,7 @@ def _ingest_for_editor(
     dry_run: bool,
     use_console: bool,
     table_cache: TableCache | None = None,
+    pending_review_items: list[Any] | None = None,
 ) -> ActionResult:
     if not action.editor_name:
         return ActionResult(action=action, success=False, message="Missing editor_name")
@@ -347,6 +353,7 @@ def _ingest_for_editor(
         credentials_path=credentials_path,
         token_path=token_path,
         use_console=use_console,
+        pending_review_items=pending_review_items,
         table_cache=table_cache,
         dry_run=dry_run,
     )

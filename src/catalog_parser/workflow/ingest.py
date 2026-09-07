@@ -42,6 +42,38 @@ from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.workflow.table_cache import TableCache
 
 
+def defer_or_send_review_notification(
+    review_items: list[Any],
+    *,
+    review_folder_url: str,
+    pending_review_items: list[Any] | None,
+    emit: Callable[[str], None],
+) -> None:
+    """Send a review email now, or append items for a later digest send."""
+    if not review_items:
+        return
+    if pending_review_items is not None:
+        pending_review_items.extend(review_items)
+        emit(
+            f"Queued {len(review_items)} video(s) for thumbnail review "
+            "email digest."
+        )
+        return
+
+    from media_publisher.sources.thumbnail_review import send_review_notification_email
+
+    if send_review_notification_email(
+        review_items,
+        review_folder_url=review_folder_url,
+    ):
+        emit(f"Thumbnail review email sent ({len(review_items)} video(s)).")
+    else:
+        emit(
+            "WARN: thumbnail review uploads succeeded but notification email "
+            "was not sent (check GMAIL_SMTP_* / NOTIFY_EMAIL)."
+        )
+
+
 def ingest_batch_for_translator(
     airtable: AirtableClient,
     *,
@@ -56,6 +88,7 @@ def ingest_batch_for_translator(
     dry_run: bool = False,
     require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
+    pending_review_items: list[Any] | None = None,
 ) -> list[str]:
     return ingest_batch(
         airtable,
@@ -70,6 +103,7 @@ def ingest_batch_for_translator(
         dry_run=dry_run,
         require_pkg_tn=require_pkg_tn,
         log=log,
+        pending_review_items=pending_review_items,
     )
 
 
@@ -88,6 +122,7 @@ def ingest_batch_for_editor(
     dry_run: bool = False,
     require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
+    pending_review_items: list[Any] | None = None,
 ) -> list[str]:
     return ingest_batch(
         airtable,
@@ -106,6 +141,7 @@ def ingest_batch_for_editor(
         dry_run=dry_run,
         require_pkg_tn=require_pkg_tn,
         log=log,
+        pending_review_items=pending_review_items,
     )
 
 
@@ -122,6 +158,7 @@ def ingest_batch_unassigned(
     dry_run: bool = False,
     require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
+    pending_review_items: list[Any] | None = None,
 ) -> list[str]:
     return ingest_batch(
         airtable,
@@ -136,6 +173,7 @@ def ingest_batch_unassigned(
         dry_run=dry_run,
         require_pkg_tn=require_pkg_tn,
         log=log,
+        pending_review_items=pending_review_items,
     )
 
 
@@ -153,6 +191,7 @@ def ingest_batch(
     dry_run: bool = False,
     require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
+    pending_review_items: list[Any] | None = None,
 ) -> list[str]:
     catalog_id = load_catalog_id(PROJECT_ROOT)
 
@@ -346,18 +385,12 @@ def ingest_batch(
         path.unlink(missing_ok=True)
 
     if review_items:
-        from media_publisher.sources.thumbnail_review import send_review_notification_email
-
-        if send_review_notification_email(
+        defer_or_send_review_notification(
             review_items,
             review_folder_url=drive_folder_url(review_folder_id),
-        ):
-            emit(f"Thumbnail review email sent ({len(review_items)} video(s)).")
-        else:
-            emit(
-                "WARN: thumbnail review uploads succeeded but notification email "
-                "was not sent (check GMAIL_SMTP_* / NOTIFY_EMAIL)."
-            )
+            pending_review_items=pending_review_items,
+            emit=emit,
+        )
 
     if table_cache is not None and created_ids:
         table_cache.register_created_from_catalog(eligible, created_ids)

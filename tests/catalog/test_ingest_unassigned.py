@@ -1,14 +1,62 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from catalog_parser.airtable import STATUS_NOT_ASSIGNED, STATUS_TODO
 from catalog_parser.workflow.ingest import (
+    defer_or_send_review_notification,
     ingest_batch,
     ingest_batch_for_translator,
     ingest_batch_unassigned,
 )
+from media_publisher.sources.thumbnail_review import ReviewQueueItem
+
+
+class ReviewNotificationDeferralTests(unittest.TestCase):
+    def test_defers_when_collector_provided(self) -> None:
+        pending: list[ReviewQueueItem] = []
+        item = ReviewQueueItem(
+            record_id="rec1",
+            title="One",
+            local_path=Path("one.review.jpg"),
+            reason="test",
+        )
+        logs: list[str] = []
+        with patch(
+            "media_publisher.sources.thumbnail_review.send_review_notification_email"
+        ) as send_mock:
+            defer_or_send_review_notification(
+                [item],
+                review_folder_url="https://drive.example/review",
+                pending_review_items=pending,
+                emit=logs.append,
+            )
+        send_mock.assert_not_called()
+        self.assertEqual(pending, [item])
+        self.assertTrue(any("digest" in line for line in logs))
+
+    def test_sends_immediately_without_collector(self) -> None:
+        item = ReviewQueueItem(
+            record_id="rec1",
+            title="One",
+            local_path=Path("one.review.jpg"),
+            reason="test",
+        )
+        logs: list[str] = []
+        with patch(
+            "media_publisher.sources.thumbnail_review.send_review_notification_email",
+            return_value=True,
+        ) as send_mock:
+            defer_or_send_review_notification(
+                [item],
+                review_folder_url="https://drive.example/review",
+                pending_review_items=None,
+                emit=logs.append,
+            )
+        send_mock.assert_called_once()
+        self.assertTrue(any("Thumbnail review email sent" in line for line in logs))
 
 
 class IngestBatchTests(unittest.TestCase):

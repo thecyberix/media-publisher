@@ -238,9 +238,11 @@ image asking for a **manual Canva download**, then emails the review folder as u
 
 When ingest finds **no Canva link**, it does **not** write Original Video Thumbnail
 to Airtable. If the original-platform thumb still matches the catalog video aspect
-ratio, the file is uploaded to the Drive review folder and one review email is
-sent for that ingest run. The same review folder is used for **manual Canva**
-placeholders when API export is denied for a specific design.
+ratio, the file is uploaded to the Drive review folder. Standalone ingest sends one
+review email per ingest call; the daily orchestrator collects all queued review
+items across capacity fills and sends a single digest email for the run. The same
+review folder is used for **manual Canva** placeholders when API export is denied
+for a specific design.
 
 Each daily orchestrator run first uploads any leftover files in the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail** when that field is still empty (manual approvals). Drive copies are kept for visibility. When **Video caption translated** is empty, the same upload also fills it from the approved image (vision first, Drive TN fallback) using the ingest caption path — skipped when `TRANSLATION_PROVIDER` is `none`, and skipped for manual-Canva placeholders. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
 

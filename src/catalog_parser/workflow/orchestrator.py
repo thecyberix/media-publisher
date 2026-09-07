@@ -219,6 +219,7 @@ def run_workflow(
 
         print(f"Planned {len(planned_actions)} action(s){' (dry-run)' if dry_run else ''}:")
         results: list[ActionResult] = []
+        pending_review_items: list[Any] = []
         for action in planned_actions:
             label = action.title or action.translator_name or action.record_id or action.editor_name
             print(f"  - {action.action_type.value}: {label} ({action.reason})")
@@ -234,6 +235,7 @@ def run_workflow(
                 use_console=use_console,
                 table_cache=table_cache,
                 project_root=project_root,
+                pending_review_items=pending_review_items,
             )
             results.append(result)
             status = "OK" if result.success else "FAIL"
@@ -244,6 +246,40 @@ def run_workflow(
                 and not result.success
             ):
                 weekly_failed_editors.add(action.editor_name)
+
+        if pending_review_items and not dry_run:
+            from media_publisher.config import load_settings
+            from media_publisher.sources.drive_layout import (
+                drive_folder_url,
+                resolve_thumbnails_for_approval_id,
+            )
+            from media_publisher.sources.thumbnail_review import (
+                send_review_notification_email,
+            )
+
+            settings = load_settings(project_root)
+            review_folder_id = resolve_thumbnails_for_approval_id(
+                drive_service,
+                drive_url=settings.drive_url,
+            )
+            if send_review_notification_email(
+                pending_review_items,
+                review_folder_url=drive_folder_url(review_folder_id),
+            ):
+                print(
+                    f"Thumbnail review email sent "
+                    f"({len(pending_review_items)} video(s))."
+                )
+            else:
+                print(
+                    "WARN: thumbnail review uploads succeeded but notification "
+                    "email was not sent (check GMAIL_SMTP_* / NOTIFY_EMAIL)."
+                )
+        elif pending_review_items and dry_run:
+            print(
+                f"Would send thumbnail review email "
+                f"({len(pending_review_items)} video(s))."
+            )
 
         failures = sum(1 for result in results if not result.success)
         if not dry_run:

@@ -1039,6 +1039,7 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
             "catalog_parser.workflow.actions.ingest_batch_for_editor",
             return_value=["rec1", "rec2"],
         ) as ingest_mock:
+            pending: list[object] = []
             result = execute_action(
                 action,
                 airtable=MagicMock(),
@@ -1048,6 +1049,7 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
                 credentials_path=MagicMock(),
                 token_path=MagicMock(),
                 dry_run=False,
+                pending_review_items=pending,
             )
         self.assertTrue(result.success)
         ingest_mock.assert_called_once()
@@ -1055,6 +1057,10 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
         self.assertEqual(
             ingest_mock.call_args.kwargs["translator_name"],
             SIR_TRANSLATESALOT,
+        )
+        self.assertIs(
+            ingest_mock.call_args.kwargs["pending_review_items"],
+            pending,
         )
 
 
