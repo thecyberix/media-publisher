@@ -149,6 +149,22 @@ CAPTION_EXTRACT_PROMPT = (
     'If there is no designed caption, return {"caption": [], "ignored": []}.'
 )
 
+CANVA_COVER_EXTRACT_PROMPT = (
+    "Extract every designed English text overlay on this Canva cover, top to "
+    "bottom.\n"
+    "Include the full title, every subtitle, and any other wording that is part "
+    "of the design. Do not omit smaller, secondary, or differently styled lines.\n"
+    "Skip only non-design chrome (browser UI, buttons, share-page labels such as "
+    '"View template" or "Designed with Canva").\n'
+    "Return ONLY JSON: "
+    '{"caption": ["Line one", "Line two"], "ignored": []}.\n'
+    "caption: all designed cover lines in visual order. Preserve capitalization "
+    "as shown in the image.\n"
+    "ignored: leave empty unless a line is clearly UI chrome rather than design "
+    "text.\n"
+    'If there is no designed text, return {"caption": [], "ignored": []}.'
+)
+
 # Reel/Short subtitles are always displayed in ALL CAPS; long-form Video uses
 # normal (sentence) capitalization.
 ALL_CAPS_RECORD_TYPES = frozenset({"reel", "short"})
@@ -422,25 +438,40 @@ def _line_is_all_caps(line: str) -> bool:
 
 def _line_is_title_case(line: str) -> bool:
     words = [word for word in re.split(r"\s+", line.strip()) if word]
-    if len(words) < 2:
+    if not words:
         return False
+    if len(words) == 1:
+        letters = [ch for ch in words[0] if ch.isalpha()]
+        if not letters or all(ch.isupper() for ch in letters):
+            return False
+        return letters[0].isupper() and all(ch.islower() for ch in letters[1:])
     titled = 0
     mid_small = 0
+    content_titled = 0
+    lowercase_content = 0
     for index, word in enumerate(words):
         letters = [ch for ch in word if ch.isalpha()]
         if not letters:
             continue
         fold = "".join(letters).casefold()
+        is_small = fold in _title_case_small_words()
         if letters[0].isupper() and all(ch.islower() for ch in letters[1:]):
             titled += 1
+            if not is_small:
+                content_titled += 1
         elif (
             0 < index < len(words) - 1
-            and fold in _title_case_small_words()
+            and is_small
             and all(ch.islower() for ch in letters)
         ):
             mid_small += 1
+        elif all(ch.islower() for ch in letters) and not is_small:
+            lowercase_content += 1
     # Classic headline style: "Life on the Edge" / "Sadhguru in 2024"
     if mid_small and titled >= 1:
+        return True
+    # Wrapped headline fragment: "the Dead" (article stays short; content is titled)
+    if content_titled >= 1 and lowercase_content == 0:
         return True
     return titled >= max(2, (len(words) + 1) // 2)
 
@@ -1039,7 +1070,7 @@ def _extract_named_json_string_array(text: str, key: str) -> list[str] | None:
     return _extract_json_string_array(sliced)
 
 
-def parse_caption_lines_json(raw: str) -> list[str]:
+def parse_caption_lines_json(raw: str, *, include_ignored: bool = False) -> list[str]:
     """Parse vision caption extraction output into non-empty caption lines."""
     cleaned = _strip_code_fence(raw)
     try:
@@ -1047,7 +1078,10 @@ def parse_caption_lines_json(raw: str) -> list[str]:
     except json.JSONDecodeError:
         parsed = None
     if isinstance(parsed, dict):
-        return _nonempty_string_lines(parsed.get("caption"))
+        lines = _nonempty_string_lines(parsed.get("caption"))
+        if include_ignored:
+            lines.extend(_nonempty_string_lines(parsed.get("ignored")))
+        return lines
     if isinstance(parsed, list):
         return _nonempty_string_lines(parsed)
     named = _extract_named_json_string_array(cleaned, "caption")
@@ -1066,15 +1100,19 @@ def extract_caption_lines_from_image(
     *,
     media_type: str = "image/jpeg",
     session: requests.Session | None = None,
+    include_all_overlay: bool = False,
 ) -> list[str]:
+    prompt = (
+        CANVA_COVER_EXTRACT_PROMPT if include_all_overlay else CAPTION_EXTRACT_PROMPT
+    )
     raw = chat_completion_with_image(
-        CAPTION_EXTRACT_PROMPT,
+        prompt,
         image_bytes,
         config,
         media_type=media_type,
         session=session,
     )
-    return parse_caption_lines_json(raw)
+    return parse_caption_lines_json(raw, include_ignored=include_all_overlay)
 
 
 def extract_caption_lines_from_image_path(
@@ -1082,6 +1120,7 @@ def extract_caption_lines_from_image_path(
     config: ChatConfig,
     *,
     session: requests.Session | None = None,
+    include_all_overlay: bool = False,
 ) -> list[str]:
     raw = path.read_bytes()
     media_type = _guess_image_media_type(path, raw)
@@ -1090,6 +1129,7 @@ def extract_caption_lines_from_image_path(
         config,
         media_type=media_type,
         session=session,
+        include_all_overlay=include_all_overlay,
     )
 
 

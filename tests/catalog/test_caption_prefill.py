@@ -57,11 +57,62 @@ class CaptionPrefillTests(unittest.TestCase):
         self.assertTrue(result.skipped)
         self.assertNotIn("bgCaption", record)
 
-    def test_skips_when_caption_already_set(self) -> None:
+    def test_canva_cover_extracts_all_overlay(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cover.jpg"
+            path.write_bytes(b"jpg")
+            record = {
+                "_originalThumbnailPath": str(path),
+                "ytThumbnailSource": "canva-export",
+            }
+            with patch(
+                "catalog_parser.translation.caption_prefill.extract_caption_lines_from_image_path",
+                return_value=["Why Chilled", "Water", "IS NOT GOOD FOR YOU"],
+            ) as extract:
+                from catalog_parser.translation.caption_prefill import (
+                    extract_english_caption_from_thumbnail,
+                )
+
+                lines = extract_english_caption_from_thumbnail(
+                    record,
+                    config=ChatConfig(api_key="test", provider="openai"),
+                )
+            extract.assert_called_once()
+            self.assertTrue(extract.call_args.kwargs.get("include_all_overlay"))
+            self.assertEqual(
+                lines, ["Why Chilled", "Water", "IS NOT GOOD FOR YOU"]
+            )
         record = {"bgCaption": "Вече преведено"}
         result = translate_record_caption_if_needed(record, enabled=True)
         self.assertTrue(result.skipped)
         self.assertEqual(record["bgCaption"], "Вече преведено")
+
+    def test_review_queue_thumbnail_is_used_for_caption(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "review.jpg"
+            path.write_bytes(b"jpg")
+            record = {
+                "_thumbnailReviewPath": str(path),
+                "ytThumbnailSource": "original-platform:review-queue",
+            }
+            with patch(
+                "catalog_parser.translation.caption_prefill.extract_caption_lines_from_image_path",
+                return_value=["Can We Bring", "the Dead", "Back to Life?"],
+            ) as extract:
+                from catalog_parser.translation.caption_prefill import (
+                    extract_english_caption_from_thumbnail,
+                )
+
+                lines = extract_english_caption_from_thumbnail(
+                    record,
+                    config=ChatConfig(api_key="test", provider="openai"),
+                )
+            extract.assert_called_once()
+            self.assertEqual(extract.call_args.args[0], path)
+            self.assertFalse(extract.call_args.kwargs.get("include_all_overlay"))
+            self.assertEqual(
+                lines, ["Can We Bring", "the Dead", "Back to Life?"]
+            )
 
     def test_skips_when_no_english_sources(self) -> None:
         record: dict = {"pkgLink": "https://drive.google.com/drive/folders/abc"}

@@ -231,10 +231,13 @@ class RagTranslateTests(unittest.TestCase):
         from catalog_parser.translation.rag_translate import (
             CAPTION_EXTRACT_PROMPT,
             parse_caption_lines_json,
+            CANVA_COVER_EXTRACT_PROMPT,
         )
 
         self.assertIn("Do not return every string on the image.", CAPTION_EXTRACT_PROMPT)
         self.assertIn('"ignored"', CAPTION_EXTRACT_PROMPT)
+        self.assertNotIn("Do not return every string on the image.", CANVA_COVER_EXTRACT_PROMPT)
+        self.assertIn("every designed English text overlay", CANVA_COVER_EXTRACT_PROMPT)
         self.assertEqual(
             parse_caption_lines_json(
                 '{"caption": ["Life on the Edge"], "ignored": ["Sadhguru", "2024"]}'
@@ -250,6 +253,13 @@ class RagTranslateTests(unittest.TestCase):
                 '{"caption": ["Soak in", "ENLIGHTENMENT"], "ignored": ["with Sadhguru"]}'
             ),
             ["Soak in", "ENLIGHTENMENT"],
+        )
+        self.assertEqual(
+            parse_caption_lines_json(
+                '{"caption": ["Why Chilled", "Water"], "ignored": ["IS NOT GOOD FOR YOU"]}',
+                include_ignored=True,
+            ),
+            ["Why Chilled", "Water", "IS NOT GOOD FOR YOU"],
         )
 
     def test_match_source_newlines_and_quote_repair(self) -> None:
@@ -324,6 +334,20 @@ class RagTranslateTests(unittest.TestCase):
                 "Садгуру През 2024\nЖивот На Ръба",
             ),
             "Садгуру през 2024\nЖивот на Ръба",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "Why Chilled\nWater\nIS NOT GOOD FOR YOU",
+                "Защо Изстудената\nвода\nне е добра за вас",
+            ),
+            "Защо Изстудената\nВода\nНЕ Е ДОБРА ЗА ВАС",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "Can We Bring\nthe Dead\nBack to Life?",
+                "Можем ли да Върнем\nмъртвите\nОбратно към Живота?",
+            ),
+            "Можем ли да Върнем\nМъртвите\nОбратно към Живота?",
         )
         self.assertEqual(
             parse_caption_lines_json('["Line one", "Line two"]'),

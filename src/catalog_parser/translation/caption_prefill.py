@@ -66,13 +66,24 @@ def looks_like_manual_canva_placeholder(lines: list[str]) -> bool:
 
 
 def _thumbnail_path_from_record(record: dict[str, Any]) -> Path | None:
-    raw = record.get("_originalThumbnailPath")
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    path = Path(raw.strip())
-    if path.is_file():
-        return path
+    for key in ("_originalThumbnailPath", "_thumbnailReviewPath"):
+        raw = record.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        path = Path(raw.strip())
+        if path.is_file():
+            return path
     return None
+
+
+def _is_canva_cover(record: dict[str, Any]) -> bool:
+    if record.get("_canvaCover") is True:
+        return True
+    for key in ("ytThumbnailSource", "_thumbnailSource"):
+        value = record.get(key)
+        if isinstance(value, str) and "canva" in value.casefold():
+            return True
+    return False
 
 
 def extract_english_caption_from_thumbnail(
@@ -83,7 +94,11 @@ def extract_english_caption_from_thumbnail(
     path = _thumbnail_path_from_record(record)
     if path is None:
         return []
-    return extract_caption_lines_from_image_path(path, config)
+    return extract_caption_lines_from_image_path(
+        path,
+        config,
+        include_all_overlay=_is_canva_cover(record),
+    )
 
 
 def _load_docx_from_drive_file(
@@ -143,7 +158,8 @@ def resolve_english_caption_lines(
 ) -> tuple[list[str], str | None]:
     """Return (caption lines, source) with thumbnail vision first, Drive TN fallback.
 
-    Vision keeps only the designed overlay caption, not extra text on the image.
+    Canva covers include every designed overlay line. Other thumbnails keep only
+    the main caption block.
     """
     try:
         vision_lines = extract_english_caption_from_thumbnail(record, config=config)
