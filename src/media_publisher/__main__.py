@@ -1662,8 +1662,9 @@ def run_quotes_publish(settings, args) -> int:
     if platforms is not None:
         print_console(f"Limiting quote publish to: {', '.join(platforms)}")
 
-    # Quotes render from Sheet text + Drive backgrounds. Do not gate on Canva.
-    print_console("Canva: skipped for quote publish")
+    canva_exit = ensure_canva_ready_for_run(settings, log=print_console)
+    if canva_exit is not None:
+        return canva_exit
 
     try:
         page_id, instagram_account_id, _ = resolve_meta_targets(settings)
