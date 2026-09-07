@@ -424,6 +424,30 @@ class DriveThumbnailTests(unittest.TestCase):
     def test_resolve_canva_design_drive_url_without_folder(self) -> None:
         self.assertIsNone(resolve_canva_design_drive_url(MagicMock(), {}))
 
+    def test_download_canva_thumbnail_falls_back_to_share_preview(self) -> None:
+        from catalog_parser.canva import CanvaError
+        from catalog_parser.drive_thumbnail import download_canva_thumbnail
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "thumb.jpg"
+            with patch(
+                "catalog_parser.drive_thumbnail._resolve_canva_attachment",
+                side_effect=CanvaError(
+                    'Canva POST /exports failed with HTTP 403: {"code":"permission_denied"}'
+                ),
+            ), patch(
+                "media_publisher.sources.canva_share_preview.download_canva_share_preview",
+                side_effect=lambda _url, path: path.write_bytes(b"jpg") or path,
+            ):
+                source = download_canva_thumbnail(
+                    "https://www.canva.com/design/DAGabc/view",
+                    destination,
+                    canva_client=MagicMock(),
+                )
+            self.assertEqual(source, "canva-share-preview")
+            self.assertEqual(destination.read_bytes(), b"jpg")
+
 
 if __name__ == "__main__":
     unittest.main()

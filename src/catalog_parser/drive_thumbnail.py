@@ -425,15 +425,41 @@ def download_canva_thumbnail(
     *,
     canva_client: CanvaClient | None = None,
 ) -> str:
-    """Write a Canva API design export to ``destination``; return source label."""
-    attachment, source = _resolve_canva_attachment(canva_url, canva_client=canva_client)
-    if not attachment:
-        raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
-    url = attachment[0].get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise DriveThumbnailError(f"Canva thumbnail attachment missing URL for {canva_url!r}")
-    _download_http_url(url.strip(), destination)
-    return source
+    """Write a Canva design image to ``destination``; return source label.
+
+    Prefers the Canva Connect API export. When the authenticated account cannot
+    access the design (``permission_denied``), falls back to the public share
+    preview image.
+    """
+    try:
+        attachment, source = _resolve_canva_attachment(
+            canva_url,
+            canva_client=canva_client,
+        )
+        if not attachment:
+            raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
+        url = attachment[0].get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise DriveThumbnailError(
+                f"Canva thumbnail attachment missing URL for {canva_url!r}"
+            )
+        _download_http_url(url.strip(), destination)
+        return source
+    except Exception as exc:
+        if is_canva_auth_error(exc):
+            raise
+        from media_publisher.sources.canva_share_preview import (
+            download_canva_share_preview,
+        )
+
+        try:
+            download_canva_share_preview(canva_url, destination)
+        except Exception as preview_exc:
+            raise DriveThumbnailError(
+                f"Canva API export failed ({exc}); "
+                f"share preview also failed ({preview_exc})"
+            ) from preview_exc
+        return "canva-share-preview"
 
 
 def _stage_manual_canva_review_placeholder(

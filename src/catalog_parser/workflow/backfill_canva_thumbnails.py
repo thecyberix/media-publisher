@@ -140,7 +140,7 @@ def backfill_canva_thumbnails(
     canva_client: CanvaClient,
     dry_run: bool = True,
     project_root: Path | None = None,
-    log: Callable[[str], None] = print,
+    log: Callable[[str], None] | None = None,
 ) -> CanvaThumbBackfillResult:
     """Replace Original Video Thumbnail from package Canva for workflow statuses.
 
@@ -148,6 +148,9 @@ def backfill_canva_thumbnails(
     wrong (platform) image when Canva short links were missed. When
     ``Video caption translated`` is empty, also AI-translate from the Canva image.
     """
+    if log is None:
+        def log(message: str) -> None:
+            print(message, flush=True)
     records = airtable.list_records(filter_formula=_workflow_status_formula())
     result = CanvaThumbBackfillResult(checked=len(records))
     log(f"Loaded {len(records)} workflow-status record(s)")
