@@ -398,6 +398,12 @@ class DriveThumbnailTests(unittest.TestCase):
             "Original Video": "https://youtu.be/abc123XYZ01",
         }
         with patch(
+            "catalog_parser.drive_thumbnail.read_drive_fields_from_folder",
+            return_value={},
+        ), patch(
+            "catalog_parser.drive_thumbnail.video_size_from_pkg_folder",
+            return_value=None,
+        ), patch(
             "catalog_parser.drive_thumbnail._collect_canva_urls_from_folder_documents",
             return_value=["https://www.canva.com/design/DAGabc/view"],
         ) as collect_mock:
@@ -411,6 +417,7 @@ class DriveThumbnailTests(unittest.TestCase):
         collect_mock.assert_called_once()
         select_mock.assert_called_once_with(
             ["https://www.canva.com/design/DAGabc/view"],
+            target_size=None,
             original_video_url="https://youtu.be/abc123XYZ01",
         )
 

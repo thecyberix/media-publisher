@@ -318,14 +318,37 @@ def resolve_canva_design_drive_url(
     )
 
     try:
-        urls = _collect_canva_urls_from_folder_documents(
+        fields = read_drive_fields_from_folder(
             drive_service,
             docs_service,
             folder_id,
+            original_video_url=original_video_url,
         )
-        return select_canva_url(urls, original_video_url=original_video_url)
+    except Exception:
+        fields = {}
+    try:
+        return _discover_canva_url(
+            drive_service,
+            docs_service,
+            folder_id,
+            fields if isinstance(fields, dict) else {},
+            original_video_url=original_video_url,
+        )
     except Exception:
         return None
+
+
+def discover_package_canva_url(
+    drive_service: Any,
+    docs_service: Any | None,
+    record_fields: dict[str, Any],
+) -> str | None:
+    """Public wrapper: resolve a Canva design URL from a package Video Folder."""
+    return resolve_canva_design_drive_url(
+        drive_service,
+        record_fields,
+        docs_service=docs_service,
+    )
 
 
 def resolve_original_video_thumbnail(
