@@ -338,19 +338,6 @@ def resolve_canva_design_drive_url(
         return None
 
 
-def discover_package_canva_url(
-    drive_service: Any,
-    docs_service: Any | None,
-    record_fields: dict[str, Any],
-) -> str | None:
-    """Public wrapper: resolve a Canva design URL from a package Video Folder."""
-    return resolve_canva_design_drive_url(
-        drive_service,
-        record_fields,
-        docs_service=docs_service,
-    )
-
-
 def resolve_original_video_thumbnail(
     drive_service: Resource,
     docs_service: Resource | None,
