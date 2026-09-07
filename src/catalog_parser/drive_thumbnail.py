@@ -211,7 +211,10 @@ def _collect_canva_urls_from_folder_documents(
             continue
         try:
             if mime_type == WORD_DOC_MIME_TYPE:
-                content = drive_service.files().get_media(fileId=document_id).execute()
+                content = drive_service.files().get_media(
+                    fileId=document_id,
+                    supportsAllDrives=True,
+                ).execute()
                 docx_document = Document(io.BytesIO(content))
                 canva_any, _canva_below_tn = extract_canva_links_from_docx(docx_document)
             elif mime_type == GOOGLE_DOC_MIME_TYPE and docs_service is not None:
@@ -225,7 +228,9 @@ def _collect_canva_urls_from_folder_documents(
                 )
             else:
                 continue
-        except Exception:
+        except Exception as exc:
+            name = document.get("name") or document_id
+            print(f"  -> WARN: Canva scan failed for {name!r}: {exc}")
             continue
         all_urls.extend(canva_any)
     return dedupe_canva_urls(all_urls)

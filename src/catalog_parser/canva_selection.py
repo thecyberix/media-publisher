@@ -15,6 +15,13 @@ CANVA_URL_RE = re.compile(
     r"https?://(?:www\.)?canva\.com/design/[A-Za-z0-9_-]+(?:/[^\s\"'<>]*)?",
     re.IGNORECASE,
 )
+# Classic Word field codes: HYPERLINK "url" or HYPERLINK url
+HYPERLINK_FIELD_RE = re.compile(
+    r'HYPERLINK\s+(?:\\[lL]\s+)?"([^"]+)"|HYPERLINK\s+(?:\\[lL]\s+)?(\S+)',
+    re.IGNORECASE,
+)
+_A_HLINK_CLICK = "{http://schemas.openxmlformats.org/drawingml/2006/main}hlinkClick"
+_R_EMBED_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 
 
 def dedupe_canva_urls(urls: list[str]) -> list[str]:
@@ -46,19 +53,95 @@ def collect_canva_urls_from_values(values: list[str | None]) -> list[str]:
     return dedupe_canva_urls(urls)
 
 
+def _urls_from_hyperlink_field_text(text: str) -> list[str]:
+    urls: list[str] = []
+    for match in HYPERLINK_FIELD_RE.finditer(text):
+        candidate = match.group(1) or match.group(2)
+        if candidate:
+            urls.append(candidate.strip())
+    urls.extend(CANVA_URL_RE.findall(text))
+    return urls
+
+
+def _field_code_hyperlink_urls(element: Any) -> list[str]:
+    """Collect URLs from Word HYPERLINK field instructions (w:instrText)."""
+    chunks: list[str] = []
+    for node in element.xpath(".//*[local-name()='instrText']"):
+        text = getattr(node, "text", None)
+        if isinstance(text, str) and text:
+            chunks.append(text)
+    if not chunks:
+        return []
+    return _urls_from_hyperlink_field_text("".join(chunks))
+
+
+def _relationship_target(part: Any, relationship_id: str | None) -> str | None:
+    if not relationship_id:
+        return None
+    relationship = part.rels.get(relationship_id)
+    if relationship is None:
+        return None
+    target = getattr(relationship, "target_ref", None)
+    if isinstance(target, str) and target.strip():
+        return target.strip()
+    return None
+
+
+def _drawing_hyperlink_urls(paragraph: Any) -> list[str]:
+    urls: list[str] = []
+    for click in paragraph._element.iter(_A_HLINK_CLICK):
+        target = _relationship_target(paragraph.part, click.get(_R_EMBED_ID))
+        if target:
+            urls.append(target)
+    return urls
+
+
+def _external_canva_urls_from_part(part: Any) -> list[str]:
+    urls: list[str] = []
+    rels = getattr(part, "rels", None)
+    if rels is None:
+        return urls
+    for relationship in rels.values():
+        target = getattr(relationship, "target_ref", None)
+        if isinstance(target, str) and extract_canva_design_url(target):
+            urls.append(target.strip())
+    return urls
+
+
 def _paragraph_hyperlink_urls(paragraph: Any, qn: Any) -> list[str]:
     urls: list[str] = []
     for hyperlink in paragraph._element.xpath(".//w:hyperlink"):
-        relationship_id = hyperlink.get(qn("r:id"))
-        if not relationship_id:
-            continue
-        relationship = paragraph.part.rels.get(relationship_id)
-        if relationship is None:
-            continue
-        target = getattr(relationship, "target_ref", None)
-        if isinstance(target, str) and target.strip():
-            urls.append(target.strip())
+        target = _relationship_target(paragraph.part, hyperlink.get(qn("r:id")))
+        if target:
+            urls.append(target)
+    urls.extend(_drawing_hyperlink_urls(paragraph))
+    urls.extend(_field_code_hyperlink_urls(paragraph._element))
     urls.extend(CANVA_URL_RE.findall(paragraph.text))
+    return urls
+
+
+def _iter_table_paragraphs(table: Any, *, visited: set[int] | None = None):
+    """Yield paragraphs from a table, including nested tables (deduped cells)."""
+    seen = visited if visited is not None else set()
+    for row in table.rows:
+        for cell in row.cells:
+            tc_id = id(cell._tc)
+            if tc_id in seen:
+                continue
+            seen.add(tc_id)
+            yield from cell.paragraphs
+            for nested in cell.tables:
+                yield from _iter_table_paragraphs(nested, visited=seen)
+
+
+def _canva_urls_from_paragraphs(paragraphs: Any, qn: Any) -> list[str]:
+    urls: list[str] = []
+    for paragraph in paragraphs:
+        urls.extend(
+            url
+            for url in _paragraph_hyperlink_urls(paragraph, qn)
+            if extract_canva_design_url(url)
+        )
     return urls
 
 
@@ -79,45 +162,64 @@ def extract_canva_links_from_docx(document: Any) -> tuple[list[str], list[str]]:
         elif isinstance(child, CT_Tbl):
             blocks.append(("t", Table(child, document)))
 
+    # Field codes / drawings can sit anywhere under body (not only paragraph walks).
+    all_urls.extend(
+        url
+        for url in _field_code_hyperlink_urls(document.element.body)
+        if extract_canva_design_url(url)
+    )
+    all_urls.extend(_external_canva_urls_from_part(document.part))
+
     for index, (kind, payload) in enumerate(blocks):
         if kind == "p":
             paragraph = payload
-            urls = [
-                url
-                for url in _paragraph_hyperlink_urls(paragraph, qn)
-                if extract_canva_design_url(url)
-            ]
+            urls = _canva_urls_from_paragraphs([paragraph], qn)
             all_urls.extend(urls)
             if paragraph.text.strip() == "TN":
                 for next_index in range(index + 1, len(blocks)):
                     next_kind, next_payload = blocks[next_index]
                     if next_kind == "t":
                         break
-                    next_urls = [
-                        url
-                        for url in _paragraph_hyperlink_urls(next_payload, qn)
-                        if extract_canva_design_url(url)
-                    ]
-                    below_tn_urls.extend(next_urls)
+                    below_tn_urls.extend(
+                        _canva_urls_from_paragraphs([next_payload], qn)
+                    )
             continue
 
         table = payload
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    urls = [
-                        url
-                        for url in _paragraph_hyperlink_urls(paragraph, qn)
-                        if extract_canva_design_url(url)
-                    ]
-                    all_urls.extend(urls)
-                all_urls.extend(
-                    match
-                    for match in (
-                        extract_canva_design_url(item) for item in CANVA_URL_RE.findall(cell.text)
-                    )
-                    if match
-                )
+        for paragraph in _iter_table_paragraphs(table):
+            all_urls.extend(_canva_urls_from_paragraphs([paragraph], qn))
+        all_urls.extend(
+            match
+            for match in (
+                extract_canva_design_url(item)
+                for item in CANVA_URL_RE.findall(table._tbl.xml)
+            )
+            if match
+        )
+
+    for section in document.sections:
+        for header_footer in (
+            section.header,
+            section.footer,
+            section.first_page_header,
+            section.first_page_footer,
+            section.even_page_header,
+            section.even_page_footer,
+        ):
+            try:
+                part = header_footer.part
+            except Exception:
+                continue
+            all_urls.extend(_external_canva_urls_from_part(part))
+            try:
+                element = header_footer._element
+            except Exception:
+                continue
+            all_urls.extend(
+                url
+                for url in _field_code_hyperlink_urls(element)
+                if extract_canva_design_url(url)
+            )
 
     return dedupe_canva_urls(all_urls), dedupe_canva_urls(below_tn_urls)
 
@@ -146,14 +248,40 @@ def _google_paragraph_text_and_urls(paragraph: dict[str, Any]) -> tuple[str, lis
     return text, urls
 
 
+def _google_table_canva_urls(table: dict[str, Any]) -> list[str]:
+    """Collect Canva URLs from Google Doc table cell text and hyperlinks."""
+    from catalog_parser.drive_docs import table_to_grid
+
+    urls: list[str] = []
+    for row in table.get("tableRows", []):
+        if not isinstance(row, dict):
+            continue
+        for cell in row.get("tableCells", []):
+            if not isinstance(cell, dict):
+                continue
+            for content in cell.get("content", []):
+                if not isinstance(content, dict):
+                    continue
+                paragraph = content.get("paragraph")
+                if isinstance(paragraph, dict):
+                    _text, paragraph_urls = _google_paragraph_text_and_urls(paragraph)
+                    urls.extend(paragraph_urls)
+    for row in table_to_grid(table):
+        for cell in row:
+            urls.extend(CANVA_URL_RE.findall(cell))
+    return [
+        match
+        for match in (extract_canva_design_url(url) for url in urls)
+        if match
+    ]
+
+
 def extract_canva_links_from_google_document(
     document: dict[str, Any],
 ) -> tuple[list[str], list[str]]:
     content = document.get("body", {}).get("content", [])
     if not isinstance(content, list):
         return [], []
-
-    from catalog_parser.drive_docs import table_to_grid
 
     all_urls: list[str] = []
     below_tn_urls: list[str] = []
@@ -169,7 +297,7 @@ def extract_canva_links_from_google_document(
             continue
         table = element.get("table")
         if isinstance(table, dict):
-            blocks.append(("t", table_to_grid(table)))
+            blocks.append(("t", table))
 
     for index, (kind, payload) in enumerate(blocks):
         if kind == "p":
@@ -193,16 +321,7 @@ def extract_canva_links_from_google_document(
                     )
             continue
 
-        grid = payload
-        for row in grid:
-            for cell in row:
-                all_urls.extend(
-                    match
-                    for match in (
-                        extract_canva_design_url(item) for item in CANVA_URL_RE.findall(cell)
-                    )
-                    if match
-                )
+        all_urls.extend(_google_table_canva_urls(payload))
 
     return dedupe_canva_urls(all_urls), dedupe_canva_urls(below_tn_urls)
 

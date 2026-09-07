@@ -1,0 +1,49 @@
+name: Probe package Canva links
+
+on:
+  workflow_dispatch:
+    inputs:
+      today_aspect_mismatch:
+        description: Probe 2026-09-07 aspect-mismatch ingest titles
+        type: boolean
+        default: true
+      titles:
+        description: Extra titles (one per line)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          extras: thumbnails
+
+      - name: Probe Canva links in package docs
+        env:
+          TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ "${{ inputs.today_aspect_mismatch }}" = "true" ]; then
+            ARGS+=(--today-aspect-mismatch)
+          fi
+          while IFS= read -r title; do
+            title="$(echo "$title" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$title" ] && continue
+            ARGS+=(--title "$title")
+          done <<'EOF'
+          ${{ inputs.titles }}
+          EOF
+          python scripts/catalog/probe_package_canva_links.py "${ARGS[@]}"
