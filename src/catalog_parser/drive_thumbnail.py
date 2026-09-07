@@ -318,22 +318,12 @@ def resolve_canva_design_drive_url(
     )
 
     try:
-        fields = read_drive_fields_from_folder(
+        urls = _collect_canva_urls_from_folder_documents(
             drive_service,
             docs_service,
             folder_id,
-            original_video_url=original_video_url,
         )
-    except Exception:
-        fields = {}
-    try:
-        return _discover_canva_url(
-            drive_service,
-            docs_service,
-            folder_id,
-            fields if isinstance(fields, dict) else {},
-            original_video_url=original_video_url,
-        )
+        return select_canva_url(urls, original_video_url=original_video_url)
     except Exception:
         return None
 
@@ -412,52 +402,15 @@ def download_canva_thumbnail(
     *,
     canva_client: CanvaClient | None = None,
 ) -> str:
-    """Write a Canva design image to ``destination``; return source label.
-
-    Prefers the Canva Connect API export. When the authenticated account cannot
-    access the design (``permission_denied``), falls back to the public share
-    preview image when available.
-    """
-    try:
-        attachment, source = _resolve_canva_attachment(
-            canva_url,
-            canva_client=canva_client,
-        )
-        if not attachment:
-            raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
-        url = attachment[0].get("url")
-        if not isinstance(url, str) or not url.strip():
-            raise DriveThumbnailError(
-                f"Canva thumbnail attachment missing URL for {canva_url!r}"
-            )
-        _download_http_url(url.strip(), destination)
-        return source
-    except Exception as exc:
-        if is_canva_auth_error(exc):
-            raise
-        message = str(exc).casefold()
-        # permission_denied means the OAuth account cannot export this design.
-        # Share-preview scraping is usually blocked by Cloudflare for those same
-        # links, so skip the slow browser path unless it looks like a transient
-        # non-permission failure.
-        if "permission_denied" in message or "not allowed to access design" in message:
-            raise DriveThumbnailError(
-                f"Canva API export denied for this design ({exc}). "
-                "Share the design with the connected Canva account, or re-auth "
-                "with the account that owns it."
-            ) from exc
-        from media_publisher.sources.canva_share_preview import (
-            download_canva_share_preview,
-        )
-
-        try:
-            download_canva_share_preview(canva_url, destination)
-        except Exception as preview_exc:
-            raise DriveThumbnailError(
-                f"Canva API export failed ({exc}); "
-                f"share preview also failed ({preview_exc})"
-            ) from preview_exc
-        return "canva-share-preview"
+    """Write a Canva API design export to ``destination``; return source label."""
+    attachment, source = _resolve_canva_attachment(canva_url, canva_client=canva_client)
+    if not attachment:
+        raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
+    url = attachment[0].get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise DriveThumbnailError(f"Canva thumbnail attachment missing URL for {canva_url!r}")
+    _download_http_url(url.strip(), destination)
+    return source
 
 
 def _stage_manual_canva_review_placeholder(

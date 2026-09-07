@@ -42,7 +42,7 @@ def normalize_canva_share_url(canva_url: str) -> str:
     return urlunparse(parsed._replace(path=path))
 
 
-def _find_chrome() -> str | None:
+def _find_chrome() -> str:
     for candidate in (
         Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
         Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
@@ -51,16 +51,14 @@ def _find_chrome() -> str | None:
     ):
         if candidate.is_file():
             return str(candidate)
-    return (
-        shutil.which("chrome")
-        or shutil.which("msedge")
-        or shutil.which("google-chrome")
-        or shutil.which("chromium")
-        or shutil.which("chromium-browser")
-    )
+    chrome = shutil.which("chrome") or shutil.which("msedge") or shutil.which("google-chrome")
+    if chrome:
+        return chrome
+    raise RuntimeError("Chrome or Edge is required for Canva share-link previews")
 
 
-def _fetch_dom_chrome(canva_url: str, browser: str) -> str:
+def _fetch_dom(canva_url: str) -> str:
+    browser = _find_chrome()
     completed = subprocess.run(
         [
             browser,
@@ -81,56 +79,6 @@ def _fetch_dom_chrome(canva_url: str, browser: str) -> str:
             f"Canva page DOM was empty for {canva_url!r}: {stderr[-400:]}"
         )
     return html
-
-
-def _fetch_dom_playwright(canva_url: str) -> str:
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright is required for Canva share-link previews when Chrome/Edge "
-            "is unavailable. Install with: pip install playwright && "
-            "python -m playwright install chromium"
-        ) from exc
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
-        try:
-            page = browser.new_page()
-            page.goto(canva_url, wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_timeout(3_000)
-            html = page.content()
-        finally:
-            browser.close()
-    if len(html) < 1000:
-        raise RuntimeError(f"Canva page DOM was empty for {canva_url!r} (playwright)")
-    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.I | re.S)
-    title = title_match.group(1).strip().casefold() if title_match else ""
-    if "just a moment" in title or "attention required" in title:
-        raise RuntimeError(
-            f"Canva share page blocked by bot challenge for {canva_url!r}"
-        )
-    return html
-
-
-def _fetch_dom(canva_url: str) -> str:
-    # Prefer Playwright first: system Chrome headless often hangs on Canva/Cloudflare.
-    errors: list[str] = []
-    try:
-        return _fetch_dom_playwright(canva_url)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"playwright: {exc}")
-    browser = _find_chrome()
-    if browser:
-        try:
-            return _fetch_dom_chrome(canva_url, browser)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"chrome: {exc}")
-    detail = "; ".join(errors) if errors else "no browser available"
-    raise RuntimeError(
-        f"Chrome/Edge or Playwright Chromium is required for Canva share-link "
-        f"previews ({detail})"
-    )
 
 
 def _extract_bootstrap_dimensions(html: str) -> tuple[int, int] | None:
