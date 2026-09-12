@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-05T10:23:36Z",
+  "updated_at": "2026-09-12T20:27:53Z",
   "quotes": [
     {
       "english_key": "'i do not know' is an immense possibility. only when you realize 'i do not know,' the longing, the seeking, and the possibility of knowing arise.",
@@ -259,9 +259,9 @@
       "date_label": "7 Jul 2022"
     },
     {
-      "english_key": "all of us have the opportunity to do something useful in the world. instead of looking at someone else, look at what you can do.",
-      "english": "All of us have the opportunity to do something useful in the world. Instead of looking at someone else, look at what you can do.",
-      "ready": "Всички ние имаме възможността да направим нещо полезно в света. Вместо да гледате другите, вижте какво вие можете да направите.",
+      "english_key": "all of us have the possibility to do something useful in the world. instead of looking to someone else, let us see what we can do.",
+      "english": "All of us have the possibility to do something useful in the world. Instead of looking to someone else, let us see what we can do.",
+      "ready": "Всички ние имаме възможността да направим нещо полезно в света. Вместо да гледаме другите, нека видим какво ние можем да направим.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Sep 2026",
       "date_label": "8 Sep 2026"
@@ -2147,6 +2147,14 @@
       "date_label": "23 May 2026"
     },
     {
+      "english_key": "for someone who listens to the wholeness of existence, everything is music.",
+      "english": "For someone who listens to the wholeness of existence, everything is music.",
+      "ready": "За този, който се вслушва в пълнотата на съществуванието, всичко е музика.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
+      "tab_title": "Sep 2026",
+      "date_label": "16 Sep 2026"
+    },
+    {
       "english_key": "for the health of the economy, we compromise the health of human beings. it is time we let consciousness guide our lives.",
       "english": "For the health of the economy, we compromise the health of human beings. It is time we let consciousness guide our lives.",
       "ready": "В интерес на икономиката пренебрегваме здравето на човечеството. Време е да позволим на съзнанието да ръководи живота ни.",
@@ -2265,6 +2273,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Aug 2025",
       "date_label": "27 Aug 2025"
+    },
+    {
+      "english_key": "ganesha is the very symbol of an intelligence that moves through all obstacles - because the highest intelligence is to become one with creation.",
+      "english": "Ganesha is the very symbol of an intelligence that moves through all obstacles — because the highest intelligence is to become one with Creation.",
+      "ready": "Ганеша е символът на самата интелигентност, която преминава през всички препятствия — защото най-висшата интелигентност е да станете едно със Сътворението.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
+      "tab_title": "Sep 2026",
+      "date_label": "14 Sep 2026"
     },
     {
       "english_key": "ganesha is the very symbol of exalted intelligence. the most intelligent way to exist is to be one with everything, to be in unity, to be in yoga.",
@@ -3429,10 +3445,10 @@
     {
       "english_key": "if you are inclusive, life happens. if you are exclusive, only your psychological drama happens.",
       "english": "If you are inclusive, Life happens. If you are exclusive, only your psychological drama happens.",
-      "ready": "Ако сте всеобхващащи, животът се развива. Ако сте изключващи, само вашата психологическа драма се развива.",
-      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
-      "tab_title": "Sep 2026",
-      "date_label": "12 Sep 2026"
+      "ready": "Ако сте всеобхващащи, животът се случва. Ако сте изключващи, само вашата психологическа драма се случва.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
+      "tab_title": "Sep 2023",
+      "date_label": "14 Sep 2022"
     },
     {
       "english_key": "if you are joyful by your own nature, you do not have to prove you are better than anyone else. you are fine the way you are.",
@@ -4905,6 +4921,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Apr 2025",
       "date_label": "6 Apr 2025"
+    },
+    {
+      "english_key": "intellect wants to conquer the truth. devotion just embraces the truth.",
+      "english": "Intellect wants to conquer the truth. Devotion just embraces the truth.",
+      "ready": "Интелектът иска да покори истината. Отдадеността просто я приема.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
+      "tab_title": "Sep 2026",
+      "date_label": "17 Sep 2026"
     },
     {
       "english_key": "intelligent ones wonder - idiots are dead sure.",
@@ -7193,6 +7217,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "May 2026",
       "date_label": "27 May 2026"
+    },
+    {
+      "english_key": "play it joyfully, play it fair, play it intensely. life is such a brief play - and the greatest there is.",
+      "english": "Play it joyfully, play it fair, play it intensely. Life is such a brief play – and the greatest there is.",
+      "ready": "Играйте я радостно, играйте я честно, играйте я интензивно. Животът е толкова кратка игра – и най-великата от всички.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
+      "tab_title": "Sep 2026",
+      "date_label": "15 Sep 2026"
     },
     {
       "english_key": "pleasure is beautiful, but it is enslaving. joy is wonderful - above all, it is liberating.",
@@ -11963,9 +11995,9 @@
       "date_label": "3 Aug 2022"
     },
     {
-      "english_key": "your personality is a mask that you created for your social survival. the only problem is, the mask is stuck to you now.",
-      "english": "Your personality is a mask that you created for your social survival. The only problem is, the mask is stuck to you now.",
-      "ready": "Вашата личност е маска, която сте създали за социалното си оцеляване. Единственият проблем е, че маската в момента е залепнала за вас.",
+      "english_key": "your personality is a mask that you created for your social survival. the only problem is this: if the mask is stuck to you.",
+      "english": "Your personality is a mask that you created for your social survival. The only problem is this: if the mask is stuck to you.",
+      "ready": "Вашата личност е маска, която сте създали за социалното си оцеляване. Единственият проблем е ако маската е залепнала за вас.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Sep 2026",
       "date_label": "10 Sep 2026"
@@ -11977,6 +12009,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Mar 2024",
       "date_label": ""
+    },
+    {
+      "english_key": "your psychological drama should happen the way you want it. you are the director.",
+      "english": "Your psychological drama should happen the way you want it. You are the director.",
+      "ready": "Вашата психологическа драма трябва да се развива така, както вие искате. Вие сте режисьорът.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
+      "tab_title": "Sep 2026",
+      "date_label": "12 Sep 2026"
     },
     {
       "english_key": "your thought process is something that you make up. at least you must make it up the way it is beautiful for you and all.",
