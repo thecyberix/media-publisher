@@ -12,6 +12,8 @@ from media_publisher.quotes_text_sync import (
     DestinationSheetRef,
     EnglishQuoteRow,
     ReadyQuoteMatch,
+    REUSED_READY_BACKGROUND,
+    STALE_READY_BACKGROUND,
     _merge_ready_indexes,
     _normalize_english,
     _year_from_bulgarian_workbook_name,
@@ -22,6 +24,7 @@ from media_publisher.quotes_text_sync import (
     list_bulgarian_year_workbooks,
     load_ready_index_file,
     load_ready_translations_by_english,
+    lookup_ready_by_english,
     month_file_name_candidates,
     reuse_source_comment,
     save_ready_index_file,
@@ -275,6 +278,11 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
         self.assertIn("BG:Brand new quote", values.values())
         self.assertNotIn("'Sep 2026'!D2", values)
         self.assertNotIn("'Sep 2026'!D4", values)
+        sheets.set_cells_background.assert_called_once_with(
+            "dest-sep",
+            [(1, 2, 4), (1, 4, 4)],
+            REUSED_READY_BACKGROUND,
+        )
 
     def test_sync_skips_unchanged_english(self) -> None:
         config = self._config()
@@ -383,6 +391,11 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
         self.assertEqual(values["'Sep 2026'!E2"], "Значението на учителя")
         self.assertEqual(values["'Sep 2026'!F2"], "Reused from 16 Aug 2022")
         self.assertNotIn("'Sep 2026'!D2", values)
+        sheets.set_cells_background.assert_called_once_with(
+            "dest-sep",
+            [(1, 2, 4)],
+            REUSED_READY_BACKGROUND,
+        )
 
     def test_sync_fills_ready_even_when_edited_already_has_reuse(self) -> None:
         config = self._config()
@@ -450,6 +463,11 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
         self.assertEqual(values["'Sep 2026'!E2"], "Значението на учителя")
         self.assertEqual(values["'Sep 2026'!F2"], "Reused from 16 Aug 2022")
         self.assertNotIn("'Sep 2026'!D2", values)
+        sheets.set_cells_background.assert_called_once_with(
+            "dest-sep",
+            [(1, 2, 4)],
+            REUSED_READY_BACKGROUND,
+        )
 
     def test_sync_highlights_stale_ready_when_english_changes(self) -> None:
         config = self._config()
@@ -513,10 +531,10 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
         sheets.set_cells_background.assert_called_once_with(
             "dest-sep",
             [(1, 2, 4)],
-            {"red": 1.0, "green": 1.0, "blue": 0.0},
+            STALE_READY_BACKGROUND,
         )
 
-    def test_sync_clears_ready_highlight_when_reuse_replaces_stale_text(self) -> None:
+    def test_sync_paints_ready_green_when_reuse_replaces_stale_text(self) -> None:
         config = self._config()
         sheets = MagicMock()
         drive = MagicMock()
@@ -583,7 +601,7 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
         sheets.set_cells_background.assert_called_once_with(
             "dest-sep",
             [(1, 2, 4)],
-            None,
+            REUSED_READY_BACKGROUND,
         )
 
     def test_reuse_source_comment(self) -> None:
@@ -608,6 +626,193 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
                 )
             ),
             "Reused from Aug 2022",
+        )
+
+    def test_lookup_skips_same_publish_date(self) -> None:
+        english = "Ganesha is the very symbol of an intelligence that moves through all obstacles."
+        key = _normalize_english(english)
+        self_match = ReadyQuoteMatch(
+            ready="Ганеша днес",
+            spreadsheet_name="Sadhguru Quotes Bulgarian 2026",
+            tab_title="Sep 2026",
+            date_label="14 Sep 2026",
+            english=english,
+        )
+        older = ReadyQuoteMatch(
+            ready="Ганеша по-рано",
+            spreadsheet_name="Sadhguru Quotes Bulgarian 2022",
+            tab_title="Sep 2022",
+            date_label="14 Sep 2022",
+            english=english,
+        )
+        archive = {key: (self_match, older)}
+        self.assertEqual(
+            lookup_ready_by_english(english, archive).ready,
+            "Ганеша днес",
+        )
+        self.assertEqual(
+            lookup_ready_by_english(
+                english, archive, exclude_date=date(2026, 9, 14)
+            ).ready,
+            "Ганеша по-рано",
+        )
+        self.assertIsNone(
+            lookup_ready_by_english(
+                english,
+                {key: self_match},
+                exclude_date=date(2026, 9, 14),
+            )
+        )
+
+    def test_sync_skips_self_reuse_when_only_match_is_same_date(self) -> None:
+        config = self._config()
+        sheets = MagicMock()
+        drive = MagicMock()
+        english = "Ganesha is the very symbol of an intelligence that moves through all obstacles - because the highest intelligence is to become one with Creation."
+        dest_english = "Ganesha is the very symbol of an intelligence that moves through all obstacles — because the highest intelligence is to become one with Creation."
+        english_rows = [
+            EnglishQuoteRow(
+                day=14,
+                publish_date=date(2026, 9, 14),
+                date_label="14 Sep 2026",
+                english=english,
+                previously_posted_on=None,
+                previously_posted_label="",
+            )
+        ]
+        dest = DestinationSheetRef(
+            spreadsheet_id="dest-sep",
+            spreadsheet_name="Sep 2026",
+            tab=SheetTab(sheet_id=1, title="Sep 2026"),
+        )
+        archive = {
+            _normalize_english(english): ReadyQuoteMatch(
+                ready="Ганеша е символът на самата интелигентност.",
+                spreadsheet_name="Sadhguru Quotes Bulgarian 2026",
+                tab_title="Sep 2026",
+                date_label="14 Sep 2026",
+                english=dest_english,
+            )
+        }
+        with (
+            patch(
+                "media_publisher.quotes_text_sync.load_english_quote_rows",
+                return_value=english_rows,
+            ),
+            patch(
+                "media_publisher.quotes_text_sync.resolve_destination_month_sheet",
+                return_value=dest,
+            ),
+            patch(
+                "media_publisher.quotes_text_sync._read_sheet_rows",
+                return_value=[
+                    ["Date", "English", "Translation", "Edited", "Ready", "Comment"],
+                    [
+                        "14 Sep 2026",
+                        dest_english,
+                        "",
+                        "",
+                        "Ганеша е символът на самата интелигентност.",
+                        "",
+                    ],
+                ],
+            ),
+        ):
+            result = sync_month_quote_texts(
+                config=config,
+                sheets=sheets,
+                drive=drive,
+                year=2026,
+                month=9,
+                translate_fn=lambda text: f"BG:{text}",
+                ready_by_english=archive,
+            )
+        self.assertEqual(result.reused_count, 0)
+        self.assertEqual(result.translated_count, 1)
+        written = sheets.batch_update_values.call_args[0][1]
+        values = {range_a1: cells[0][0] for range_a1, cells in written}
+        self.assertEqual(values["'Sep 2026'!B2"], english)
+        self.assertNotIn("'Sep 2026'!E2", values)
+        sheets.set_cells_background.assert_called_once_with(
+            "dest-sep",
+            [(1, 2, 4)],
+            STALE_READY_BACKGROUND,
+        )
+
+    def test_sync_reuses_older_ready_instead_of_same_date(self) -> None:
+        config = self._config()
+        sheets = MagicMock()
+        drive = MagicMock()
+        english = "The significance of a teacher"
+        english_rows = [
+            EnglishQuoteRow(
+                day=5,
+                publish_date=date(2026, 9, 5),
+                date_label="5 Sep 2026",
+                english=english,
+                previously_posted_on=None,
+                previously_posted_label="",
+            )
+        ]
+        dest = DestinationSheetRef(
+            spreadsheet_id="dest-sep",
+            spreadsheet_name="Sep 2026",
+            tab=SheetTab(sheet_id=1, title="Sep 2026"),
+        )
+        key = _normalize_english(english)
+        archive = {
+            key: (
+                ReadyQuoteMatch(
+                    ready="Нов текст от същия ден",
+                    spreadsheet_name="Sadhguru Quotes Bulgarian 2026",
+                    tab_title="Sep 2026",
+                    date_label="5 Sep 2026",
+                    english=english,
+                ),
+                ReadyQuoteMatch(
+                    ready="Значението на учителя",
+                    spreadsheet_name="Sadhguru Quotes Bulgarian 2022",
+                    tab_title="Aug 2022",
+                    date_label="16 Aug 2022",
+                    english=english,
+                ),
+            )
+        }
+        with (
+            patch(
+                "media_publisher.quotes_text_sync.load_english_quote_rows",
+                return_value=english_rows,
+            ),
+            patch(
+                "media_publisher.quotes_text_sync.resolve_destination_month_sheet",
+                return_value=dest,
+            ),
+            patch(
+                "media_publisher.quotes_text_sync._read_sheet_rows",
+                return_value=[
+                    ["Date", "English", "Translation", "Edited", "Ready", "Comment"],
+                    ["5 Sep 2026", english, "", "", "", ""],
+                ],
+            ),
+        ):
+            result = sync_month_quote_texts(
+                config=config,
+                sheets=sheets,
+                drive=drive,
+                year=2026,
+                month=9,
+                translate_fn=lambda text: "SHOULD_NOT_RUN",
+                ready_by_english=archive,
+            )
+        self.assertEqual(result.reused_count, 1)
+        written = sheets.batch_update_values.call_args[0][1]
+        values = {range_a1: cells[0][0] for range_a1, cells in written}
+        self.assertEqual(values["'Sep 2026'!E2"], "Значението на учителя")
+        self.assertEqual(values["'Sep 2026'!F2"], "Reused from 16 Aug 2022")
+        sheets.set_cells_background.assert_called_once_with(
+            "dest-sep",
+            [(1, 2, 4)],
+            REUSED_READY_BACKGROUND,
         )
 
     def test_list_bulgarian_year_workbooks_skips_excel_and_other_names(self) -> None:
@@ -678,10 +883,9 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
                 persist=False,
             )
         self.assertEqual(warnings, [])
-        self.assertEqual(
-            index[_normalize_english("the significance of a teacher")].ready,
-            "Значението",
-        )
+        match = lookup_ready_by_english("the significance of a teacher", index)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.ready, "Значението")
         self.assertNotIn(_normalize_english("Another quote"), index)
 
     def test_ready_index_file_round_trip(self) -> None:
@@ -697,9 +901,11 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
             path = Path(tmpdir) / "quotes_ready_index.json"
             save_ready_index_file(path, index)
             loaded = load_ready_index_file(path)
-        self.assertEqual(loaded[_normalize_english(match.english)].ready, "Готов текст")
+        match = lookup_ready_by_english(match.english, loaded)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.ready, "Готов текст")
         self.assertEqual(
-            loaded[_normalize_english(match.english)].spreadsheet_name,
+            match.spreadsheet_name,
             "Sadhguru Quotes Bulgarian 2022",
         )
 
@@ -733,8 +939,47 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
             cached=cached,
             live_by_spreadsheet=live,
         )
-        self.assertEqual(merged[live_key].ready, "Нов")
-        self.assertEqual(merged[cached_key].ready, "Стар")
+        self.assertEqual(lookup_ready_by_english("New quote", merged).ready, "Нов")
+        self.assertEqual(lookup_ready_by_english("Old quote", merged).ready, "Стар")
+
+    def test_merge_keeps_older_match_for_same_english(self) -> None:
+        key = _normalize_english("Same quote")
+        cached = {
+            key: ReadyQuoteMatch(
+                ready="Стар",
+                spreadsheet_name="Sadhguru Quotes Bulgarian 2022",
+                tab_title="Aug 2022",
+                date_label="16 Aug 2022",
+                english="Same quote",
+            )
+        }
+        live = {
+            "Sadhguru Quotes Bulgarian 2026": {
+                key: ReadyQuoteMatch(
+                    ready="Нов",
+                    spreadsheet_name="Sadhguru Quotes Bulgarian 2026",
+                    tab_title="Sep 2026",
+                    date_label="14 Sep 2026",
+                    english="Same quote",
+                )
+            },
+            "Sadhguru Quotes Bulgarian 2022": None,
+        }
+        merged = _merge_ready_indexes(
+            workbooks=[
+                ("id-2026", "Sadhguru Quotes Bulgarian 2026", 2026),
+                ("id-2022", "Sadhguru Quotes Bulgarian 2022", 2022),
+            ],
+            cached=cached,
+            live_by_spreadsheet=live,
+        )
+        self.assertEqual(lookup_ready_by_english("Same quote", merged).ready, "Нов")
+        self.assertEqual(
+            lookup_ready_by_english(
+                "Same quote", merged, exclude_date=date(2026, 9, 14)
+            ).ready,
+            "Стар",
+        )
 
     def _ready_archive(self) -> dict[str, ReadyQuoteMatch]:
         rows = [
