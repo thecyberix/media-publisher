@@ -121,6 +121,15 @@ class PipelineHelperTests(unittest.TestCase):
                 "Krishna Janmashtami Is Not Just About Krishnas Birth"
             ),
         )
+        # Titles with a mid-name period must not be truncated as a file stem.
+        self.assertEqual(
+            normalize_name_for_catalog_match(
+                "You Need A 24-Hour Break. Here's Why! | Sadhguru"
+            ),
+            normalize_name_for_catalog_match(
+                "You Need A 24-Hour Break. Here's Why! Sadhguru.bg"
+            ),
+        )
 
     def test_find_transcription_for_catalog_matches_srt_only_export(self) -> None:
         transcriptions = [
@@ -133,6 +142,22 @@ class PipelineHelperTests(unittest.TestCase):
         found = find_transcription_for_catalog(transcriptions, "Launch video")
         self.assertIsNotNone(found)
         self.assertEqual(found.id, "tx-srt")
+
+    def test_find_transcription_for_catalog_keeps_period_in_title(self) -> None:
+        transcriptions = [
+            HappyScribeTranscription(
+                id="tx-break",
+                name="You Need A 24-Hour Break. Here's Why! Sadhguru.bg",
+                state="automatic_done",
+                folder_name="Short videos",
+            )
+        ]
+        found = find_transcription_for_catalog(
+            transcriptions,
+            "You Need A 24-Hour Break. Here's Why! | Sadhguru",
+        )
+        self.assertIsNotNone(found)
+        self.assertEqual(found.id, "tx-break")
 
     def test_filter_tasks_for_local_date(self) -> None:
         from datetime import date

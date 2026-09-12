@@ -357,21 +357,30 @@ def is_subtitled_export_name(name: str) -> bool:
     return name.strip().lower().endswith(".srt")
 
 
+_KNOWN_MEDIA_EXTENSIONS = re.compile(
+    r"\.(srt|mp4|vtt|wav|m4a)$",
+    re.IGNORECASE,
+)
+
+
 def normalize_name_for_catalog_match(name: str) -> str:
     """Normalize Airtable/HappyScribe titles for fuzzy catalog matching."""
     text = name.strip()
     if text.upper().startswith("SRT_"):
         text = text[4:].strip()
     text = re.sub(r"\(\d+\)$", "", text).strip()
-    stem = Path(text).stem
     alias = selected_language().alias
-    stem = re.sub(
-        rf"\({re.escape(alias)}\)$",
-        "",
-        stem,
-        flags=re.IGNORECASE,
-    ).strip()
-    return re.sub(r"[^a-z0-9]+", "", stem.casefold())
+    lang_ext = re.compile(rf"\.{re.escape(alias)}$", re.IGNORECASE)
+    lang_paren = re.compile(rf"\({re.escape(alias)}\)$", re.IGNORECASE)
+    changed = True
+    while changed:
+        changed = False
+        for pattern in (_KNOWN_MEDIA_EXTENSIONS, lang_ext, lang_paren):
+            updated = pattern.sub("", text).strip()
+            if updated != text:
+                text = updated
+                changed = True
+    return re.sub(r"[^a-z0-9]+", "", text.casefold())
 
 
 def subtitled_export_name(source_name: str) -> str:
