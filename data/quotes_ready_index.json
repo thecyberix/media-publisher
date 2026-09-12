@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updated_at": "2026-09-12T20:56:51Z",
+  "version": 2,
+  "updated_at": "2026-09-12T21:06:15Z",
   "quotes": [
     {
       "english_key": "'i do not know' is an immense possibility. only when you realize 'i do not know,' the longing, the seeking, and the possibility of knowing arise.",
@@ -9,6 +9,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jul 2025",
       "date_label": "7 Jul 2025"
+    },
+    {
+      "english_key": "'i do not know' is not a negative state of mind. every discovery has come from this realization.",
+      "english": "‘I do not know’ is not a negative state of mind. Every discovery has come from this realization.",
+      "ready": "\"Не зная\" не е негативно състояние на ума. Всяко откритие произхожда от осъзнаването на този факт.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "19 Jan 2025"
     },
     {
       "english_key": "'i do not know' is not a negative state of mind. every discovery has come from this realization.",
@@ -203,6 +211,14 @@
       "date_label": "26 Apr 2026"
     },
     {
+      "english_key": "a spouse is not a destination but a fellow traveler.",
+      "english": "A spouse is not a destination but a fellow traveler.",
+      "ready": "Съпругът или съпругата не са крайната цел на пътуването, а спътници по пътя.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
+      "tab_title": "Jan 2022",
+      "date_label": "19 Jan 2022"
+    },
+    {
       "english_key": "a truly intelligent mind is neither influenced by memory nor deluded by imagination.",
       "english": "A truly intelligent mind is neither influenced by memory nor deluded by imagination.",
       "ready": "Истински интелигентният ум нито се влияе от паметта, нито се заблуждава от въображението.",
@@ -297,6 +313,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Apr 2025",
       "date_label": "1 Apr 2025"
+    },
+    {
+      "english_key": "an opinion is a way of forcing a person into a restrictive mold. love means nurturing a person into a new possibility. love and opinions cannot go together.",
+      "english": "An opinion is a way of forcing a person into a restrictive mold. Love means Nurturing a person into a new Possibility. Love and opinions cannot go together.",
+      "ready": "Мнението е начин да вкарате човек в ограничен калъп. Любовта означава да подкрепяте човек към нови възможности. Любовта и мненията не могат да вървят ръка за ръка.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "27 Feb 2024"
     },
     {
       "english_key": "an opinion is a way of forcing a person into a restrictive mold. love means nurturing a person into a new possibility. love and opinions cannot go together.",
@@ -417,6 +441,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "May 2025",
       "date_label": "10 May 2025"
+    },
+    {
+      "english_key": "as long as you are locked up in your own logic, the magic of life will not reveal itself to you.",
+      "english": "As long as you are locked up in your own logic, the Magic of Life will not reveal itself to you.",
+      "ready": "Докато сте затворени в своята собствена логика, магията на живота няма да ви се разкрие.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "20 Feb 2024"
     },
     {
       "english_key": "as long as you are locked up in your own logic, the magic of life will not reveal itself to you.",
@@ -643,6 +675,14 @@
       "date_label": "7 Sep 2026"
     },
     {
+      "english_key": "being human means being capable of looking at every life form with a sense of tenderness.",
+      "english": "Being human means being capable of looking at every life form with a sense of tenderness.",
+      "ready": "Да сте човешко същество, означава да можете да гледате на всяка форма на живот с нежност.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Apr 2024",
+      "date_label": "12 Apr 2024"
+    },
+    {
       "english_key": "being human means having the ability to transcend the so-called laws of nature and make something happen that is larger than us.",
       "english": "Being Human means having the Ability to Transcend the so-called laws of Nature and make something happen that is larger than us.",
       "ready": "Човешкото същество разполага със способност за преодоляване на т.нар. закони на природата и осъществяването на нещо по-мащабно от нас самите.",
@@ -865,6 +905,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Dec 2025",
       "date_label": "13 Dec 2025"
+    },
+    {
+      "english_key": "both the beautiful and the terrible things human beings do arise from emotion. meditation is a way to ensure that the most wonderful things come out of that.",
+      "english": "Both the beautiful and the terrible things human beings do arise from Emotion. Meditation is a way to ensure that the most wonderful things come out of that.",
+      "ready": "Както прекрасните, така и ужасните неща, които човешките същества правят, произлизат от емоциите. Медитацията е начин да се уверим, че само най-прекрасните неща намират израз.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "1 Feb 2024"
     },
     {
       "english_key": "both the beautiful and the terrible things human beings do arise from emotion. meditation is a way to ensure that the most wonderful things come out of that.",
@@ -1135,6 +1183,14 @@
       "english": "Consciously choosing to include another life as a Part of You is the most beautiful thing you can do.",
       "ready": "Съзнателният избор да направите друг живот част от себе си е най-прекрасното нещо, което можете да направите.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "3 Feb 2024"
+    },
+    {
+      "english_key": "consciously choosing to include another life as a part of you is the most beautiful thing you can do.",
+      "english": "Consciously choosing to include another life as a Part of You is the most beautiful thing you can do.",
+      "ready": "Съзнателният избор да направите друг живот част от себе си е най-прекрасното нещо, което можете да направите.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "3 Feb 2024"
     },
@@ -1145,6 +1201,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Mar 2023",
       "date_label": "28 Mar 2022"
+    },
+    {
+      "english_key": "consciousness is the source of who we are. our thoughts, intentions, and actions are a consequence of that.",
+      "english": "Consciousness is the source of who we are. Our thoughts, intentions, and actions are a consequence of that.",
+      "ready": "Съзнанието е източникът на това, което сме. Нашите мисли, намерения и действия са негово следствие.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Sep 2024",
+      "date_label": "16 Sep 2024"
     },
     {
       "english_key": "consciousness is the source of who we are. our thoughts, intentions, and actions are a consequence of that.",
@@ -1263,6 +1327,14 @@
       "english": "Devotion is a powerful tool to Dissolve all that you think is you, your likes and dislikes, prejudices, loves and hates.",
       "ready": "Отдадеността е мощен инструмент да разградите всичко, което смятате, че сте вие, своите предпочитания и непредпочитания, предрасъдъци, пристрастия и неприязнености.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "23 Feb 2024"
+    },
+    {
+      "english_key": "devotion is a powerful tool to dissolve all that you think is you, your likes and dislikes, prejudices, loves and hates.",
+      "english": "Devotion is a powerful tool to Dissolve all that you think is you, your likes and dislikes, prejudices, loves and hates.",
+      "ready": "Отдадеността е мощен инструмент да разградите всичко, което смятате, че сте вие, своите предпочитания и непредпочитания, предрасъдъци, пристрастия и неприязнености.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "23 Feb 2024"
     },
@@ -1273,6 +1345,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Nov 2024",
       "date_label": "30 Nov 2024"
+    },
+    {
+      "english_key": "devotion is the sweetest emotion you can nurture within yourself.",
+      "english": "Devotion is the sweetest emotion you can nurture within yourself.",
+      "ready": "Отдадеността е най-сладката емоция, която можете да подхранвате в себе си.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "17 Jan 2025"
     },
     {
       "english_key": "devotion is the sweetest emotion you can nurture within yourself.",
@@ -1374,6 +1454,14 @@
       "english_key": "do not aspire to meet a wonderful person. aspire to become the wonderful person that you expect others to be.",
       "english": "Do not aspire to meet a wonderful person. Aspire to become the wonderful person that you expect others to be.",
       "ready": "Не се стремете да срещате чудесни хора. Стремете се да се превърнете в чудесните хора, които очаквате другите да бъдат.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "4 Jan 2025"
+    },
+    {
+      "english_key": "do not aspire to meet a wonderful person. aspire to become the wonderful person that you expect others to be.",
+      "english": "Do not aspire to meet a wonderful person. Aspire to become the wonderful person that you expect others to be.",
+      "ready": "Не се стремете да срещате чудесни хора. Стремете се да се превърнете в чудесните хора, които очаквате другите да бъдат.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "4 Jan 2025"
@@ -1393,6 +1481,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Oct 2023",
       "date_label": "27 Oct 2022"
+    },
+    {
+      "english_key": "do not equate being human with having limitations. only because you are human, do you have the possibility to go beyond all limitations.",
+      "english": "Do not equate being Human with having limitations. Only because you are Human, do you have the possibility to go beyond all limitations.",
+      "ready": "Не приравнявайте това да сте човек с това да имате ограничения. Само защото сте човеци, имате възможността да преминете отвъд всички ограничения.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "8 Feb 2024"
     },
     {
       "english_key": "do not equate being human with having limitations. only because you are human, do you have the possibility to go beyond all limitations.",
@@ -1590,6 +1686,14 @@
       "english_key": "education should not be about molding children the way you want them but about supporting their natural longing to know and blossom.",
       "english": "Education should not be about molding children the way you want them but about supporting their natural longing to know and blossom.",
       "ready": "Образованието не трябва да представлява вкарването на децата в желания от вас калъп, а подкрепа на естествения им копнеж за знания и разцъфтяване.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "24 Jan 2025"
+    },
+    {
+      "english_key": "education should not be about molding children the way you want them but about supporting their natural longing to know and blossom.",
+      "english": "Education should not be about molding children the way you want them but about supporting their natural longing to know and blossom.",
+      "ready": "Образованието не трябва да представлява вкарването на децата в желания от вас калъп, а подкрепа на естествения им копнеж за знания и разцъфтяване.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "24 Jan 2025"
@@ -1649,6 +1753,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Sep 2023",
       "date_label": "23 Sep 2022"
+    },
+    {
+      "english_key": "enlightenment happens quietly, like the blossoming of a flower.",
+      "english": "Enlightenment happens quietly, like the blossoming of a flower.",
+      "ready": "Просветлението се случва тихо, като разцъфването на цвете.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "3 Jan 2025"
     },
     {
       "english_key": "enlightenment happens quietly, like the blossoming of a flower.",
@@ -1999,6 +2111,14 @@
       "english": "Exploring the Full Possibility of your capabilities is more important than being one step ahead of someone else.",
       "ready": "Изследването на пълните възможности на вашите способности е по-важно от надпреварата с някой друг.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "21 Feb 2024"
+    },
+    {
+      "english_key": "exploring the full possibility of your capabilities is more important than being one step ahead of someone else.",
+      "english": "Exploring the Full Possibility of your capabilities is more important than being one step ahead of someone else.",
+      "ready": "Изследването на пълните възможности на вашите способности е по-важно от надпреварата с някой друг.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "21 Feb 2024"
     },
@@ -2121,6 +2241,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Apr 2025",
       "date_label": "21 Apr 2025"
+    },
+    {
+      "english_key": "for millennia, bharat was the most vibrant economy and culture on the planet. today, we are reaching mars and the sun. if we ignite the spiritual strength in individuals, we can regain the civilizational glory. let us make it happen.",
+      "english": "For millennia, Bharat was the most vibrant economy and culture on the planet. Today, we are reaching Mars and the Sun. If we ignite the Spiritual Strength in individuals, we can regain the civilizational glory. Let us make it happen.",
+      "ready": "В продължение на хилядолетия Бхарат е била най-жизнената икономика и култура на планетата. Днес достигаме до Марс и Слънцето. Ако разпалим духовната сила в хората, можем да възвърнем цивилизационната си слава. Нека го осъществим.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "26 Jan 2025"
     },
     {
       "english_key": "for millennia, bharat was the most vibrant economy and culture on the planet. today, we are reaching mars and the sun. if we ignite the spiritual strength in individuals, we can regain the civilizational glory. let us make it happen.",
@@ -2483,6 +2611,14 @@
       "date_label": "7 Apr 2024"
     },
     {
+      "english_key": "health is not just absence of disease but a wholeness that involves physical, mental, and spiritual wellbeing.",
+      "english": "Health is not just absence of disease but a wholeness that involves physical, mental, and spiritual wellbeing.",
+      "ready": "Здравето не е просто отсъствие на болест, а цялостност, \nкоято включва физическо, умствено и духовно благополучие.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
+      "tab_title": "Apr 2022",
+      "date_label": "7 Apr 2022"
+    },
+    {
       "english_key": "health is not just the absence of disease - it is a sense of wholeness within.",
       "english": "Health is not just the absence of disease – it is a sense of Wholeness within.",
       "ready": "Здравето не е просто липсата на болести – то е усещане за вътрешна пълнота.",
@@ -2807,6 +2943,14 @@
       "english": "I am not the sort to give you a conclusion – I am a process. If you are willing to be a process of growth, I am Here for you.",
       "ready": "Не съм склонен да ви водя към заключения – аз съм процес. Ако сте готови да бъдете процес на растеж, съм на ваше разположение.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "29 Feb 2024"
+    },
+    {
+      "english_key": "i am not the sort to give you a conclusion - i am a process. if you are willing to be a process of growth, i am here for you.",
+      "english": "I am not the sort to give you a conclusion – I am a process. If you are willing to be a process of growth, I am Here for you.",
+      "ready": "Не съм склонен да ви водя към заключения – аз съм процес. Ако сте готови да бъдете процес на растеж, съм на ваше разположение.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "29 Feb 2024"
     },
@@ -3094,6 +3238,14 @@
       "english_key": "if there is love in your heart, it will guide you through your life. love has its own intelligence.",
       "english": "If there is love in your heart, it will guide you through your life. Love has its own intelligence.",
       "ready": "Ако в сърцето ви има любов, тя ще ви води през живота. Любовта има своя собствена интелигентност.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "11 Jan 2025"
+    },
+    {
+      "english_key": "if there is love in your heart, it will guide you through your life. love has its own intelligence.",
+      "english": "If there is love in your heart, it will guide you through your life. Love has its own intelligence.",
+      "ready": "Ако в сърцето ви има любов, тя ще ви води през живота. Любовта има своя собствена интелигентност.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "11 Jan 2025"
@@ -3247,6 +3399,14 @@
       "english": "If with every single act you create what you care for, then whatever you get or do not get, your Life is Beautiful.",
       "ready": "Ако с всяко свое действие създавате нещо, което е ценно за вас, тогава независимо дали ще получите нещо, или не, животът ви ще е прекрасен.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "19 Feb 2024"
+    },
+    {
+      "english_key": "if with every single act you create what you care for, then whatever you get or do not get, your life is beautiful.",
+      "english": "If with every single act you create what you care for, then whatever you get or do not get, your Life is Beautiful.",
+      "ready": "Ако с всяко свое действие създавате нещо, което е ценно за вас, тогава независимо дали ще получите нещо, или не, животът ви ще е прекрасен.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "19 Feb 2024"
     },
@@ -3257,6 +3417,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Apr 2023",
       "date_label": "13 Apr 2022"
+    },
+    {
+      "english_key": "if you act out of your humanity, you will always be inclusive, and you will always do the right thing.",
+      "english": "If you act out of your humanity, you will always be inclusive, and you will always do the right thing.",
+      "ready": "Ако действате, изхождайки от човечността си, винаги ще бъдете приобщаващи и ще постъпвате правилно.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "2 Jan 2025"
     },
     {
       "english_key": "if you act out of your humanity, you will always be inclusive, and you will always do the right thing.",
@@ -3374,6 +3542,14 @@
       "english_key": "if you are constantly facing new situations, it means you are living a life of growth and great possibilities.",
       "english": "If you are constantly facing new situations, it means you are living a life of growth and great possibilities.",
       "ready": "Ако постоянно сте изправени пред нови ситуации, значи живеете живот на растеж и големи възможности.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "28 Jan 2025"
+    },
+    {
+      "english_key": "if you are constantly facing new situations, it means you are living a life of growth and great possibilities.",
+      "english": "If you are constantly facing new situations, it means you are living a life of growth and great possibilities.",
+      "ready": "Ако постоянно сте изправени пред нови ситуации, значи живеете живот на растеж и големи възможности.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "28 Jan 2025"
@@ -3385,6 +3561,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Mar 2025",
       "date_label": "25 Mar 2025"
+    },
+    {
+      "english_key": "if you are content with who you are right now, you are not aware who you could be if you are willing to strive.",
+      "english": "If you are content with who you are right now, you are not aware who you could be if you are willing to strive.",
+      "ready": "Ако това, което сте в момента, ви задоволява, не съзнавате какво може да бъдете, стига да сте готови да положите усилия.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "8 Jan 2025"
     },
     {
       "english_key": "if you are content with who you are right now, you are not aware who you could be if you are willing to strive.",
@@ -3409,6 +3593,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Sep 2023",
       "date_label": "27 Sep 2022"
+    },
+    {
+      "english_key": "if you are experiencing something more today than yesterday, then it is a blessed day. ultimately, this is the only thing that can truly fulfill a human being.",
+      "english": "If you are experiencing something more today than yesterday, then it is a blessed day. Ultimately, this is the only thing that can truly Fulfill a human being.",
+      "ready": "Ако днес достигнете в опита си до нещо повече от вчера, това е благословен ден. В крайна сметка това е единственото нещо, което може наистина да удовлетвори едно човешко същество.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "28 Feb 2024"
     },
     {
       "english_key": "if you are experiencing something more today than yesterday, then it is a blessed day. ultimately, this is the only thing that can truly fulfill a human being.",
@@ -3467,12 +3659,28 @@
       "date_label": "29 Aug 2026"
     },
     {
+      "english_key": "if you are looking at life as a possibility, you will see possibilities everywhere. if you are looking at life as a problem, you will see problems everywhere.",
+      "english": "If you are looking at life as a possibility, you will see possibilities everywhere. If you are looking at life as a problem, you will see problems everywhere.",
+      "ready": "Ако гледате на живота като на възможност, навсякъде ще виждате възможности. Ако гледате на живота като на проблем, навсякъде ще виждате проблеми.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
+      "tab_title": "Apr 2025",
+      "date_label": "2 Apr 2025"
+    },
+    {
       "english_key": "if you are not available to grace, no matter how much money you have, you will not live a beautiful life. this is not my curse - this is the way life works.",
       "english": "If you are not available to grace, no matter how much money you have, you will not live a beautiful life. This is not my curse – this is the way life works.",
       "ready": "Ако не сте отворени за благодатта, колкото и пари да имате, няма да живеете красив живот. Това не е мое проклятие - това е начинът, по който е устроен животът.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
       "tab_title": "June 2022",
       "date_label": "17 Jul 2022"
+    },
+    {
+      "english_key": "if you are not identified with anything, your mind will become part of the larger mind, the cosmos, or you could say god.",
+      "english": "If you are not identified with anything, your mind will become part of the larger mind, the cosmos, or you could say God.",
+      "ready": "Ако не се идентифицирате с нищо, умът ви ще стане част от по-мащабния разум, от Космоса, или може да се каже, от Бог.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "7 Feb 2024"
     },
     {
       "english_key": "if you are not identified with anything, your mind will become part of the larger mind, the cosmos, or you could say god.",
@@ -3489,6 +3697,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Jan 2026",
       "date_label": "25 Jan 2026"
+    },
+    {
+      "english_key": "if you are present, i am always present - all your life and beyond. even after i leave my body, i will still be present.",
+      "english": "If you are present, I am always present – all your life and beyond. Even after I leave my body, I will still be present.",
+      "ready": "Ако Вие сте налице, аз присъствам винаги - през целия Ви живот и отвъд него. Дори след като напусна тялото си, все още ще бъда на Ваше разположение.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
+      "tab_title": "Jan 2022",
+      "date_label": "23 Jan 2022"
     },
     {
       "english_key": "if you are suffering what happened yesterday, you are suffering your memory - not your life.",
@@ -3553,6 +3769,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
       "tab_title": "Oct 2022",
       "date_label": "1 Oct 2022"
+    },
+    {
+      "english_key": "if you become a full-fledged life, everyone will benefit.",
+      "english": "If you become a Full-Fledged Life, everyone will benefit.",
+      "ready": "Ако станете пълноценен живот, ползата ще е за всички.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "5 Feb 2024"
     },
     {
       "english_key": "if you become a full-fledged life, everyone will benefit.",
@@ -3713,6 +3937,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Aug 2026",
       "date_label": "27 Aug 2026"
+    },
+    {
+      "english_key": "if you constantly remember that you are mortal, you will walk gently and sensibly upon this planet.",
+      "english": "If you constantly remember that you are mortal, you will walk gently and sensibly upon this planet.",
+      "ready": "Ако непрекъснато помните, че сте смъртни, ще вървите внимателно и разумно по тази планета.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "25 Feb 2024"
     },
     {
       "english_key": "if you constantly remember that you are mortal, you will walk gently and sensibly upon this planet.",
@@ -3983,6 +4215,14 @@
       "english": "If you learn to use your body like an instrument, it is the most fantastic and powerful instrument on the planet. Yoga is about realizing this.",
       "ready": "Ако се научите да използвате тялото си като инструмент, то е най-фантастичният и мощен инструмент на планетата. Йога е относно осъзнаването на това.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "17 Feb 2024"
+    },
+    {
+      "english_key": "if you learn to use your body like an instrument, it is the most fantastic and powerful instrument on the planet. yoga is about realizing this.",
+      "english": "If you learn to use your body like an instrument, it is the most fantastic and powerful instrument on the planet. Yoga is about realizing this.",
+      "ready": "Ако се научите да използвате тялото си като инструмент, то е най-фантастичният и мощен инструмент на планетата. Йога е относно осъзнаването на това.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "17 Feb 2024"
     },
@@ -4107,6 +4347,14 @@
       "date_label": "3 Sep 2026"
     },
     {
+      "english_key": "if you overflow with humanity, divinity has to descend.",
+      "english": "If you overflow with Humanity, Divinity has to descend.",
+      "ready": "Ако преливате от човечност, Божественото неминуемо ще се спусне.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Mar 2024",
+      "date_label": ""
+    },
+    {
       "english_key": "if you pay attention to the life that you are, it will blossom within you.",
       "english": "If you pay Attention to the Life that you are, it will blossom within you.",
       "ready": "Ако се отнасяте с внимание към живота, какъвто сте вие, той ще разцърфти във вас.",
@@ -4203,6 +4451,14 @@
       "date_label": "22 Jul 2026"
     },
     {
+      "english_key": "if you shift from unwillingness to willingness, from inertia to effervescence, your life will be joyful and effortless. and one day, when you look back, you will see you have lived a spectacular life.",
+      "english": "If you shift from unwillingness to Willingness, from inertia to Effervescence, your life will be Joyful and Effortless. And one day, when you look back, you will see you have lived a Spectacular Life.",
+      "ready": "Ако преминете от Нежелание към Воля, от мудност към Енергичност, животът ви ще бъде Радостен и Безметежен. И един ден, когато се обърнете назад, ще видите, че сте живели един Впечатляващ живот.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
+      "tab_title": "Mar 2023",
+      "date_label": "26 Mar 2022"
+    },
+    {
       "english_key": "if you sink into the past, it will rule your present and determine your future. going beyond this trap is yoga.",
       "english": "If you sink into the past, it will rule your present and determine your future. Going beyond this trap is Yoga.",
       "ready": "Ако потънете в миналото, то ще управлява настоящето ви и ще определя бъдещето ви. Надскачането на този капан е Йога.",
@@ -4241,6 +4497,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Feb 2023",
       "date_label": "1 Feb 2022"
+    },
+    {
+      "english_key": "if you think you are big, you become small. if you know you are nothing, you become immense. that is the beauty of being human.",
+      "english": "If you think you are big, you become small. If you know you are nothing, you become immense. That is the beauty of being human.",
+      "ready": "Ако се смятате за велики, ставате малки. Ако осъзнавате, че сте нищо, ставате необятни. Ето в това е красотата да бъдеш човек.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "6 Jan 2025"
     },
     {
       "english_key": "if you think you are big, you become small. if you know you are nothing, you become immense. that is the beauty of being human.",
@@ -4289,6 +4553,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Apr 2026",
       "date_label": "12 Apr 2026"
+    },
+    {
+      "english_key": "if you turn inward, you will find a space where there is a solution for everything.",
+      "english": "If you turn inward, you will find a space where there is a solution for everything.",
+      "ready": "Ако се обърнете навътре, ще откриете пространство, в което има решение за всичко.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "23 Jan 2025"
     },
     {
       "english_key": "if you turn inward, you will find a space where there is a solution for everything.",
@@ -4385,6 +4657,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Jul 2026",
       "date_label": "13 Jul 2026"
+    },
+    {
+      "english_key": "if you want to cross the boundaries of your present existence, you need madness in your heart but absolute balance in your head.",
+      "english": "If you want to cross the boundaries of your present existence, you need madness in your heart but absolute balance in your head.",
+      "ready": "Ако искате да прекрачите границите на сегашното си съществуване, имате нужда от лудост в сърцето, но абсолютен баланс в главата си.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
+      "tab_title": "Jan 2023",
+      "date_label": "28 Jan 2022"
     },
     {
       "english_key": "if you want to enjoy success, before you engineer situations, first of all you have to engineer yourself.",
@@ -4617,6 +4897,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Dec 2025",
       "date_label": "1 Dec 2025"
+    },
+    {
+      "english_key": "imagination is useful as a plan or a fantasy. but the only thing you can experience is what is here right now.",
+      "english": "Imagination is useful as a plan or a fantasy. But the only thing you can experience is what is here Right Now.",
+      "ready": "Въображението е полезно като план или фантазия. Но единственото, което можете да преживеете е това, което е тук точно сега.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
+      "tab_title": "Dec 2022",
+      "date_label": "28 Dec 2022"
     },
     {
       "english_key": "imagination is useful as a plan or a fantasy. but the only thing you can experience is what is here right now.",
@@ -4911,6 +5199,14 @@
       "english": "Integrity is not a question of morals but Inclusiveness. It means doing what you think is best for everyone concerned.",
       "ready": "Интегритетът не е въпрос на морал, а на всеобхващащо отношение. Той означава да правите това, което мислите, че е най-добро за всички заинтересовани.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "24 Feb 2024"
+    },
+    {
+      "english_key": "integrity is not a question of morals but inclusiveness. it means doing what you think is best for everyone concerned.",
+      "english": "Integrity is not a question of morals but Inclusiveness. It means doing what you think is best for everyone concerned.",
+      "ready": "Интегритетът не е въпрос на морал, а на всеобхващащо отношение. Той означава да правите това, което мислите, че е най-добро за всички заинтересовани.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "24 Feb 2024"
     },
@@ -5081,6 +5377,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jun 2025",
       "date_label": "12 Jun 2025"
+    },
+    {
+      "english_key": "it is not the amount of action but the depth of experience that makes life rich and fulfilling.",
+      "english": "It is not the amount of action but the depth of experience that makes life rich and fulfilling.",
+      "ready": "Не нивото на активност, а дълбочината на изживяването е това, което прави живота богат и пълноценен.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Dec 2024",
+      "date_label": "7 Dec 2024"
     },
     {
       "english_key": "it is not your schedule that is killing you. it is your preoccupation with your thoughts and emotions.",
@@ -5431,6 +5735,14 @@
       "english": "Life is a fabulous phenomenon if you know how to ride it. Sadhana or spiritual practices empower you to ride the surf of Life.",
       "ready": "Животът е приказен феномен, ако знаете как да го управлявате. Саданата, или духовните практики, ви помагат да сърфирате по Живота.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "4 Feb 2024"
+    },
+    {
+      "english_key": "life is a fabulous phenomenon if you know how to ride it. sadhana or spiritual practices empower you to ride the surf of life.",
+      "english": "Life is a fabulous phenomenon if you know how to ride it. Sadhana or spiritual practices empower you to ride the surf of Life.",
+      "ready": "Животът е приказен феномен, ако знаете как да го управлявате. Саданата, или духовните практики, ви помагат да сърфирате по Живота.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "4 Feb 2024"
     },
@@ -5473,6 +5785,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Jan 2023",
       "date_label": "25 Jan 2022"
+    },
+    {
+      "english_key": "life is about consciousness - not concerns, compulsions, or conflict. may the coming months bring the profoundness of human existence that leads to a blissful life. love and blessings,",
+      "english": "Life is about Consciousness – not concerns, compulsions, or conflict. May the coming months bring the profoundness of human existence that leads to a blissful life.\nLove and Blessings,",
+      "ready": "Животът е относно съзнателност, а не относно грижи, неосъзнати подтици или конфликти. Нека следващите месеци донесат онази дълбочина на човешкото съществувание, която води до блажен живот. Любов и благословии,",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "1 Jan 2025"
     },
     {
       "english_key": "life is about consciousness - not concerns, compulsions, or conflict. may the coming months bring the profoundness of human existence that leads to a blissful life. love and blessings,",
@@ -5547,12 +5867,28 @@
       "date_label": "7 Jun 2026"
     },
     {
+      "english_key": "life is inclusive. only your mind is exclusive.",
+      "english": "Life is inclusive. Only your mind is exclusive.",
+      "ready": "Животът е всеобхващащ. Само умът ви е подбиращ.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Dec 2024",
+      "date_label": "10 Dec 2024"
+    },
+    {
       "english_key": "life is involvement. where there is no involvement, there is no life.",
       "english": "Life is involvement. Where there is no involvement, there is no life.",
       "ready": "Животът е въвлеченост. Където няма въвлеченост, няма живот.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jul 2025",
       "date_label": "5 Jul 2025"
+    },
+    {
+      "english_key": "life is just a certain amount of time and energy. putting this time and energy to maximum use for everyone's wellbeing is all that matters.",
+      "english": "Life is just a certain amount of time and energy. Putting this time and energy to maximum use for everyone’s wellbeing is all that matters.",
+      "ready": "Животът е просто определено количество време и енергия. Да вложите това време и енергия в максимална степен за благополучието на всички, e единственото, което има значение.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "7 Jan 2025"
     },
     {
       "english_key": "life is just a certain amount of time and energy. putting this time and energy to maximum use for everyone's wellbeing is all that matters.",
@@ -5659,6 +5995,22 @@
       "date_label": "27 Mar 2026"
     },
     {
+      "english_key": "living an exuberant life is only possible when you are able to dance upon the uncertainties of life.",
+      "english": "Living an exuberant life is only possible when you are able to dance upon the uncertainties of life.",
+      "ready": "Да живеете ярък живот, е възможно само ако сте способни да танцувате с несигурността на живота.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "10 Jan 2025"
+    },
+    {
+      "english_key": "living an exuberant life is only possible when you are able to dance upon the uncertainties of life.",
+      "english": "Living an exuberant life is only possible when you are able to dance upon the uncertainties of life.",
+      "ready": "Да живеете ярък живот, е възможно само ако сте способни да танцувате с несигурността на живота.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
+      "tab_title": "Jan 2025",
+      "date_label": "10 Jan 2025"
+    },
+    {
       "english_key": "living well does not mean luxury. living well means that even if you sit on a rock, you still know how to sit joyfully.",
       "english": "Living well does not mean luxury. Living well means that even if you sit on a rock, you still know how to sit Joyfully.",
       "ready": "Да живеете добре не означава да потънете в лукс. Да живеете добре означава, че дори да седите на камък, пак знаете как да седите с радост.",
@@ -5745,6 +6097,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Mar 2025",
       "date_label": "12 Mar 2025"
+    },
+    {
+      "english_key": "love is freedom and joy. attachment is bondage and misery.",
+      "english": "Love is Freedom and Joy. Attachment is bondage and misery.",
+      "ready": "Любовта е свобода и радост. Обвързаността е робство и нещастие.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "14 Feb 2024"
     },
     {
       "english_key": "love is freedom and joy. attachment is bondage and misery.",
@@ -6079,6 +6439,14 @@
       "english": "Meditation means to go beyond the limitations of body and mind.",
       "ready": "Медитацията означава да преминете отвъд ограниченията на тялото и ума.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "26 Feb 2024"
+    },
+    {
+      "english_key": "meditation means to go beyond the limitations of body and mind.",
+      "english": "Meditation means to go beyond the limitations of body and mind.",
+      "ready": "Медитацията означава да преминете отвъд ограниченията на тялото и ума.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "26 Feb 2024"
     },
@@ -6161,6 +6529,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Jul 2026",
       "date_label": "18 Jul 2026"
+    },
+    {
+      "english_key": "most people in the world are not busy - they are just preoccupied.",
+      "english": "Most people in the world are not busy – they are just preoccupied.",
+      "ready": "Повечето хора по света не са заети – те просто сe терзаят.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
+      "tab_title": "Jul 2025",
+      "date_label": "11 Jul 2025"
     },
     {
       "english_key": "most people's lives are mortgaged to the social reality around them. yoga is about releasing the mortgage.",
@@ -6313,6 +6689,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jul 2025",
       "date_label": "18 Jul 2025"
+    },
+    {
+      "english_key": "no matter what kind of karma you gathered in the past, this moment's karma is always in your hands.",
+      "english": "No matter what kind of Karma you gathered in the past, this moment’s Karma is always in your hands.",
+      "ready": "Без значение каква карма сте натрупали в миналото, кармата на този момент винаги е във вашите ръце.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "5 Jan 2025"
     },
     {
       "english_key": "no matter what kind of karma you gathered in the past, this moment's karma is always in your hands.",
@@ -6489,6 +6873,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Sep 2026",
       "date_label": "1 Sep 2026"
+    },
+    {
+      "english_key": "once there is a little space between you and the body, between you and the mind, it will open up the possibility of experiencing the non-physical.",
+      "english": "Once there is a little space between you and the body, between you and the mind, it will open up the possibility of experiencing the non-physical.",
+      "ready": "Веднъж щом има малко пространство между вас и тялото, между вас и ума, това ще отвори възможността да преживеете нематериалното.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
+      "tab_title": "July 2022",
+      "date_label": "31 Jul 2022"
     },
     {
       "english_key": "once there is equanimity, every cell in your body will generate sweetness.",
@@ -6671,6 +7063,14 @@
       "english": "Once you turn Inward, you will find Infinite Expansion within yourself.",
       "ready": "Щом се обърнете навътре, ще откриете във вас самите безкрайно разгръщане.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "15 Feb 2024"
+    },
+    {
+      "english_key": "once you turn inward, you will find infinite expansion within yourself.",
+      "english": "Once you turn Inward, you will find Infinite Expansion within yourself.",
+      "ready": "Щом се обърнете навътре, ще откриете във вас самите безкрайно разгръщане.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "15 Feb 2024"
     },
@@ -6713,6 +7113,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Dec 2025",
       "date_label": "14 Dec 2025"
+    },
+    {
+      "english_key": "once your thoughts and opinions are not important to you, you will be pure love and joy.",
+      "english": "Once your thoughts and opinions are not important to you, you will be pure Love and Joy.",
+      "ready": "Веднъж щом мислите и мненията ви спрат да са важни за вас, ще бъдете чиста любов и радост.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "22 Feb 2024"
     },
     {
       "english_key": "once your thoughts and opinions are not important to you, you will be pure love and joy.",
@@ -7063,6 +7471,14 @@
       "english": "Pay attention to Life. Something tremendous is happening every moment.",
       "ready": "Обръщайте внимание на Живота. Нещо велико се случва във всеки един момент.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "6 Feb 2024"
+    },
+    {
+      "english_key": "pay attention to life. something tremendous is happening every moment.",
+      "english": "Pay attention to Life. Something tremendous is happening every moment.",
+      "ready": "Обръщайте внимание на Живота. Нещо велико се случва във всеки един момент.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "6 Feb 2024"
     },
@@ -7169,6 +7585,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Jul 2024",
       "date_label": "11 Jul 2024"
+    },
+    {
+      "english_key": "people who are bursting with life do not need a purpose to live. life is a purpose unto itself.",
+      "english": "People who are bursting with life do not need a purpose to live. Life is a purpose unto itself.",
+      "ready": "Хората, които бликат от живот, нямат нужда от цел в живота. Животът е цел сам по себе си.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "18 Jan 2025"
     },
     {
       "english_key": "people who are bursting with life do not need a purpose to live. life is a purpose unto itself.",
@@ -7350,6 +7774,14 @@
       "english_key": "rest is the basis of all activity. stillness is the basis of all dynamism.",
       "english": "Rest is the basis of all activity. Stillness is the basis of all Dynamism.",
       "ready": "Почивката е основата на всяка дейност. Покоят е основата на динамичността.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "27 Jan 2025"
+    },
+    {
+      "english_key": "rest is the basis of all activity. stillness is the basis of all dynamism.",
+      "english": "Rest is the basis of all activity. Stillness is the basis of all Dynamism.",
+      "ready": "Почивката е основата на всяка дейност. Покоят е основата на динамичността.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "27 Jan 2025"
@@ -7430,6 +7862,14 @@
       "english_key": "sankranti is the first step of mother earth towards springtime. may you also step into a freshness of spring within yourself.",
       "english": "Sankranti is the first step of Mother Earth towards springtime. May you also step into a freshness of spring within yourself.",
       "ready": "Санкранти е първата стъпка на Майката Земя към пролетта. Нека и вие да пристъпите към пролетната свежест в себе си.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "14 Jan 2025"
+    },
+    {
+      "english_key": "sankranti is the first step of mother earth towards springtime. may you also step into a freshness of spring within yourself.",
+      "english": "Sankranti is the first step of Mother Earth towards springtime. May you also step into a freshness of spring within yourself.",
+      "ready": "Санкранти е първата стъпка на Майката Земя към пролетта. Нека и вие да пристъпите към пролетната свежест в себе си.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "14 Jan 2025"
@@ -7463,6 +7903,14 @@
       "english": "Science should be just a quest to know, not a tool for unbridled exploitation.",
       "ready": "Науката трябва да се стреми само към знание, а не да бъде инструмент за необуздана експлоатация.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "11 Feb 2024"
+    },
+    {
+      "english_key": "science should be just a quest to know, not a tool for unbridled exploitation.",
+      "english": "Science should be just a quest to know, not a tool for unbridled exploitation.",
+      "ready": "Науката трябва да се стреми само към знание, а не да бъде инструмент за необуздана експлоатация.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "11 Feb 2024"
     },
@@ -7481,6 +7929,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Apr 2024",
       "date_label": "29 Apr 2024"
+    },
+    {
+      "english_key": "seeking means admitting that you do not know. once you have cleared your slate, truth can imprint itself upon it.",
+      "english": "Seeking means admitting that you do not know. Once you have cleared your slate, Truth can imprint itself upon it.",
+      "ready": "Да търсиш, означава да признаеш, че не знаеш. Когато изчистите огледалото на ума си, истината може да се отпечата върху него.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "12 Feb 2024"
     },
     {
       "english_key": "seeking means admitting that you do not know. once you have cleared your slate, truth can imprint itself upon it.",
@@ -7660,11 +8116,19 @@
     },
     {
       "english_key": "spirituality is not about becoming special - it is about becoming one with everything.",
-      "english": "Spirituality is not about becoming special – it is about becoming one with everything.",
+      "english": "Spirituality is not about becoming special – it is about becoming One with everything.",
       "ready": "Духовността не значи да станете специални, а да станете едно с всичко.",
-      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
-      "tab_title": "Sep 2026",
-      "date_label": "13 Sep 2026"
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "13 Feb 2024"
+    },
+    {
+      "english_key": "spirituality is not about becoming special - it is about becoming one with everything.",
+      "english": "Spirituality is not about becoming special – it is about becoming One with everything.",
+      "ready": "Духовността не значи да станете специални, а да станете едно с всичко.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Feb 2024",
+      "date_label": "13 Feb 2024"
     },
     {
       "english_key": "spirituality means you do not try to find explanations for your nonsense - you are willing to face it.",
@@ -8087,6 +8551,14 @@
       "english": "The first step towards knowing is to see that you Do Not Know.",
       "ready": "Първата стъпка към знанието е да разберете, че не знаете.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "16 Feb 2024"
+    },
+    {
+      "english_key": "the first step towards knowing is to see that you do not know.",
+      "english": "The first step towards knowing is to see that you Do Not Know.",
+      "ready": "Първата стъпка към знанието е да разберете, че не знаете.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "16 Feb 2024"
     },
@@ -8495,6 +8967,14 @@
       "english": "The nature of Truth is such that from whichever direction you look at it, it is still the same thing.",
       "ready": "Естеството на истината е такова, че от която и страна да я погледнете, тя е все една и съща.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "18 Feb 2024"
+    },
+    {
+      "english_key": "the nature of truth is such that from whichever direction you look at it, it is still the same thing.",
+      "english": "The nature of Truth is such that from whichever direction you look at it, it is still the same thing.",
+      "ready": "Естеството на истината е такова, че от която и страна да я погледнете, тя е все една и съща.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "18 Feb 2024"
     },
@@ -8755,6 +9235,14 @@
       "date_label": "5 Sep 2026"
     },
     {
+      "english_key": "the significance of a teacher is not just to rattle off information, but to inspire and enhance each student as a human being.",
+      "english": "The significance of a teacher is not just to rattle off information, but to inspire and enhance each student as a human being.",
+      "ready": "Значението на един учител е не просто да дрънка информация, а да вдъхновява и подобрява всеки ученик като човешко същество.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
+      "tab_title": "Sep 2022",
+      "date_label": "5 Sep 2022"
+    },
+    {
       "english_key": "the significance of being born human is that you have the potential to become limitless. it is up to you to live your godliness.",
       "english": "The significance of being born human is that you have the potential to become limitless. It is up to you to live your Godliness.",
       "ready": "Значимостта на това да се родите хора е, че имате потенциала да станете безгранични. От вас зависи да изживеете своята божественост.",
@@ -8846,6 +9334,14 @@
       "english_key": "the very life within you is longing to be blissful, because blissfulness is the nature of the source of creation.",
       "english": "The very life within you is longing to be Blissful, because Blissfulness is the nature of the source of creation.",
       "ready": "Самият живот във вас копнее да е блажен, защото блаженството е природата на източника на сътворението.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "25 Jan 2025"
+    },
+    {
+      "english_key": "the very life within you is longing to be blissful, because blissfulness is the nature of the source of creation.",
+      "english": "The very life within you is longing to be Blissful, because Blissfulness is the nature of the source of creation.",
+      "ready": "Самият живот във вас копнее да е блажен, защото блаженството е природата на източника на сътворението.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "25 Jan 2025"
@@ -8897,6 +9393,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Sep 2026",
       "date_label": "2 Sep 2026"
+    },
+    {
+      "english_key": "the way you eat not only decides your physical health, but the very way you think, feel, and experience life.",
+      "english": "The way you eat not only decides your physical health, but the very way you think, feel, and experience life.",
+      "ready": "Начинът, по който се храните, определя не само физическото ви здраве, но и самия начин, по който мислите, чувствате и усещате живота.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Dec 2024",
+      "date_label": "9 Dec 2024"
     },
     {
       "english_key": "the whole effort of yogic practices and meditation is to move to a higher level of vibrance and awareness.",
@@ -9041,6 +9545,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Aug 2023",
       "date_label": "21 Aug 2022"
+    },
+    {
+      "english_key": "there is magic everywhere. if you learn how to live it, life is nothing short of a daily miracle.",
+      "english": "There is magic everywhere. If you learn how to live it, life is nothing short of a daily miracle.",
+      "ready": "Магията е навсякъде. Ако се научите как да го живеете, животът е без преувеличение едно ежедневно чудо.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "21 Jan 2025"
     },
     {
       "english_key": "there is magic everywhere. if you learn how to live it, life is nothing short of a daily miracle.",
@@ -9694,6 +10206,14 @@
       "english_key": "virtue is not about practicing morality. the greatest virtue is to be inclusive of all life.",
       "english": "Virtue is not about practicing morality. The greatest virtue is to be inclusive of all Life.",
       "ready": "Добродетелта не означава упражняване в моралност. Най-голямата добродетел е да сте приобщаващи към целия живот.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "9 Jan 2025"
+    },
+    {
+      "english_key": "virtue is not about practicing morality. the greatest virtue is to be inclusive of all life.",
+      "english": "Virtue is not about practicing morality. The greatest virtue is to be inclusive of all Life.",
+      "ready": "Добродетелта не означава упражняване в моралност. Най-голямата добродетел е да сте приобщаващи към целия живот.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "9 Jan 2025"
@@ -9903,6 +10423,14 @@
       "english": "What happens in your life is not 100% in your control. But what you make out of it is 100% up to You.",
       "ready": "Какво се случва в живота ви не е 100% във ваш контрол. Но в какво превръщате случващото се зависи 100% от вас.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "9 Feb 2024"
+    },
+    {
+      "english_key": "what happens in your life is not 100% in your control. but what you make out of it is 100% up to you.",
+      "english": "What happens in your life is not 100% in your control. But what you make out of it is 100% up to You.",
+      "ready": "Какво се случва в живота ви не е 100% във ваш контрол. Но в какво превръщате случващото се зависи 100% от вас.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "9 Feb 2024"
     },
@@ -9961,6 +10489,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jul 2025",
       "date_label": "22 Jul 2025"
+    },
+    {
+      "english_key": "what stops you from becoming a better human being. today is a day to shed what is unnecessary in your life - both within and without - and emerge refreshed and renewed.",
+      "english": "What stops you from becoming a Better Human Being. Today is a day to shed what is unnecessary in your life – both within and without – and emerge refreshed and renewed.",
+      "ready": "Какво ви пречи да станете по-добро човешко същество. Днес е ден, в който да се отървете от ненужното в живота си - както вътре във вас, така и навън - и с това да се освежите и обновите.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "13 Jan 2025"
     },
     {
       "english_key": "what stops you from becoming a better human being. today is a day to shed what is unnecessary in your life - both within and without - and emerge refreshed and renewed.",
@@ -10065,6 +10601,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Sep 2025",
       "date_label": "6 Sep 2025"
+    },
+    {
+      "english_key": "what your consciousness is intensely focused on is what will manifest in your life and in the world around you.",
+      "english": "What your consciousness is intensely focused on is what will manifest in your life and in the world around you.",
+      "ready": "Това, върху което съзнанието ви е интензивно съсредоточено, ще намери израз в живота ви и в заобикалящия ви свят.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "30 Jan 2025"
     },
     {
       "english_key": "what your consciousness is intensely focused on is what will manifest in your life and in the world around you.",
@@ -10470,6 +11014,14 @@
       "english_key": "when you absolutely throw yourself into your activity, your energy will only grow and mature.",
       "english": "When you absolutely throw yourself into your activity, your energy will only grow and mature.",
       "ready": "Когато се хвърляте изцяло в дейността си, енергията ви може само да нараства и узрява.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "31 Jan 2025"
+    },
+    {
+      "english_key": "when you absolutely throw yourself into your activity, your energy will only grow and mature.",
+      "english": "When you absolutely throw yourself into your activity, your energy will only grow and mature.",
+      "ready": "Когато се хвърляте изцяло в дейността си, енергията ви може само да нараства и узрява.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "31 Jan 2025"
@@ -10545,6 +11097,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Jan 2026",
       "date_label": "19 Jan 2026"
+    },
+    {
+      "english_key": "when you are joyful, you are not in conflict with anyone, and you do the most wonderful things.",
+      "english": "When you are Joyful, you are not in conflict with anyone, and you do the most wonderful things.",
+      "ready": "Когато сте радостни, нямате конфликт с никого и правите най-прекрасните неща.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
+      "tab_title": "Feb 2022",
+      "date_label": "9 Feb 2022"
     },
     {
       "english_key": "when you attach too much value to your thoughts and emotions, you cannot see life the way it is.",
@@ -10974,6 +11534,14 @@
       "english_key": "whether you have anger, hatred, jealousy, or resentment against someone, essentially, it only works against you.",
       "english": "Whether you have anger, hatred, jealousy, or resentment against someone, essentially, it only works against you.",
       "ready": "Независимо дали изпитвате гняв, омраза, ревност, или неприязън към някого, по същество това е единствено във ваша вреда.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "29 Jan 2025"
+    },
+    {
+      "english_key": "whether you have anger, hatred, jealousy, or resentment against someone, essentially, it only works against you.",
+      "english": "Whether you have anger, hatred, jealousy, or resentment against someone, essentially, it only works against you.",
+      "ready": "Независимо дали изпитвате гняв, омраза, ревност, или неприязън към някого, по същество това е единствено във ваша вреда.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "29 Jan 2025"
@@ -11070,9 +11638,25 @@
       "english_key": "with every single action we perform, with every thought and emotion we generate, we can create a better situation around us.",
       "english": "With every single action we perform, with every thought and emotion we generate, we can create a better situation around us.",
       "ready": "С всяко действие, което извършваме, с всяка мисъл и емоция, които генерираме, можем да създаваме по-добра обстановка около нас.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "16 Jan 2025"
+    },
+    {
+      "english_key": "with every single action we perform, with every thought and emotion we generate, we can create a better situation around us.",
+      "english": "With every single action we perform, with every thought and emotion we generate, we can create a better situation around us.",
+      "ready": "С всяко действие, което извършваме, с всяка мисъл и емоция, които генерираме, можем да създаваме по-добра обстановка около нас.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "16 Jan 2025"
+    },
+    {
+      "english_key": "with firm likes and dislikes, you shut your doors to the many possibilities of life.",
+      "english": "With firm likes and dislikes, you shut your doors to the many possibilities of life.",
+      "ready": "С категоричните си предпочитания и непредпочитания затваряте вратите си за многото възможности в живота.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "22 Jan 2025"
     },
     {
       "english_key": "with firm likes and dislikes, you shut your doors to the many possibilities of life.",
@@ -11177,6 +11761,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2022",
       "tab_title": "Jan 2022",
       "date_label": "22 Jan 2022"
+    },
+    {
+      "english_key": "yoga is a technology. if you learn to use it, it works - no matter where you come from or what you believe in or do not believe in.",
+      "english": "Yoga is a technology. If you learn to use it, it works – no matter where you come from or what you believe in or do not believe in.",
+      "ready": "Йога е технология. Ако се научите да я използвате, ще работи – независимо откъде идвате и в какво вярвате или не вярвате.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "15 Jan 2025"
     },
     {
       "english_key": "yoga is a technology. if you learn to use it, it works - no matter where you come from or what you believe in or do not believe in.",
@@ -11703,8 +12295,24 @@
       "english": "You do not need a mindset. You need an Intelligence that is not set but fluid.",
       "ready": "Нямате нужда от установен начин на мислене. Нуждаете се от интелигентност, която не е предопределена, а гъвкава.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "10 Feb 2024"
+    },
+    {
+      "english_key": "you do not need a mindset. you need an intelligence that is not set but fluid.",
+      "english": "You do not need a mindset. You need an Intelligence that is not set but fluid.",
+      "ready": "Нямате нужда от установен начин на мислене. Нуждаете се от интелигентност, която не е предопределена, а гъвкава.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
       "tab_title": "Feb 2024",
       "date_label": "10 Feb 2024"
+    },
+    {
+      "english_key": "you earn a living to live well, not to kill yourself with stress.",
+      "english": "You earn a living to Live Well, not to kill yourself with stress.",
+      "ready": "Изкарвате си прехраната, за да живеете добре, а не за да се убивате от стрес.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Copy of Feb 2024",
+      "date_label": "2 Feb 2024"
     },
     {
       "english_key": "you earn a living to live well, not to kill yourself with stress.",
@@ -11862,6 +12470,14 @@
       "english_key": "your energy and your awareness are directly connected. if your energies are intense, your awareness naturally grows and sharpens.",
       "english": "Your energy and your awareness are directly connected. If your energies are intense, your awareness naturally grows and sharpens.",
       "ready": "Вашата енергия и вашата осъзнатост са директно свързани. Ако енергиите ви са интензивни, осъзнатостта ви естествено расте и се изостря.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "20 Jan 2025"
+    },
+    {
+      "english_key": "your energy and your awareness are directly connected. if your energies are intense, your awareness naturally grows and sharpens.",
+      "english": "Your energy and your awareness are directly connected. If your energies are intense, your awareness naturally grows and sharpens.",
+      "ready": "Вашата енергия и вашата осъзнатост са директно свързани. Ако енергиите ви са интензивни, осъзнатостта ви естествено расте и се изостря.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "20 Jan 2025"
@@ -11889,6 +12505,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
       "tab_title": "Sep 2023",
       "date_label": "2 Sep 2022"
+    },
+    {
+      "english_key": "your life becomes beautiful when you give it all and do not care what comes or does not come. the joy of life is in expression, not in begging.",
+      "english": "Your Life becomes beautiful when you give it all and do not care what comes or does not come. The Joy of Life is in expression, not in begging.",
+      "ready": "Животът ви става прекрасен, когато давате всичко от себе си и не се интересувате дали нещо ще последва от това, или не. Радостта от живота идва чрез изразяване, а не като подаяние.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
+      "tab_title": "Jul 2026",
+      "date_label": "30 Jul 2026"
     },
     {
       "english_key": "your life becomes beautiful when you give it all and do not care what comes or does not come. the joy of life is in expression, not in begging.",
@@ -12110,6 +12734,14 @@
       "english_key": "youth is not about age - it means you do not settle. always learning, always growing, always a new possibility.",
       "english": "Youth is not about age – it means you do not settle. Always learning, always growing, always a New Possibility.",
       "ready": "Младостта не е до възрастта - тя означава, че не се закотвяте. Винаги се учите, винаги се развивате, винаги имате нова възможност.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2024",
+      "tab_title": "Jan 2025",
+      "date_label": "12 Jan 2025"
+    },
+    {
+      "english_key": "youth is not about age - it means you do not settle. always learning, always growing, always a new possibility.",
+      "english": "Youth is not about age – it means you do not settle. Always learning, always growing, always a New Possibility.",
+      "ready": "Младостта не е до възрастта - тя означава, че не се закотвяте. Винаги се учите, винаги се развивате, винаги имате нова възможност.",
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2025",
       "tab_title": "Jan 2025",
       "date_label": "12 Jan 2025"
@@ -12129,6 +12761,14 @@
       "spreadsheet_name": "Sadhguru Quotes Bulgarian 2026",
       "tab_title": "Aug 2026",
       "date_label": "12 Aug 2026"
+    },
+    {
+      "english_key": "youthfulness is not a question of years but a sense of aliveness and involvement.",
+      "english": "Youthfulness is not a question of years but a sense of Aliveness and Involvement.",
+      "ready": "Младостта не е въпрос на години, а на чувство за Жизненост и Участие.",
+      "spreadsheet_name": "Sadhguru Quotes Bulgarian 2023",
+      "tab_title": "Jan 2023",
+      "date_label": "29 Jan 2022"
     },
     {
       "english_key": "ако искате да бъдете успешни, не търсете успех - търсете усъвършенстване и компетентност. не правете нищо друго, освен най-доброто, на което сте способни.",
