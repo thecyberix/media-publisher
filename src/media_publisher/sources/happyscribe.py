@@ -361,6 +361,27 @@ _KNOWN_MEDIA_EXTENSIONS = re.compile(
     r"\.(srt|mp4|vtt|wav|m4a)$",
     re.IGNORECASE,
 )
+# Drive/HappyScribe uploads slug titles to this length (see catalog_parser slug_title).
+FILENAME_SLUG_MAX_LEN = 80
+_UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*]+')
+
+
+def filename_slug(title: str, *, max_len: int = FILENAME_SLUG_MAX_LEN) -> str:
+    """Return the truncated stem used for HappyScribe/Drive upload filenames."""
+    cleaned = _UNSAFE_FILENAME.sub(" ", title).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned[:max_len] or "video"
+
+
+def catalog_keys_for_happyscribe_match(catalog_name: str) -> frozenset[str]:
+    """Normalized keys that should match a HappyScribe transcription for this title."""
+    keys: set[str] = set()
+    slug = filename_slug(catalog_name)
+    for candidate in (catalog_name, slug, slug.rstrip(" .")):
+        key = normalize_name_for_catalog_match(candidate)
+        if key:
+            keys.add(key)
+    return frozenset(keys)
 
 
 def normalize_name_for_catalog_match(name: str) -> str:
@@ -406,14 +427,15 @@ def find_transcription_for_catalog(
     catalog_name: str,
 ) -> HappyScribeTranscription | None:
     """Match a catalog Title to a HappyScribe transcription."""
-    catalog_key = normalize_name_for_catalog_match(catalog_name)
-    if not catalog_key:
+    catalog_keys = catalog_keys_for_happyscribe_match(catalog_name)
+    if not catalog_keys:
         return None
 
     source_matches: list[HappyScribeTranscription] = []
     export_matches: list[HappyScribeTranscription] = []
     for transcription in transcriptions:
-        if normalize_name_for_catalog_match(transcription.name) != catalog_key:
+        hs_key = normalize_name_for_catalog_match(transcription.name)
+        if not hs_key or hs_key not in catalog_keys:
             continue
         if is_subtitled_export_name(transcription.name):
             export_matches.append(transcription)

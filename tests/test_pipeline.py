@@ -159,6 +159,43 @@ class PipelineHelperTests(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertEqual(found.id, "tx-break")
 
+    def test_find_transcription_for_catalog_matches_truncated_filename_slug(self) -> None:
+        title = (
+            "How Can We Make Spiritual Possibility Available To People "
+            "With Physical Or Mental Disabilities"
+        )
+        slug = (
+            "How Can We Make Spiritual Possibility Available To People "
+            "With Physical Or Menta"
+        )
+        self.assertEqual(slug, title[:80])
+        transcriptions = [
+            HappyScribeTranscription(
+                id="tx-slug",
+                name=f"{slug}.bg",
+                state="automatic_done",
+                folder_name="Short videos",
+            )
+        ]
+        found = find_transcription_for_catalog(transcriptions, title)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.id, "tx-slug")
+
+    def test_find_transcription_for_catalog_ignores_short_title_prefix(self) -> None:
+        transcriptions = [
+            HappyScribeTranscription(
+                id="tx-short",
+                name="How Can We Make Spiritual Possibility.bg",
+                state="automatic_done",
+            )
+        ]
+        found = find_transcription_for_catalog(
+            transcriptions,
+            "How Can We Make Spiritual Possibility Available To People "
+            "With Physical Or Mental Disabilities",
+        )
+        self.assertIsNone(found)
+
     def test_filter_tasks_for_local_date(self) -> None:
         from datetime import date
 
