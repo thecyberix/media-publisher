@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import calendar
 import json
+import os
 import re
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -1087,6 +1089,133 @@ def reuse_source_comment(match: ReadyQuoteMatch) -> str:
     if match.tab_title.strip():
         return f"Reused from {match.tab_title.strip()}"
     return "Reused from archive"
+
+
+def _parse_email_list(raw: str) -> list[str]:
+    recipients: list[str] = []
+    for part in raw.replace(";", ",").split(","):
+        text = part.strip()
+        if text and text not in recipients:
+            recipients.append(text)
+    return recipients
+
+
+def quote_text_notify_recipients() -> list[str]:
+    """Recipients from NOTIFY_EMAIL (comma-separated list)."""
+    return _parse_email_list(os.getenv("NOTIFY_EMAIL", ""))
+
+
+def _email_text_change_line(item: QuoteTextChange) -> str:
+    label = item.date_label.strip() or f"{item.year:04d}-{item.month:02d}-{item.day:02d}"
+    detail = (item.detail or "english only").strip()
+    return f"  - {label}: {detail}"
+
+
+def format_quote_texts_email(
+    changes: list[QuoteTextChange],
+    *,
+    drive_folder_url: str = "",
+) -> tuple[str, str]:
+    added = [item for item in changes if item.action == "added"]
+    updated = [item for item in changes if item.action == "updated"]
+    subject = f"Quote texts updated ({len(added)} added, {len(updated)} updated)"
+    folder_line = (
+        drive_folder_url
+        or os.getenv("DRIVE_URL", "").strip()
+        or "https://drive.google.com/drive/folders/"
+    )
+    lines = [
+        "Quote texts were added or updated in the Bulgarian month sheets.",
+        "",
+        f"Folder: {folder_line}",
+        f"Added: {len(added)}",
+        f"Updated: {len(updated)}",
+        "",
+    ]
+    if added:
+        lines.append("Added:")
+        for item in added:
+            lines.append(_email_text_change_line(item))
+        lines.append("")
+    if updated:
+        lines.append("Updated:")
+        for item in updated:
+            lines.append(_email_text_change_line(item))
+        lines.append("")
+    return subject, "\n".join(lines).rstrip() + "\n"
+
+
+def send_quote_texts_notification_email(
+    changes: list[QuoteTextChange],
+    *,
+    to_addresses: list[str] | None = None,
+    drive_folder_url: str = "",
+) -> bool:
+    """Email quote text add/update summary to NOTIFY_EMAIL recipients."""
+    row_changes = [
+        item for item in changes if item.action in {"added", "updated"}
+    ]
+    if not row_changes:
+        return False
+
+    recipients = (
+        list(to_addresses) if to_addresses is not None else quote_text_notify_recipients()
+    )
+    if not recipients:
+        return False
+
+    scripts_dir = Path(__file__).resolve().parents[2] / "scripts" / "catalog"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+
+    from send_notification_email import send_email
+
+    smtp_user = os.getenv("GMAIL_SMTP_USER", "").strip()
+    smtp_password = os.getenv("GMAIL_SMTP_APP_PASSWORD", "").strip()
+    if not smtp_user or not smtp_password:
+        return False
+
+    subject, body = format_quote_texts_email(
+        row_changes, drive_folder_url=drive_folder_url
+    )
+    for to_address in recipients:
+        send_email(
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            to_address=to_address,
+            subject=subject,
+            body=body,
+        )
+    return True
+
+
+def notify_quote_text_changes(
+    changes: list[QuoteTextChange],
+    *,
+    drive_folder_url: str = "",
+    print_line: PrintFn | None = None,
+) -> list[str]:
+    """Email add/update summary. Returns warnings; does not raise."""
+    row_changes = [
+        item for item in changes if item.action in {"added", "updated"}
+    ]
+    if not row_changes:
+        return []
+    log = print_line or (lambda _message: None)
+    recipients = quote_text_notify_recipients()
+    try:
+        sent = send_quote_texts_notification_email(
+            row_changes, drive_folder_url=drive_folder_url
+        )
+    except Exception as exc:  # noqa: BLE001 — email must not fail the sync
+        return [f"Failed to send quote-texts email: {exc}"]
+    if sent:
+        log(f"Sent quote-texts email ({len(recipients)} recipient(s))")
+        return []
+    reason = (
+        "missing NOTIFY_EMAIL" if not recipients else "missing Gmail SMTP settings"
+    )
+    return [f"Quote-texts email skipped ({reason})"]
 
 
 def _ensure_destination_columns(

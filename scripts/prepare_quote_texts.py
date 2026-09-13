@@ -22,7 +22,10 @@ def main() -> int:
     _configure_stdio()
 
     from media_publisher.config import load_settings
-    from media_publisher.quotes_text_sync import sync_quote_texts_for_months
+    from media_publisher.quotes_text_sync import (
+        notify_quote_text_changes,
+        sync_quote_texts_for_months,
+    )
     from media_publisher.sources.google_drive import GoogleDriveClient
     from media_publisher.sources.google_sheets import GoogleSheetsClient
     from media_publisher.sources.quotes_config import load_quotes_sources_config
@@ -67,6 +70,12 @@ def main() -> int:
         months=months,
     )
     for warning in result.warnings:
+        print(f"Warning: {warning}")
+    notify_warnings = notify_quote_text_changes(
+        result.changes,
+        print_line=print,
+    )
+    for warning in notify_warnings:
         print(f"Warning: {warning}")
     print(
         f"Done: {result.added_count} added, {result.updated_count} updated, "

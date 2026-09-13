@@ -46,7 +46,8 @@ Workflows live under `.github/workflows/`:
 |----------|---------|
 | `ci.yml` | Runs unit tests on push/PR |
 | `publish.yml` | Manual + external cron publishing (`workflow_dispatch`) |
-| `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync |
+| `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync; also starts quote text prep |
+| `prepare-quote-texts.yml` | English → Bulgarian quote text prep (manual, or via the daily workflow) |
 | `reporting.yml` | Snapshots, weekly email, monthly KPIs, prune past events |
 | `publish-event.yml` | Announce a programme and update the events GitHub Pages site |
 
@@ -88,7 +89,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | `HAPPYSCRIBE_URL` | HappyScribe library URL. If it contains `Short videos` / `Long videos` children, publish uses the folder that matches the video type. |
 | `META_INSTAGRAM_USERNAME` | Instagram username for the linked business account |
 | `META_PAGE_USERNAME` | Facebook Page username |
-| `NOTIFY_EMAIL` | Recipients for catalog / auth / workflow failure mail |
+| `NOTIFY_EMAIL` | Recipients for catalog / auth / workflow failure mail, and quote-text add/update mail |
 | `PUBLISH_JSON` | Publish schedule, e.g. `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}` |
 | `SMARTLINK_URL` | Metricool Smartlink URL used in captions |
 | `TARGET_LANGUAGE` | Language name for channel-report sheet tab and related copy (e.g. `Bulgarian`) |

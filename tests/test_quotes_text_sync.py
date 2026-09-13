@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from media_publisher.quotes_text_sync import (
     DestinationSheetRef,
     EnglishQuoteRow,
+    QuoteTextChange,
     ReadyQuoteMatch,
     REUSED_READY_BACKGROUND,
     STALE_READY_BACKGROUND,
@@ -21,11 +22,14 @@ from media_publisher.quotes_text_sync import (
     extract_ready_text_from_row,
     find_ready_column_index,
     find_tab_by_candidates,
+    format_quote_texts_email,
     list_bulgarian_year_workbooks,
     load_ready_index_file,
     load_ready_translations_by_english,
     lookup_ready_by_english,
     month_file_name_candidates,
+    notify_quote_text_changes,
+    quote_text_notify_recipients,
     reuse_source_comment,
     save_ready_index_file,
     sync_month_quote_texts,
@@ -627,6 +631,103 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
             ),
             "Reused from Aug 2022",
         )
+
+    def test_format_quote_texts_email(self) -> None:
+        changes = [
+            QuoteTextChange(
+                action="added",
+                year=2026,
+                month=9,
+                day=1,
+                date_label="1 Sep 2026",
+                detail="reused Ready from Sadhguru Quotes Bulgarian 2025 / Mar 2025 (10 Mar 2025)",
+            ),
+            QuoteTextChange(
+                action="reused",
+                year=2026,
+                month=9,
+                day=1,
+                date_label="1 Sep 2026",
+                detail="reused Ready from Sadhguru Quotes Bulgarian 2025 / Mar 2025 (10 Mar 2025)",
+            ),
+            QuoteTextChange(
+                action="updated",
+                year=2026,
+                month=9,
+                day=14,
+                date_label="14 Sep 2026",
+                detail="AI translation",
+            ),
+        ]
+        subject, body = format_quote_texts_email(changes)
+        self.assertIn("1 added, 1 updated", subject)
+        self.assertIn("1 Sep 2026", body)
+        self.assertIn("14 Sep 2026", body)
+        self.assertIn("reused Ready from", body)
+        self.assertIn("AI translation", body)
+        self.assertIn("drive.google.com/drive/folders/", body)
+        self.assertNotIn("action=\"reused\"", body)
+
+    def test_quote_text_notify_recipients_from_notify_email(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "NOTIFY_EMAIL": "ops@example.com, quotes@example.com",
+                "GENERATED_QUOTES_NOTIFY_EMAIL": "should-not-appear@example.com",
+            },
+            clear=False,
+        ):
+            recipients = quote_text_notify_recipients()
+        self.assertEqual(recipients, ["ops@example.com", "quotes@example.com"])
+
+        with patch.dict(os.environ, {"NOTIFY_EMAIL": ""}, clear=False):
+            self.assertEqual(quote_text_notify_recipients(), [])
+
+    def test_notify_quote_text_changes_skips_without_added_or_updated(self) -> None:
+        warnings = notify_quote_text_changes(
+            [
+                QuoteTextChange(
+                    action="reused",
+                    year=2026,
+                    month=9,
+                    day=1,
+                    date_label="1 Sep 2026",
+                    detail="reused Ready from archive",
+                )
+            ]
+        )
+        self.assertEqual(warnings, [])
+
+    def test_send_quote_texts_email_uses_notify_recipients(self) -> None:
+        changes = [
+            QuoteTextChange(
+                action="added",
+                year=2026,
+                month=9,
+                day=2,
+                date_label="2 Sep 2026",
+                detail="AI translation",
+            )
+        ]
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "NOTIFY_EMAIL": "ops@example.com",
+                    "GMAIL_SMTP_USER": "bot@example.com",
+                    "GMAIL_SMTP_APP_PASSWORD": "secret",
+                },
+                clear=False,
+            ),
+            patch(
+                "media_publisher.quotes_text_sync.send_quote_texts_notification_email",
+                return_value=True,
+            ) as send,
+        ):
+            warnings = notify_quote_text_changes(changes)
+        self.assertEqual(warnings, [])
+        send.assert_called_once()
+        self.assertEqual(send.call_args[0][0][0].action, "added")
 
     def test_lookup_skips_same_publish_date(self) -> None:
         english = "Ganesha is the very symbol of an intelligence that moves through all obstacles."

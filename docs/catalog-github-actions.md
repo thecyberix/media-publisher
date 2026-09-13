@@ -1,6 +1,6 @@
 # GitHub Actions — daily workflow
 
-The [daily workflow](../.github/workflows/catalog-daily-workflow.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, and catalog ingest from Google Sheets. Humans update **Status** and translated fields in Airtable; the bot does not read or write comments. Combined media cleanup runs in the **publish** workflow after a video is successfully published. The job has a **60-minute** timeout so a hung run is cancelled instead of sitting for hours.
+The [daily workflow](../.github/workflows/catalog-daily-workflow.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, and catalog ingest from Google Sheets. A parallel job also prepares quote translations (English → Bulgarian Ready/AI text) via [prepare-quote-texts.yml](../.github/workflows/prepare-quote-texts.yml). Quote prep is skipped for **ingest-only** and **dry_run** catalog runs. When that job adds or updates quote rows, it emails `NOTIFY_EMAIL` (same SMTP secrets as other catalog alerts). Humans update **Status** and translated fields in Airtable; the bot does not read or write comments. Combined media cleanup runs in the **publish** workflow after a video is successfully published. The catalog job has a **90-minute** timeout so a hung run is cancelled instead of sitting for hours.
 
 ## Schedule and timezone
 

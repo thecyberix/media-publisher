@@ -44,6 +44,13 @@ env:
   TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
 
 jobs:
+  prepare-quotes:
+    if: ${{ inputs.mode != 'ingest' && inputs.dry_run != true }}
+    uses: ./.github/workflows/prepare-quote-texts.yml
+    secrets: inherit
+    permissions:
+      contents: write
+
   workflow:
     runs-on: ubuntu-latest
     timeout-minutes: 90

@@ -1,7 +1,7 @@
 name: Prepare quote translations
 
 # Sync English quotes → Bulgarian month sheets (AI translate / reuse Ready).
-# Primary schedule: external cron (cron-job.org) → workflow_dispatch.
+# Runs with the daily catalog workflow, and can still be dispatched by itself.
 on:
   workflow_dispatch:
     inputs:
@@ -15,10 +15,18 @@ on:
         required: false
         type: string
         default: ""
-
-concurrency:
-  group: prepare-quote-texts
-  cancel-in-progress: false
+  workflow_call:
+    inputs:
+      year:
+        description: Optional year override (leave empty for current+next month)
+        required: false
+        type: string
+        default: ""
+      month:
+        description: Optional month override 1-12 (requires year)
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -31,12 +39,18 @@ env:
   TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
   TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
   TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
+  NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
   PUBLISH_JSON: ${{ vars.PUBLISH_JSON }}
+  GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+  GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: prepare-quote-texts
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 

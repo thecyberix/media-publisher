@@ -1594,6 +1594,7 @@ def run_prepare_quote_texts(settings, _args) -> int:
 
     from media_publisher.quotes_text_sync import (
         QuotesTextSyncError,
+        notify_quote_text_changes,
         sync_quote_texts_for_months,
     )
     from media_publisher.sources.quotes_config import (
@@ -1623,6 +1624,8 @@ def run_prepare_quote_texts(settings, _args) -> int:
         return 1
 
     for warning in result.warnings:
+        print_console(f"Warning: {warning}")
+    for warning in notify_quote_text_changes(result.changes, print_line=print_console):
         print_console(f"Warning: {warning}")
     print_console(
         "Quote text prepare complete: "

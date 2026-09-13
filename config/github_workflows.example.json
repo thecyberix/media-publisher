@@ -99,7 +99,7 @@
   },
   "cron_jobs": {
     "catalog-daily-midnight-sofia": {
-      "description": "cron-job.org mirror — catalog ingest at 00:00 Europe/Sofia",
+      "description": "cron-job.org mirror — catalog ingest + quote text prep at 00:00 Europe/Sofia",
       "schedule": "0 0 * * *",
       "timezone": "Europe/Sofia",
       "preset": "catalog-daily-production"
