@@ -227,12 +227,17 @@ generating the translated thumbnail at publish time.
 | `CANVA_CLIENT_ID` | Canva Connect integration client id (shared with publish workflow). |
 | `CANVA_CLIENT_SECRET` | Canva Connect integration client secret. |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json`. |
+| `CANVA_STORAGE_STATE_JSON` | Optional. Full contents of local `canva-state.json` (from `--canva-login` or `--canva-import-session`). Not used by ingest; kept for manual Playwright Canva export. |
 | `CONFIG_SYNC_PAT` | Fine-grained GitHub PAT with **Secrets** and **Variables** Read and write on this repo. After CI refreshes the Canva token, the app updates `CANVA_TOKEN_JSON` automatically. |
 
-If Canva auth is missing or broken when a package has a Canva design link, ingest
-**fails** (do not soft-fallback). If auth works but that design is not accessible
-to the integration (`permission_denied`), ingest stages a review-queue placeholder
-image asking for a **manual Canva download**, then emails the review folder as usual.
+If Canva OAuth is missing or broken when a package has a Canva design link, ingest
+**fails** (do not soft-fallback). If OAuth works but that design is not accessible
+to the integration (`permission_denied`), ingest tries the public publish-share
+`/screen` preview (the share-token link from the package, no login). A successful
+API or preview image is uploaded to Airtable **Original Video Thumbnail**. If
+those still fail, ingest queues a **manual Canva download placeholder** in
+**Thumbnails for approval** instead of failing the run. Playwright Canva login
+(`--canva-login`) stays available for manual use and is not part of ingest.
 
 ### Approved review thumbnails
 
@@ -240,9 +245,9 @@ When ingest finds **no Canva link**, it does **not** write Original Video Thumbn
 to Airtable. If the original-platform thumb still matches the catalog video aspect
 ratio, the file is uploaded to the Drive review folder. Standalone ingest sends one
 review email per ingest call; the daily orchestrator collects all queued review
-items across capacity fills and sends a single digest email for the run. The same
-review folder is used for **manual Canva** placeholders when API export is denied
-for a specific design.
+items across capacity fills and sends a single digest email for the run. Leftover
+**manual Canva** placeholders from older ingest runs stay in that folder until
+downloaded by hand.
 
 Each daily orchestrator run first uploads any leftover files in the Drive review folder's **Approved** subfolder into Airtable **Original Video Thumbnail** when that field is still empty (manual approvals). Drive copies are kept for visibility. When **Video caption translated** is empty, the same upload also fills it from the approved image (vision first, Drive TN fallback) using the ingest caption path — skipped when `TRANSLATION_PROVIDER` is `none`, and skipped for manual-Canva placeholders. Approved files must keep the `.review.jpg` filename created by the review queue (for example `Sample Video.review.jpg`).
 
@@ -250,7 +255,7 @@ After that, the same run vision-classifies remaining original-background files i
 
 - **Approve** when the image includes a title/headline overlay. The file is uploaded to Airtable **immediately** (with caption fill as above) and archived into **Approved** on Drive for visibility.
 - **Reject** when the image has overlay text that is only subtitle/caption style, or when the background is empty / photo-only. Those files are moved into **Rejected** when that folder already exists. If **Rejected** is missing, they are not uploaded and the folder is not created.
-- **Keep** only manual Canva download placeholders in **Thumbnails for approval**.
+- **Keep** leftover manual Canva download placeholders in **Thumbnails for approval**. New ingest writes these again when API and share-preview both fail for a package design.
 
 Ingest still uploads review-queue files to Drive and sends the review email for visibility; auto-approve no longer waits until the next daily run to write Airtable.
 
@@ -303,7 +308,7 @@ python -m media_publisher --canva-auth-code <authorization-code>
 
 ### Authorization checks (Smartcat and Canva)
 
-Before each run, the **Check authorization** step validates **Smartcat** (`SMARTCAT_STORAGE_STATE_JSON`). Canva is not probed there: a no-refresh check cannot prove the refresh token still works.
+Before each run, the **Check authorization** step validates **Smartcat** (`SMARTCAT_STORAGE_STATE_JSON`) and, when present, the **Canva Playwright session** (`CANVA_STORAGE_STATE_JSON`). Canva OAuth is not probed there: a no-refresh check cannot prove the refresh token still works.
 
 **Canva** (`CANVA_CLIENT_ID`, `CANVA_CLIENT_SECRET`, `CANVA_TOKEN_JSON`) is refreshed if needed and probed at catalog orchestration start. If that fails, the orchestrator exits before Airtable work.
 
@@ -324,7 +329,17 @@ python -m catalog_parser --smartcat-login
 
 Then update the `SMARTCAT_STORAGE_STATE_JSON` secret with the new file contents.
 
-Renew Canva locally:
+Renew the Canva Playwright session locally (optional last export after share-preview). `--canva-login` opens **installed Chrome or Edge**, not bundled Chromium — Google blocks sign-in in automated Chromium. If Google still says the browser is not secure, log in in your **normal** Chrome, export cookies with Cookie-Editor, and import:
+
+```powershell
+python -m catalog_parser --canva-login
+python -m catalog_parser --canva-login --canva-browser msedge
+python -m catalog_parser --canva-import-session canva-cookies.json
+```
+
+Then update the `CANVA_STORAGE_STATE_JSON` secret with the new file contents.
+
+Renew Canva OAuth locally:
 
 ```powershell
 python scripts/_canva_auth_interactive.py

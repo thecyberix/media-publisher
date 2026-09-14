@@ -30,6 +30,9 @@ class CanvaParsingTests(unittest.TestCase):
         self.assertIsNone(parse_canva_design_url("https://example.com/design/abc"))
 
     def test_extract_resolves_canva_link_shortlink(self) -> None:
+        from catalog_parser.canva import _SHORTLINK_RESOLVE_CACHE
+
+        _SHORTLINK_RESOLVE_CACHE.clear()
         with patch(
             "media_publisher.sources.canva.resolve_canva_url",
             return_value=(
@@ -38,8 +41,18 @@ class CanvaParsingTests(unittest.TestCase):
         ):
             self.assertEqual(
                 extract_canva_design_url("https://canva.link/rbgbets4hffvol0"),
-                "https://www.canva.com/design/DAHKegUvggY",
+                "https://www.canva.com/design/DAHKegUvggY/view?utm_source=share",
             )
+
+    def test_extract_keeps_share_token(self) -> None:
+        self.assertEqual(
+            extract_canva_design_url(
+                "https://www.canva.com/design/DAG_-usKEHQ/AbCdEfGhIjK/view"
+                "?utm_content=DAG_-usKEHQ&utm_campaign=designshare"
+            ),
+            "https://www.canva.com/design/DAG_-usKEHQ/AbCdEfGhIjK/view"
+            "?utm_content=DAG_-usKEHQ&utm_campaign=designshare",
+        )
 
 class CanvaClientTests(unittest.TestCase):
     def test_build_authorization_url_contains_pkce_params(self) -> None:

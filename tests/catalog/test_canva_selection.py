@@ -11,6 +11,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from catalog_parser.canva_selection import (
+    dedupe_canva_urls,
     extract_canva_links_from_docx,
     extract_canva_links_from_google_document,
     select_canva_url,
@@ -62,7 +63,7 @@ class DocxCanvaExtractionTests(unittest.TestCase):
         canva_url = "https://www.canva.com/design/DAFieldCode123/view?utm=1"
         _add_field_code_hyperlink(paragraph, canva_url)
         urls, _below = extract_canva_links_from_docx(document)
-        self.assertEqual(urls, ["https://www.canva.com/design/DAFieldCode123"])
+        self.assertEqual(urls, ["https://www.canva.com/design/DAFieldCode123/view?utm=1"])
 
     def test_extracts_canva_link_shortlink_from_field_code(self) -> None:
         document = Document()
@@ -72,8 +73,11 @@ class DocxCanvaExtractionTests(unittest.TestCase):
             "media_publisher.sources.canva.resolve_canva_url",
             return_value="https://www.canva.com/design/DAHKegUvggY/view",
         ):
+            from catalog_parser.canva import _SHORTLINK_RESOLVE_CACHE
+
+            _SHORTLINK_RESOLVE_CACHE.clear()
             urls, _below = extract_canva_links_from_docx(document)
-        self.assertEqual(urls, ["https://www.canva.com/design/DAHKegUvggY"])
+        self.assertEqual(urls, ["https://www.canva.com/design/DAHKegUvggY/view"])
 
     def test_extracts_field_code_hyperlink_in_table_cell(self) -> None:
         document = Document()
@@ -83,7 +87,7 @@ class DocxCanvaExtractionTests(unittest.TestCase):
         canva_url = "https://www.canva.com/design/DATableField99/edit"
         _add_field_code_hyperlink(cell_paragraph, canva_url, display="Open design")
         urls, _below = extract_canva_links_from_docx(document)
-        self.assertEqual(urls, ["https://www.canva.com/design/DATableField99"])
+        self.assertEqual(urls, ["https://www.canva.com/design/DATableField99/edit"])
 
     def test_extracts_modern_w_hyperlink(self) -> None:
         document = Document()
@@ -99,7 +103,7 @@ class DocxCanvaExtractionTests(unittest.TestCase):
         hyperlink.append(run)
         paragraph._p.append(hyperlink)
         urls, _below = extract_canva_links_from_docx(document)
-        self.assertEqual(urls, ["https://www.canva.com/design/DAModern456"])
+        self.assertEqual(urls, ["https://www.canva.com/design/DAModern456/view"])
 
     def test_roundtrip_save_keeps_field_code(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,7 +117,7 @@ class DocxCanvaExtractionTests(unittest.TestCase):
             document.save(path)
             loaded = Document(str(path))
             urls, _below = extract_canva_links_from_docx(loaded)
-        self.assertEqual(urls, ["https://www.canva.com/design/DASaved789"])
+        self.assertEqual(urls, ["https://www.canva.com/design/DASaved789/view"])
 
 
 class GoogleDocCanvaExtractionTests(unittest.TestCase):
@@ -164,10 +168,21 @@ class GoogleDocCanvaExtractionTests(unittest.TestCase):
             }
         }
         urls, _below = extract_canva_links_from_google_document(document)
-        self.assertEqual(urls, ["https://www.canva.com/design/DAGoogleTbl"])
+        self.assertEqual(urls, ["https://www.canva.com/design/DAGoogleTbl/view"])
 
 
 class CanvaSelectionTests(unittest.TestCase):
+    def test_dedupe_prefers_share_token_url(self) -> None:
+        stripped = "https://www.canva.com/design/DAG_-usKEHQ"
+        shared = (
+            "https://www.canva.com/design/DAG_-usKEHQ/AbCdEfGhIjK/view"
+            "?utm_campaign=designshare"
+        )
+        self.assertEqual(dedupe_canva_urls([stripped, shared]), [shared])
+        self.assertEqual(dedupe_canva_urls([shared, stripped]), [shared])
+        view_only = "https://www.canva.com/design/DAG_-usKEHQ/view"
+        self.assertEqual(dedupe_canva_urls([view_only, shared]), [shared])
+
     def test_select_single_url_without_probe(self) -> None:
         url = "https://www.canva.com/design/ABC123/view"
         self.assertEqual(
@@ -175,7 +190,7 @@ class CanvaSelectionTests(unittest.TestCase):
                 [url],
                 target_size=(1920, 1080),
             ),
-            "https://www.canva.com/design/ABC123",
+            "https://www.canva.com/design/ABC123/view",
         )
 
     def test_select_prefers_aspect_matching_design(self) -> None:
@@ -184,15 +199,15 @@ class CanvaSelectionTests(unittest.TestCase):
         with patch(
             "catalog_parser.canva_selection.probe_canva_design_dimensions",
             side_effect=lambda url: {
-                "https://www.canva.com/design/LAND": (1920, 1080),
-                "https://www.canva.com/design/PORT": (1080, 1920),
+                "https://www.canva.com/design/LAND/view": (1920, 1080),
+                "https://www.canva.com/design/PORT/view": (1080, 1920),
             }[url],
         ):
             selected = select_canva_url(
                 [portrait, landscape],
                 target_size=(1920, 1080),
             )
-        self.assertEqual(selected, "https://www.canva.com/design/LAND")
+        self.assertEqual(selected, "https://www.canva.com/design/LAND/view")
 
     def test_select_prefers_drive_target_size_over_original_video_url(self) -> None:
         landscape = "https://www.canva.com/design/LAND/view"
@@ -204,8 +219,8 @@ class CanvaSelectionTests(unittest.TestCase):
             with patch(
                 "catalog_parser.canva_selection.probe_canva_design_dimensions",
                 side_effect=lambda url: {
-                    "https://www.canva.com/design/LAND": (1920, 1080),
-                    "https://www.canva.com/design/PORT": (1080, 1920),
+                    "https://www.canva.com/design/LAND/view": (1920, 1080),
+                    "https://www.canva.com/design/PORT/view": (1080, 1920),
                 }[url],
             ):
                 selected = select_canva_url(
@@ -213,7 +228,7 @@ class CanvaSelectionTests(unittest.TestCase):
                     target_size=(1920, 1080),
                     original_video_url="https://instagram.com/reel/short",
                 )
-        self.assertEqual(selected, "https://www.canva.com/design/LAND")
+        self.assertEqual(selected, "https://www.canva.com/design/LAND/view")
 
 
 class DriveVideoSizeTests(unittest.TestCase):

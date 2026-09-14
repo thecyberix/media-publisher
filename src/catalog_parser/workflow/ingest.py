@@ -373,12 +373,17 @@ def ingest_batch(
             local_path=path,
             title=str(title),
         )
+        source_label = record.get("ytThumbnailSource")
+        if isinstance(source_label, str) and source_label.startswith("canva-manual"):
+            reason = "Canva export unavailable; download the design manually"
+        else:
+            reason = "no Canva link; original-platform aspect matches"
         review_items.append(
             ReviewQueueItem(
                 record_id=record_id,
                 title=str(title),
                 local_path=path,
-                reason="no Canva link; original-platform aspect matches",
+                reason=reason,
             )
         )
         emit(f"  queued for thumbnail review: {title}")

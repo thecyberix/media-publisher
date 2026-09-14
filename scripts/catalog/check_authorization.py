@@ -13,6 +13,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from catalog_parser.canva import CanvaClient, build_canva_client_from_env
+from catalog_parser.canva_web import (
+    DEFAULT_STORAGE_STATE as DEFAULT_CANVA_STORAGE_STATE,
+    verify_session as verify_canva_session,
+)
 from catalog_parser.smartcat import DEFAULT_UI_BASE
 from catalog_parser.smartcat_web import _looks_like_login_url
 
@@ -274,6 +278,17 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--canva-storage-state",
+        type=Path,
+        default=Path(os.getenv("CANVA_STORAGE_STATE", DEFAULT_CANVA_STORAGE_STATE)),
+        help="Path to Canva Playwright storage state (default: canva-state.json).",
+    )
+    parser.add_argument(
+        "--skip-canva-session-if-missing",
+        action="store_true",
+        help="Skip Canva Playwright session check when no session file exists.",
+    )
+    parser.add_argument(
         "--probe-project-id",
         default=os.getenv("SMARTCAT_PROBE_PROJECT_ID", "").strip() or None,
         help="Optional Smartcat project UUID for an extra authenticated API probe.",
@@ -303,6 +318,21 @@ def main() -> int:
     else:
         print(smartcat_storage_state, file=sys.stderr)
         exit_code = max(exit_code, EXIT_MISSING)
+
+    canva_storage_state = _resolve_path(args.canva_storage_state)
+    if canva_storage_state.exists():
+        try:
+            verify_canva_session(canva_storage_state)
+        except FileNotFoundError as exc:
+            print(exc, file=sys.stderr)
+            exit_code = max(exit_code, EXIT_MISSING)
+        except Exception as exc:
+            print(exc, file=sys.stderr)
+            exit_code = max(exit_code, _classify_runtime_error(str(exc)))
+        else:
+            print("OK: Canva browser session is valid")
+    else:
+        print("SKIP: Canva browser session file not configured")
 
     if args.skip_canva:
         print("SKIP: Canva is checked and refreshed at catalog orchestration start")

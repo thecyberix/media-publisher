@@ -33,6 +33,7 @@ python -m media_publisher --prepare-quote-texts  # sync EN quotes + AI/reuse BG 
 python -m catalog_parser                   # daily translation workflow (default)
 python -m catalog_parser ingest            # parse Google Sheet → enrich → Airtable
 python -m catalog_parser --smartcat-login  # renew Smartcat browser session
+python -m catalog_parser --canva-login     # Chrome/Edge session (Google SSO: prefer --canva-import-session)
 python -m catalog_parser --canva-auth      # Canva OAuth for ingest thumbnails
 ```
 
@@ -61,6 +62,7 @@ Set under **Settings → Secrets and variables → Actions → Secrets**. These 
 | `CANVA_CLIENT_ID` | Canva OAuth client ID |
 | `CANVA_CLIENT_SECRET` | Canva OAuth client secret |
 | `CANVA_TOKEN_JSON` | Full contents of `credentials/canva-token.json` |
+| `CANVA_STORAGE_STATE_JSON` | Optional `canva-state.json` for manual Playwright Canva export (not used by ingest) |
 | `CONFIG_SYNC_PAT` | Fine-grained PAT with **Actions secrets** and **Actions variables** Read and write (syncs Canva/YouTube tokens and `YOUTUBE_DAILY_PLAYLIST_JSON`) |
 | `GMAIL_SMTP_USER` | Gmail address for workflow alert mail |
 | `GMAIL_SMTP_APP_PASSWORD` | Gmail app password (not the account login password) |

@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from catalog_parser.canva import extract_canva_design_url
+from urllib.parse import urlparse
+
+from catalog_parser.canva import extract_canva_design_url, parse_canva_design_url
 from media_publisher.sources.canva_share_preview import probe_canva_design_dimensions
 from media_publisher.sources.source_thumbnail import (
     SourceThumbnailError,
@@ -24,18 +26,42 @@ _A_HLINK_CLICK = "{http://schemas.openxmlformats.org/drawingml/2006/main}hlinkCl
 _R_EMBED_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 
 
+_SHARE_PATH_STOP = {"view", "edit", "screen"}
+
+
+def _canva_open_url_score(url: str) -> tuple[int, int, int]:
+    parsed = urlparse(url)
+    parts = [part for part in parsed.path.split("/") if part]
+    has_share_token = (
+        1
+        if (
+            len(parts) >= 3
+            and parts[0].casefold() == "design"
+            and parts[2].casefold() not in _SHARE_PATH_STOP
+        )
+        else 0
+    )
+    has_view_or_edit = 1 if re.search(r"/(?:view|edit)(?:/|$)", parsed.path, re.I) else 0
+    return (has_share_token, has_view_or_edit, len(url))
+
+
 def dedupe_canva_urls(urls: list[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
+    best: dict[str, str] = {}
+    order: list[str] = []
     for raw in urls:
         normalized = extract_canva_design_url(raw)
         if not normalized:
             continue
-        if normalized in seen:
+        design_id = parse_canva_design_url(normalized)
+        key = (design_id or normalized).casefold()
+        current = best.get(key)
+        if current is None:
+            best[key] = normalized
+            order.append(key)
             continue
-        seen.add(normalized)
-        ordered.append(normalized)
-    return ordered
+        if _canva_open_url_score(normalized) > _canva_open_url_score(current):
+            best[key] = normalized
+    return [best[key] for key in order]
 
 
 def collect_canva_urls_from_values(values: list[str | None]) -> list[str]:

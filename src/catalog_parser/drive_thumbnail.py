@@ -12,6 +12,7 @@ from catalog_parser.canva import (
     extract_canva_design_url,
     is_canva_auth_error,
 )
+from media_publisher.sources.canva_share_preview import download_canva_share_preview
 from catalog_parser.canva_selection import (
     collect_canva_urls_from_values,
     dedupe_canva_urls,
@@ -401,16 +402,46 @@ def download_canva_thumbnail(
     destination: Path,
     *,
     canva_client: CanvaClient | None = None,
+    canva_web_client: Any | None = None,
 ) -> str:
-    """Write a Canva API design export to ``destination``; return source label."""
-    attachment, source = _resolve_canva_attachment(canva_url, canva_client=canva_client)
-    if not attachment:
-        raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
-    url = attachment[0].get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise DriveThumbnailError(f"Canva thumbnail attachment missing URL for {canva_url!r}")
-    _download_http_url(url.strip(), destination)
-    return source
+    """Write a Canva design export to ``destination``; return source label.
+
+    Tries the Canva Connect API first. When that design is not accessible to
+    the integration, tries the public publish-share ``/screen`` preview (the
+    share-token link, no login). Playwright is kept in ``canva_web`` for
+    manual use and is not part of ingest.
+    """
+    del canva_web_client
+    try:
+        attachment, source = _resolve_canva_attachment(
+            canva_url,
+            canva_client=canva_client,
+        )
+        if not attachment:
+            raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
+        url = attachment[0].get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise DriveThumbnailError(
+                f"Canva thumbnail attachment missing URL for {canva_url!r}"
+            )
+        _download_http_url(url.strip(), destination)
+        return source
+    except Exception as exc:
+        if is_canva_auth_error(exc):
+            raise DriveThumbnailError(str(exc)) from exc
+        print(f"  -> Canva API export failed; trying public share preview: {exc}")
+        try:
+            download_canva_share_preview(canva_url, destination)
+            if destination.is_file() and destination.stat().st_size >= 1000:
+                return "canva-share-preview"
+        except Exception as preview_exc:
+            raise DriveThumbnailError(
+                f"Canva API export failed ({exc}); "
+                f"share preview also failed ({preview_exc})"
+            ) from preview_exc
+        raise DriveThumbnailError(
+            f"Canva API export failed ({exc}); share preview was empty"
+        ) from exc
 
 
 def _stage_manual_canva_review_placeholder(
@@ -508,16 +539,18 @@ def _stage_original_thumbnail_for_ingest(
     updated: dict[str, Any],
     thumbnail_field: str,
     canva_client: CanvaClient | None = None,
+    canva_web_client: Any | None = None,
 ) -> None:
     """Stage original thumbnail for Airtable upload or Drive review.
 
     Priority:
     1. Canva link → Canva API design export (direct Airtable upload)
-    2. Canva link + design-level API failure → manual-download placeholder for review
-    3. Otherwise matching-aspect original-platform thumbs are queued for review
+    2. Canva link + design-level API failure → public publish-share preview
+    3. Still failing → manual-download placeholder for review
+    4. Otherwise matching-aspect original-platform thumbs are queued for review
 
-    Canva auth failures raise (workflow should fail). Drive TN templates are ignored
-    at ingest (used later for offline translated TN render).
+    Canva OAuth failures raise (workflow should fail). Drive TN templates are
+    ignored at ingest (used later for offline translated TN render).
     """
     updated[thumbnail_field] = None
     updated.pop(f"{thumbnail_field}Error", None)
@@ -540,11 +573,12 @@ def _stage_original_thumbnail_for_ingest(
                 canva_url,
                 destination,
                 canva_client=canva_client,
+                canva_web_client=canva_web_client,
             )
         except Exception as exc:
             if is_canva_auth_error(exc):
                 raise DriveThumbnailError(str(exc)) from exc
-            print(f"  -> Canva API export failed (manual review): {exc}")
+            print(f"  -> Canva export failed (manual review): {exc}")
             _stage_manual_canva_review_placeholder(
                 destination,
                 canva_url=canva_url,
@@ -581,6 +615,7 @@ def enrich_records_with_original_video_thumbnails(
     docs_service: Resource | None,
     *,
     canva_client: CanvaClient | None = None,
+    canva_web_client: Any | None = None,
     folder_link_field: str = "pkgLink",
     thumbnail_field: str = DEFAULT_YT_THUMBNAIL_FIELD,
     staging_dir: Path | None = None,
@@ -642,6 +677,7 @@ def enrich_records_with_original_video_thumbnails(
                         updated=updated,
                         thumbnail_field=thumbnail_field,
                         canva_client=canva_client,
+                        canva_web_client=canva_web_client,
                     )
                 except DriveThumbnailError as primary_exc:
                     if is_canva_auth_error(primary_exc):
@@ -670,6 +706,7 @@ def enrich_records_with_original_video_thumbnails(
                         updated=updated,
                         thumbnail_field=thumbnail_field,
                         canva_client=canva_client,
+                        canva_web_client=canva_web_client,
                     )
                     updated["_originalThumbnailFallbackCtLink"] = peer_yt
                     updated.pop(f"{thumbnail_field}Error", None)

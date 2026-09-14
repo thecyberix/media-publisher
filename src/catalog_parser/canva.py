@@ -38,6 +38,12 @@ CANVA_DESIGN_URL_PATTERN = re.compile(
     r"https?://(?:www\.)?canva\.com/design/(?P<design_id>[A-Za-z0-9_-]+)",
     re.IGNORECASE,
 )
+CANVA_OPEN_URL_PATTERN = re.compile(
+    r"https?://(?:www\.)?canva\.com/design/[A-Za-z0-9_-]+"
+    r"(?:/[A-Za-z0-9_-]+(?:/(?:view|edit))?)?"
+    r"(?:\?[^\s\"'<>]*)?",
+    re.IGNORECASE,
+)
 CANVA_SHORTLINK_PATTERN = re.compile(
     r"https?://(?:www\.)?canva\.link/(?P<slug>[A-Za-z0-9_-]+)",
     re.IGNORECASE,
@@ -148,23 +154,25 @@ def _resolve_shortlink_to_design_url(shortlink: str) -> str | None:
     except Exception:
         _SHORTLINK_RESOLVE_CACHE[shortlink] = None
         return None
-    match = CANVA_DESIGN_URL_PATTERN.search(resolved)
-    design_url = match.group(0) if match else None
+    match = CANVA_OPEN_URL_PATTERN.search(resolved)
+    design_url = match.group(0).rstrip(").,;") if match else None
     _SHORTLINK_RESOLVE_CACHE[shortlink] = design_url
     return design_url
 
 
 def extract_canva_design_url(value: str) -> str | None:
-    """Return a normalized ``https://...canva.com/design/<id>`` URL if present.
+    """Return a Canva design URL, keeping share tokens when present.
 
+    ``https://www.canva.com/design/<id>/<token>/view?...`` is required to open
+    shared designs. The Connect API still only needs the design id.
     Also resolves ``canva.link/...`` short links to the underlying design URL.
     """
     if not isinstance(value, str):
         return None
     text = value.strip()
-    match = CANVA_DESIGN_URL_PATTERN.search(text)
+    match = CANVA_OPEN_URL_PATTERN.search(text)
     if match:
-        return match.group(0)
+        return match.group(0).rstrip(").,;")
     shortlink = extract_canva_shortlink_url(text)
     if shortlink:
         return _resolve_shortlink_to_design_url(shortlink)

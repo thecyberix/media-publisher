@@ -28,6 +28,8 @@ QUALITY_RANK = {
     "NANO_THUMBNAIL": 1,
     "PICO_THUMBNAIL": 0,
 }
+MIN_PREVIEW_BYTES = 1000
+_SHARE_PATH_STOP = {"view", "edit", "screen"}
 
 
 def normalize_canva_share_url(canva_url: str) -> str:
@@ -39,6 +41,8 @@ def normalize_canva_share_url(canva_url: str) -> str:
         parts = path.rstrip("/").split("/")
         if len(parts) >= 4:
             path = "/".join(parts[:4] + ["view"])
+        elif len(parts) == 3:
+            path = "/".join(parts + ["view"])
     return urlunparse(parsed._replace(path=path))
 
 
@@ -189,6 +193,32 @@ def _pick_best_bootstrap_url(html: str) -> str | None:
     return best[2] if best else None
 
 
+def _media_url_score(url: str) -> tuple[int, int]:
+    width = height = 0
+    for part in url.split("/"):
+        if part.startswith("width:"):
+            width = int(part.split(":", 1)[1].split("?", 1)[0])
+        if part.startswith("height:"):
+            height = int(part.split(":", 1)[1].split("?", 1)[0])
+    return width * height, width
+
+
+def pick_best_canva_media_url(urls: list[str]) -> str | None:
+    candidates = [
+        url
+        for url in urls
+        if isinstance(url, str) and "media.canva.com" in url
+    ]
+    if not candidates:
+        return None
+    return max(set(candidates), key=_media_url_score)
+
+
+def preview_image_url_from_html(html: str) -> str:
+    """Return the best preview image URL embedded in a Canva page."""
+    return _pick_best_media_url(html)
+
+
 def _pick_best_media_url(html: str) -> str:
     bootstrap_url = _pick_best_bootstrap_url(html)
     if bootstrap_url:
@@ -202,20 +232,10 @@ def _pick_best_media_url(html: str) -> str:
     if og_match:
         return og_match.group(1)
 
-    candidates = CANVA_MEDIA_RE.findall(html)
-    if not candidates:
-        raise RuntimeError("No preview image URLs found in Canva page")
-
-    def score(url: str) -> tuple[int, int]:
-        width = height = 0
-        for part in url.split("/"):
-            if part.startswith("width:"):
-                width = int(part.split(":", 1)[1].split("?", 1)[0])
-            if part.startswith("height:"):
-                height = int(part.split(":", 1)[1].split("?", 1)[0])
-        return width * height, width
-
-    return max(set(candidates), key=score)
+    best = pick_best_canva_media_url(CANVA_MEDIA_RE.findall(html))
+    if best:
+        return best
+    raise RuntimeError("No preview image URLs found in Canva page")
 
 
 def _download_url(url: str, destination: Path) -> None:
@@ -230,25 +250,52 @@ def _download_url(url: str, destination: Path) -> None:
 def _screen_url(canva_url: str) -> str:
     parsed = urlparse(normalize_canva_share_url(canva_url))
     parts = [part for part in parsed.path.split("/") if part]
-    if len(parts) >= 3 and parts[0] == "design":
+    if (
+        len(parts) >= 3
+        and parts[0].casefold() == "design"
+        and parts[2].casefold() not in _SHARE_PATH_STOP
+    ):
         path = f"/design/{parts[1]}/{parts[2]}/screen"
         return urlunparse(parsed._replace(path=path, query="", fragment=""))
-    raise RuntimeError(f"Could not derive Canva screen URL from {canva_url!r}")
+    raise RuntimeError(
+        f"Could not derive Canva screen URL from {canva_url!r} "
+        "(need a publish-share link with a share token)"
+    )
+
+
+def _preview_looks_valid(destination: Path) -> bool:
+    return destination.is_file() and destination.stat().st_size >= MIN_PREVIEW_BYTES
 
 
 def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     resolved = resolve_canva_url(canva_url)
+    try:
+        screen = _screen_url(resolved)
+    except RuntimeError:
+        screen = None
+    if screen:
+        try:
+            _download_url(screen, destination)
+            if _preview_looks_valid(destination):
+                return destination
+        except urllib.error.URLError:
+            pass
+
     normalized = normalize_canva_share_url(resolved)
     html = _fetch_dom(normalized)
     preview_url = _pick_best_media_url(html)
-    for candidate in (preview_url, _screen_url(resolved)):
-        try:
-            _download_url(candidate, destination)
-            return destination
-        except urllib.error.HTTPError:
-            continue
-    raise RuntimeError(f"Could not download Canva preview for {canva_url!r}")
+    if "media.canva.com" not in preview_url.casefold():
+        raise RuntimeError(f"No usable Canva preview image for {canva_url!r}")
+    try:
+        _download_url(preview_url, destination)
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"Could not download Canva preview for {canva_url!r}"
+        ) from exc
+    if not _preview_looks_valid(destination):
+        raise RuntimeError(f"Canva share preview was empty for {canva_url!r}")
+    return destination
 
 
 def resolve_canva_share_preview_url(canva_url: str) -> str:

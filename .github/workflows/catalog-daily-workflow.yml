@@ -82,6 +82,16 @@ jobs:
           fi
           printf '%s' "$SMARTCAT_STORAGE_STATE_JSON" > smartcat-state.json
 
+      - name: Restore Canva session
+        env:
+          CANVA_STORAGE_STATE_JSON: ${{ secrets.CANVA_STORAGE_STATE_JSON }}
+        run: |
+          if [ -z "$CANVA_STORAGE_STATE_JSON" ]; then
+            echo "No CANVA_STORAGE_STATE_JSON secret configured"
+            exit 0
+          fi
+          printf '%s' "$CANVA_STORAGE_STATE_JSON" > canva-state.json
+
       - name: Restore Canva token
         env:
           CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
@@ -99,7 +109,9 @@ jobs:
           python scripts/catalog/check_authorization.py \
             --smartcat-storage-state smartcat-state.json \
             --skip-smartcat-if-missing \
-            --skip-canva
+            --skip-canva \
+            --canva-storage-state canva-state.json \
+            --skip-canva-session-if-missing
         env:
           SMARTCAT_UI_BASE: https://ea.smartcat.com
 
@@ -121,7 +133,11 @@ jobs:
             1. python -m catalog_parser --smartcat-login
             2. Copy the new smartcat-state.json into the GitHub secret SMARTCAT_STORAGE_STATE_JSON
 
-          Canva is refreshed and probed at catalog orchestration start, not in this step.
+          Canva browser session (needed when Connect API cannot access a package design):
+            1. python -m catalog_parser --canva-login
+            2. Copy the new canva-state.json into the GitHub secret CANVA_STORAGE_STATE_JSON
+
+          Canva OAuth is refreshed and probed at catalog orchestration start, not in this step.
 
           Repository: ${{ github.repository }}
           Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -186,6 +202,7 @@ jobs:
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
+          CANVA_STORAGE_STATE: canva-state.json
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}
@@ -224,6 +241,7 @@ jobs:
           WORKFLOW_PROFILES_JSON: ${{ vars.WORKFLOW_PROFILES_JSON || secrets.WORKFLOW_PROFILES_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SMARTCAT_STORAGE_STATE: smartcat-state.json
+          CANVA_STORAGE_STATE: canva-state.json
           TRANSLATION_API_KEY: ${{ secrets.TRANSLATION_API_KEY }}
           TRANSLATION_PROVIDER: ${{ vars.TRANSLATION_PROVIDER }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || '' }}

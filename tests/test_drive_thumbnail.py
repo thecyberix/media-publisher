@@ -4,9 +4,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from catalog_parser.canva import is_canva_auth_error
 from catalog_parser.drive_thumbnail import (
     DriveThumbnailError,
     build_airtable_attachment,
+    download_canva_thumbnail,
     enrich_records_with_original_video_thumbnails,
     find_peer_youtube_ct_link,
     find_thumbnail_image_in_folder,
@@ -132,7 +134,7 @@ class DriveThumbnailTests(unittest.TestCase):
         ):
             with patch(
                 "catalog_parser.drive_thumbnail.download_canva_thumbnail",
-                side_effect=lambda _url, dest, canva_client=None: (
+                side_effect=lambda _url, dest, canva_client=None, canva_web_client=None: (
                     dest.parent.mkdir(parents=True, exist_ok=True),
                     dest.write_bytes(b"canva"),
                     "canva-export",
@@ -150,6 +152,128 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertIn("_originalThumbnailPath", enriched[0])
         self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-export")
         self.assertNotIn("_canvaDesignUrl", enriched[0])
+
+    def test_download_canva_thumbnail_raises_when_share_preview_fails(
+        self,
+    ) -> None:
+        import tempfile
+
+        from catalog_parser.canva import CanvaError
+
+        destination = Path(tempfile.mkdtemp()) / "thumb.jpg"
+        with patch(
+            "catalog_parser.drive_thumbnail._resolve_canva_attachment",
+            side_effect=CanvaError(
+                'Canva POST /exports failed with HTTP 403: '
+                '{"code":"permission_denied","message":'
+                '"Not allowed to access design with id DAGa81rbUOw"}'
+            ),
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_share_preview",
+                side_effect=RuntimeError("no public preview"),
+            ):
+                with self.assertRaises(DriveThumbnailError) as ctx:
+                    download_canva_thumbnail(
+                        "https://www.canva.com/design/DAGa81rbUOw/view",
+                        destination,
+                        canva_client=MagicMock(),
+                    )
+        self.assertIn("share preview also failed", str(ctx.exception))
+        self.assertFalse(is_canva_auth_error(ctx.exception))
+
+    def test_download_canva_thumbnail_uses_public_share_preview(
+        self,
+    ) -> None:
+        import tempfile
+
+        from catalog_parser.canva import CanvaError
+
+        destination = Path(tempfile.mkdtemp()) / "thumb.jpg"
+        with patch(
+            "catalog_parser.drive_thumbnail._resolve_canva_attachment",
+            side_effect=CanvaError(
+                'Canva POST /exports failed with HTTP 403: '
+                '{"code":"permission_denied","message":'
+                '"Not allowed to access design with id DAG_-usKEHQ"}'
+            ),
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_share_preview",
+                side_effect=lambda _url, dest: dest.write_bytes(b"share-preview" * 80) or dest,
+            ):
+                source = download_canva_thumbnail(
+                    "https://www.canva.com/design/DAG_-usKEHQ/Gf7htm9P2120Plv54YiiNw/view",
+                    destination,
+                    canva_client=MagicMock(),
+                )
+        self.assertEqual(source, "canva-share-preview")
+        self.assertEqual(destination.read_bytes(), b"share-preview" * 80)
+
+    def test_download_canva_thumbnail_does_not_fallback_on_auth_error(
+        self,
+    ) -> None:
+        import tempfile
+
+        from catalog_parser.canva import CanvaError
+
+        destination = Path(tempfile.mkdtemp()) / "thumb.jpg"
+        with patch(
+            "catalog_parser.drive_thumbnail._resolve_canva_attachment",
+            side_effect=CanvaError(
+                'Canva token exchange failed with HTTP 400: '
+                '{"error":"invalid_grant"}'
+            ),
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_share_preview",
+            ) as preview_mock:
+                with self.assertRaises(DriveThumbnailError):
+                    download_canva_thumbnail(
+                        "https://www.canva.com/design/DAGa81rbUOw/view",
+                        destination,
+                        canva_client=MagicMock(),
+                    )
+        preview_mock.assert_not_called()
+
+    def test_enrich_records_uses_share_preview_when_download_succeeds(
+        self,
+    ) -> None:
+        import tempfile
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value="https://www.canva.com/design/DAGa81rbUOw/view",
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_thumbnail",
+                side_effect=lambda _url, dest, canva_client=None, canva_web_client=None: (
+                    dest.parent.mkdir(parents=True, exist_ok=True),
+                    dest.write_bytes(b"share-preview"),
+                    "canva-share-preview",
+                )[-1],
+            ):
+                enriched = enrich_records_with_original_video_thumbnails(
+                    records,
+                    drive_service,
+                    None,
+                    staging_dir=staging_dir,
+                    canva_client=MagicMock(),
+                )
+
+        self.assertIsNone(enriched[0]["ytThumbnail"])
+        self.assertIn("_originalThumbnailPath", enriched[0])
+        self.assertNotIn("_thumbnailReviewPath", enriched[0])
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-share-preview")
 
     def test_enrich_records_queues_manual_canva_placeholder_on_design_access_error(
         self,

@@ -6,6 +6,26 @@ import os
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_env_file(path: Path) -> None:
+    from media_publisher.sources.airtable import apply_airtable_url_env
+
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+    apply_airtable_url_env()
+
+
+# Language-aware imports (Smartcat) read TARGET_LANGUAGE. Load .env first so
+# `--canva-login` and other CLI entry points work without exporting it manually.
+load_env_file(PROJECT_ROOT / ".env")
+
 from catalog_parser.airtable import AirtableClient, load_existing_titles_for_ingest
 from catalog_parser.eligibility import (
     airtable_identity_collision_reasons,
@@ -25,7 +45,14 @@ from catalog_parser.auth import (
     get_sheets_service,
     inspect_credentials,
 )
-from catalog_parser.canva import CanvaClient, build_canva_client_from_env
+from catalog_parser.canva import CanvaClient, CanvaError, build_canva_client_from_env
+from catalog_parser.canva_web import (
+    DEFAULT_BROWSER_PROFILE_RELATIVE as DEFAULT_CANVA_BROWSER_PROFILE,
+    DEFAULT_STORAGE_STATE as DEFAULT_CANVA_STORAGE_STATE,
+    import_browser_session_file as import_canva_session_file,
+    login_interactive as canva_login_interactive,
+    print_canva_import_instructions,
+)
 from catalog_parser.drive_docs import enrich_records_with_yt_titles
 from catalog_parser.drive_thumbnail import enrich_records_with_original_video_thumbnails
 from catalog_parser.parser import (
@@ -58,11 +85,12 @@ from catalog_parser.smartcat_cookie import (
     print_smartcat_import_instructions,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 DEFAULT_CREDENTIALS = PROJECT_ROOT / "credentials.json"
 DEFAULT_TOKEN = PROJECT_ROOT / "token.json"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "catalog.json"
 DEFAULT_SMARTCAT_STATE = PROJECT_ROOT / DEFAULT_STORAGE_STATE
+DEFAULT_CANVA_STATE = PROJECT_ROOT / DEFAULT_CANVA_STORAGE_STATE
 DEFAULT_CANVA_TOKEN = PROJECT_ROOT / "credentials" / "canva-token.json"
 DEFAULT_UNASSIGNED_INGEST_COUNT = 4
 
@@ -507,19 +535,6 @@ def resolve_feature_enabled(
     return env_flag_enabled(env_name, default=default)
 
 
-def load_env_file(path: Path) -> None:
-    from media_publisher.sources.airtable import apply_airtable_url_env
-
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
-    apply_airtable_url_env()
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -566,6 +581,28 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Import Smartcat cookies exported from your browser (Cookie-Editor JSON) "
             "into smartcat-state.json."
+        ),
+    )
+    parser.add_argument(
+        "--canva-login",
+        action="store_true",
+        help=(
+            "Open installed Chrome or Edge to log in to Canva and save the session. "
+            "Google often blocks this; use --canva-import-session instead."
+        ),
+    )
+    parser.add_argument(
+        "--canva-browser",
+        choices=("chrome", "msedge", "edge"),
+        help="Preferred browser for --canva-login (default: Chrome, then Edge).",
+    )
+    parser.add_argument(
+        "--canva-import-session",
+        metavar="COOKIES_JSON",
+        help=(
+            "Import Canva cookies exported from your normal Chrome/Edge "
+            "(Cookie-Editor JSON) into canva-state.json. Use this when Google "
+            "blocks sign-in in the Playwright window."
         ),
     )
     parser.add_argument(
@@ -1118,6 +1155,54 @@ def main() -> int:
             return 1
         print(f"Saved Smartcat session to {storage_state_path}")
         print("Session verified — corpus export can use cookie mode without Playwright.")
+        return 0
+
+    if args.canva_login:
+        profile = os.getenv("CANVA_BROWSER_PROFILE", "").strip()
+        profile_dir = (
+            Path(profile) if profile else PROJECT_ROOT / DEFAULT_CANVA_BROWSER_PROFILE
+        )
+        if not profile_dir.is_absolute():
+            profile_dir = PROJECT_ROOT / profile_dir
+        channel = args.canva_browser or os.getenv("CANVA_BROWSER_CHANNEL", "").strip() or None
+        canva_login_interactive(
+            ui_base=os.getenv("CANVA_UI_BASE", "https://www.canva.com").strip()
+            or "https://www.canva.com",
+            storage_state_path=Path(
+                os.getenv("CANVA_STORAGE_STATE", str(DEFAULT_CANVA_STATE))
+            ),
+            browser_profile_dir=profile_dir,
+            browser_channel=channel,
+        )
+        return 0
+
+    if args.canva_import_session:
+        ui_base = (
+            os.getenv("CANVA_UI_BASE", "https://www.canva.com").strip()
+            or "https://www.canva.com"
+        )
+        storage_state_path = Path(
+            os.getenv("CANVA_STORAGE_STATE", str(DEFAULT_CANVA_STATE))
+        )
+        source_path = Path(args.canva_import_session)
+        if not source_path.is_file():
+            print(f"Cookie export file not found: {source_path}", file=sys.stderr)
+            print()
+            print_canva_import_instructions(ui_base=ui_base)
+            return 1
+        try:
+            import_canva_session_file(
+                source_path,
+                storage_state_path,
+                ui_base=ui_base,
+            )
+        except CanvaError as exc:
+            print(f"Canva session import failed: {exc}", file=sys.stderr)
+            print()
+            print_canva_import_instructions(ui_base=ui_base)
+            return 1
+        print(f"Saved Canva session to {storage_state_path}")
+        print("Session verified.")
         return 0
 
     if args.canva_auth:
