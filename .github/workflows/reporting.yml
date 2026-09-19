@@ -135,34 +135,24 @@ jobs:
           fi
 
       - name: Restore status history from latest daily workflow
+        id: restore_history
         if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.run_weekly == 'true'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
         run: |
-          mkdir -p output/workflow
-          latest_run=$(gh run list --workflow=catalog-daily-workflow.yml --status=success --limit 10 --json databaseId -q '.[0].databaseId' || true)
-          if [ -z "$latest_run" ]; then
-            echo "No successful daily workflow run found to restore from"
-            exit 0
-          fi
-          gh run download "$latest_run" -n workflow-state -D /tmp/workflow-state-restore || true
-          # upload-artifact@v4 strips the common "output/" prefix; accept both layouts.
-          for candidate in \
-            /tmp/workflow-state-restore/workflow/status_history.json \
-            /tmp/workflow-state-restore/output/workflow/status_history.json
-          do
-            if [ -f "$candidate" ]; then
-              cp "$candidate" output/workflow/status_history.json
-              echo "Restored output/workflow/status_history.json from ${candidate}"
-              exit 0
-            fi
-          done
-          echo "No status_history.json in workflow-state artifact"
+          python -u scripts/catalog/restore_workflow_state.py \
+            --workflow catalog-daily-workflow.yml \
+            --required workflow/status_history.json \
+            --optional backups/airtable-latest.json
 
       - name: Send weekly translation/editing report
         id: weekly
-        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.run_weekly == 'true'
+        if: >-
+          always()
+          && steps.plan.outcome == 'success'
+          && steps.plan.outputs.run_weekly == 'true'
+          && steps.restore_history.outcome == 'success'
         env:
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
           GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
@@ -170,7 +160,9 @@ jobs:
         run: python scripts/catalog/send_weekly_work_report.py --send
 
       - name: Send weekly report failure email
-        if: failure() && steps.weekly.outcome == 'failure'
+        if: >-
+          failure()
+          && (steps.weekly.outcome == 'failure' || steps.restore_history.outcome == 'failure')
         env:
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
           GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
