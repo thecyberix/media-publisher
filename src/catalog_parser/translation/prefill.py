@@ -83,7 +83,12 @@ def resolve_record_type(record: dict[str, Any]) -> str | None:
         value = record.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return None
+    from catalog_parser.parser import duration_to_type, parse_duration
+
+    duration = parse_duration(record.get("ctDuration"))
+    if duration is None:
+        return None
+    return duration_to_type(duration)
 
 
 def ai_prefill_enabled() -> bool:

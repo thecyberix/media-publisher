@@ -101,6 +101,10 @@ class PrefillHelperTests(unittest.TestCase):
 
         self.assertEqual(resolve_record_type({"Type": "Reel"}), "Reel")
         self.assertEqual(resolve_record_type({"ctType": "Video"}), "Video")
+        self.assertEqual(resolve_record_type({"ctDuration": 45}), "Reel")
+        self.assertEqual(resolve_record_type({"ctDuration": "50"}), "Reel")
+        self.assertEqual(resolve_record_type({"ctDuration": 120}), "Short")
+        self.assertEqual(resolve_record_type({"ctDuration": 400}), "Video")
         self.assertIsNone(resolve_record_type({}))
 
 
