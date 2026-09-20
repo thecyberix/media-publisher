@@ -283,6 +283,17 @@ class EligibilityTests(unittest.TestCase):
         )
         self.assertEqual(reasons, [])
 
+    def test_filter_by_catalog_title_is_case_insensitive(self) -> None:
+        from catalog_parser.eligibility import filter_by_catalog_title
+
+        records = [
+            {"ctTitle": "Hello Or Namaskar"},
+            {"ctTitle": "Other Title"},
+        ]
+        matched = filter_by_catalog_title(records, "  hello or namaskar  ")
+        self.assertEqual(matched, [{"ctTitle": "Hello Or Namaskar"}])
+        self.assertEqual(filter_by_catalog_title(records, ""), [])
+
 
 if __name__ == "__main__":
     unittest.main()

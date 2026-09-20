@@ -842,7 +842,7 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
         self.assertEqual(actions[0].ingest_type, "Reel")
         self.assertEqual(actions[0].ingest_count, 4)
 
-    def test_friday_catches_up_if_monday_fill_missing(self) -> None:
+    def test_friday_does_not_catch_up_if_monday_fill_missing(self) -> None:
         today = date(2026, 8, 28)
         actions, processed = plan_weekly_editor_assignment_actions(
             [],
@@ -851,8 +851,19 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
             today=today,
             target_reel_to_video_ratio=6,
         )
-        self.assertEqual(processed, ["Nina Rueva"])
-        self.assertEqual(actions[0].ingest_count, 4)
+        self.assertEqual(processed, [])
+        self.assertEqual(actions, [])
+
+    def test_friday_does_not_assign_when_last_assigned_unknown(self) -> None:
+        actions, processed = plan_weekly_editor_assignment_actions(
+            [],
+            editors=[("Nina Rueva", 4, "Reel")],
+            last_assigned={},
+            today=date(2026, 8, 28),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(processed, [])
+        self.assertEqual(actions, [])
 
     def test_this_week_fill_skips_even_when_queue_empty(self) -> None:
         today = date(2026, 8, 28)

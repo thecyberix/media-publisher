@@ -20,6 +20,7 @@ from catalog_parser.airtable import (
     load_existing_video_folder_ids_for_ingest,
 )
 from catalog_parser.auth import get_docs_service, get_drive_service, get_sheets_service
+from catalog_parser.eligibility import filter_by_catalog_title
 from catalog_parser.parser import (
     DEFAULT_VIDEO_TYPE,
     TYPE_VIDEO,
@@ -40,6 +41,8 @@ from catalog_parser.smartcat import DEFAULT_UI_BASE, configured_target_language
 from catalog_parser.smartcat_web import DEFAULT_STORAGE_STATE, SmartcatWebClient
 from catalog_parser.workflow.config import load_catalog_id
 from catalog_parser.workflow.table_cache import TableCache
+
+HIGH_PRIORITY_TRANSLATOR = "High Priority"
 
 
 def defer_or_send_review_notification(
@@ -159,13 +162,22 @@ def ingest_batch_unassigned(
     require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
     pending_review_items: list[Any] | None = None,
+    required_title: str | None = None,
 ) -> list[str]:
+    wanted_title = required_title.strip() if isinstance(required_title, str) else ""
+    if wanted_title:
+        airtable_fields = {
+            FIELD_TRANSLATOR: HIGH_PRIORITY_TRANSLATOR,
+            FIELD_STATUS: STATUS_TODO,
+        }
+    else:
+        airtable_fields = {FIELD_STATUS: STATUS_NOT_ASSIGNED}
     return ingest_batch(
         airtable,
         desired_type=desired_type,
         target_count=target_count,
         max_video_seconds=max_video_seconds,
-        airtable_fields={FIELD_STATUS: STATUS_NOT_ASSIGNED},
+        airtable_fields=airtable_fields,
         credentials_path=credentials_path,
         token_path=token_path,
         use_console=use_console,
@@ -174,6 +186,7 @@ def ingest_batch_unassigned(
         require_pkg_tn=require_pkg_tn,
         log=log,
         pending_review_items=pending_review_items,
+        required_title=required_title,
     )
 
 
@@ -192,10 +205,14 @@ def ingest_batch(
     require_pkg_tn: bool = False,
     log: Callable[[str], None] | None = None,
     pending_review_items: list[Any] | None = None,
+    required_title: str | None = None,
 ) -> list[str]:
     catalog_id = load_catalog_id(PROJECT_ROOT)
 
     emit = log or print
+    wanted_title = required_title.strip() if isinstance(required_title, str) else ""
+    if wanted_title:
+        target_count = 1
     video_type = parse_video_type(desired_type or (os.getenv("VIDEO_TYPE") or DEFAULT_VIDEO_TYPE))
     type_min_duration, type_max_duration = type_duration_bounds(video_type)
     min_duration = type_min_duration
@@ -228,6 +245,14 @@ def ingest_batch(
         emit(
             f"Ingest order: {marked} pkgTn-marked {video_type} candidate(s) first, "
             f"then {len(candidates) - marked} unmarked."
+        )
+
+    if wanted_title:
+        before_title = len(candidates)
+        candidates = filter_by_catalog_title(candidates, wanted_title)
+        emit(
+            f"Title filter: {len(candidates)}/{before_title} {video_type} "
+            f"candidate(s) match {wanted_title!r}."
         )
 
     smartcat_language = configured_target_language()
@@ -307,6 +332,8 @@ def ingest_batch(
         )
         if require_pkg_tn:
             candidates = filter_by_pkg_tn(candidates, require_marked=True)
+        if wanted_title:
+            candidates = filter_by_catalog_title(candidates, wanted_title)
         eligible, scanned = build_eligible_catalog_records(candidates, **enrich_kwargs)
 
     emit(

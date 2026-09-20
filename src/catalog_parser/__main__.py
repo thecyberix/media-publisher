@@ -33,6 +33,7 @@ from catalog_parser.eligibility import (
     catalog_video_folder_id,
     catalog_yt_title_key,
     explain_catalog_eligibility,
+    filter_by_catalog_title,
     is_catalog_eligible,
     needs_bulgarian_translation,
     register_title_identity,
@@ -691,6 +692,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ingest_parser.add_argument(
+        "--title",
+        default=None,
+        help=(
+            "Ingest the catalog row whose ctTitle matches this value "
+            "(case-insensitive). Implies a count of 1. "
+            "Type, duration, duplicate, Smartcat, and mix checks still apply."
+        ),
+    )
+    ingest_parser.add_argument(
         "--unassigned",
         action="store_true",
         help=(
@@ -780,8 +790,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    required_title = (getattr(args, "title", None) or "").strip() or None
     count = args.count if args.count is not None else DEFAULT_UNASSIGNED_INGEST_COUNT
-    if count < 1:
+    if required_title:
+        count = 1
+    elif count < 1:
         parser.error("--count must be at least 1")
 
     airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
@@ -796,7 +809,10 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
         args.video_type or os.getenv("VIDEO_TYPE") or DEFAULT_VIDEO_TYPE
     )
     from catalog_parser.workflow.config import load_workflow_config
-    from catalog_parser.workflow.ingest import ingest_batch_unassigned
+    from catalog_parser.workflow.ingest import (
+        HIGH_PRIORITY_TRANSLATOR,
+        ingest_batch_unassigned,
+    )
 
     config = load_workflow_config(PROJECT_ROOT)
     airtable_client = AirtableClient(
@@ -808,8 +824,13 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
     )
 
     print(
-        f"Unassigned ingest: {count} {video_type}(s)"
-        f"{' (dry-run)' if args.dry_run else ''}"
+        (
+            f"Title ingest: 1 {video_type} titled {required_title!r} "
+            f"(Translator {HIGH_PRIORITY_TRANSLATOR!r})"
+            if required_title
+            else f"Unassigned ingest: {count} {video_type}(s)"
+        )
+        + f"{' (dry-run)' if args.dry_run else ''}"
     )
     try:
         created_ids = ingest_batch_unassigned(
@@ -823,6 +844,7 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
             dry_run=args.dry_run,
             require_pkg_tn=bool(getattr(args, "require_pkg_tn", False)),
             log=print,
+            required_title=required_title,
         )
     except RuntimeError as exc:
         parser.error(str(exc))
@@ -893,7 +915,8 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         airtable_enabled = False
     require_mixable_media = not args.sheet_only
 
-    target_count = limit if limit > 0 else DEFAULT_LIMIT
+    required_title = (getattr(args, "title", None) or "").strip() or None
+    target_count = 1 if required_title else (limit if limit > 0 else DEFAULT_LIMIT)
     parse_limit = limit if args.sheet_only else 0
 
     records = parse_catalog(
@@ -904,6 +927,13 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         max_duration=max_duration,
         video_type=video_type,
     )
+    if required_title:
+        before_title = len(records)
+        records = filter_by_catalog_title(records, required_title)
+        print(
+            f"Title filter: {len(records)}/{before_title} {video_type} "
+            f"candidate(s) match {required_title!r}."
+        )
     if args.require_pkg_tn:
         before = len(records)
         records = filter_by_pkg_tn(records, require_marked=True)

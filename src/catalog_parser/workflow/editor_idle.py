@@ -10,7 +10,7 @@ from catalog_parser.airtable import FIELD_EDITOR
 DEFAULT_EDITOR_LAST_ASSIGNED_PATH = Path("output") / "workflow" / "editor_last_assigned.json"
 DEFAULT_WORKFLOW_TIMEZONE = "Europe/Sofia"
 SIR_TRANSLATESALOT = "Sir Translatesalot"
-# Monday. Later days catch up if this week's fill did not complete.
+# Monday only. Later days do not catch up if this week's fill did not complete.
 EDITOR_ASSIGNMENT_WEEKDAY = 0
 
 

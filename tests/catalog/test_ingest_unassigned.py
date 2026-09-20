@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from catalog_parser.airtable import STATUS_NOT_ASSIGNED, STATUS_TODO
 from catalog_parser.workflow.ingest import (
+    HIGH_PRIORITY_TRANSLATOR,
     defer_or_send_review_notification,
     ingest_batch,
     ingest_batch_for_translator,
@@ -108,6 +109,55 @@ class IngestBatchTests(unittest.TestCase):
     @patch("catalog_parser.workflow.ingest.get_sheets_service")
     @patch("catalog_parser.workflow.ingest.parse_catalog")
     @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
+    def test_ingest_batch_filters_to_required_title(
+        self,
+        _mock_catalog_id: MagicMock,
+        mock_parse_catalog: MagicMock,
+        _mock_sheets: MagicMock,
+        _mock_drive: MagicMock,
+        _mock_docs: MagicMock,
+        _mock_canva: MagicMock,
+        mock_build_eligible: MagicMock,
+    ) -> None:
+        mock_parse_catalog.return_value = [
+            {"ctTitle": "Skip Me"},
+            {"ctTitle": "Hello Or Namaskar"},
+        ]
+        mock_build_eligible.return_value = (
+            [{"ctTitle": "Hello Or Namaskar", "_originalThumbnailPath": ""}],
+            1,
+        )
+        airtable = MagicMock()
+        airtable.create_records.return_value = ["recTitle"]
+
+        created = ingest_batch_unassigned(
+            airtable,
+            desired_type="Reel",
+            target_count=4,
+            max_video_seconds=900,
+            required_title="hello or namaskar",
+        )
+
+        self.assertEqual(created, ["recTitle"])
+        filtered = mock_build_eligible.call_args.args[0]
+        self.assertEqual([row["ctTitle"] for row in filtered], ["Hello Or Namaskar"])
+        self.assertEqual(mock_build_eligible.call_args.kwargs["target_count"], 1)
+        created_records = airtable.create_records.call_args.args[0]
+        self.assertEqual(
+            created_records[0]["_airtable_fields"],
+            {
+                "Translator": HIGH_PRIORITY_TRANSLATOR,
+                "Status": STATUS_TODO,
+            },
+        )
+
+    @patch("catalog_parser.workflow.ingest.build_eligible_catalog_records")
+    @patch("catalog_parser.workflow.ingest.build_canva_client_from_env", return_value=None)
+    @patch("catalog_parser.workflow.ingest.get_docs_service")
+    @patch("catalog_parser.workflow.ingest.get_drive_service")
+    @patch("catalog_parser.workflow.ingest.get_sheets_service")
+    @patch("catalog_parser.workflow.ingest.parse_catalog")
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
     def test_ingest_batch_for_translator_assigns_translator_and_todo(
         self,
         _mock_catalog_id: MagicMock,
@@ -178,7 +228,7 @@ class IngestBatchTests(unittest.TestCase):
             log=logs.append,
         )
 
-        self.assertEqual(created, [])
+        self.assertEqual(created, ["dry-run-1"])
         airtable.create_records.assert_not_called()
         self.assertTrue(any("would ingest" in line for line in logs))
 

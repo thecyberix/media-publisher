@@ -25,7 +25,7 @@ on:
           - Video
         default: Reel
       count:
-        description: Ingest only — number of videos
+        description: Ingest only — number of videos (or a catalog title)
         type: string
         default: "4"
 
@@ -195,20 +195,22 @@ jobs:
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
           GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ env.NOTIFY_EMAIL }}
+          INGEST_COUNT_OR_TITLE: ${{ inputs.count }}
+          INGEST_VIDEO_TYPE: ${{ inputs.video_type }}
+          INGEST_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          COUNT="${{ inputs.count }}"
-          COUNT="${COUNT:-4}"
-          if ! [[ "$COUNT" =~ ^[1-9][0-9]*$ ]]; then
-            echo "count must be a positive integer, got: $COUNT" >&2
-            exit 1
+          COUNT="${INGEST_COUNT_OR_TITLE:-4}"
+          TYPE=$(echo "$INGEST_VIDEO_TYPE" | tr '[:upper:]' '[:lower:]')
+          EXTRA_ARGS=()
+          if [ "$INGEST_DRY_RUN" = "true" ]; then
+            EXTRA_ARGS+=(--dry-run)
           fi
-          TYPE=$(echo "${{ inputs.video_type }}" | tr '[:upper:]' '[:lower:]')
-          EXTRA_ARGS=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            EXTRA_ARGS="--dry-run"
+          if [[ "$COUNT" =~ ^[1-9][0-9]*$ ]]; then
+            python -m catalog_parser ingest --unassigned --type "$TYPE" --count "$COUNT" "${EXTRA_ARGS[@]}"
+          else
+            python -m catalog_parser ingest --unassigned --type "$TYPE" --title "$COUNT" "${EXTRA_ARGS[@]}"
           fi
-          python -m catalog_parser ingest --unassigned --type "$TYPE" --count "$COUNT" $EXTRA_ARGS
 
       - name: Run workflow orchestrator
         if: >-

@@ -225,3 +225,18 @@ def register_title_identity(
 ) -> None:
     type_key = resolve_record_type_key(record, video_type=video_type)
     existing_titles.update(title_identity_keys(record.get("ctTitle"), type_key))
+
+
+def filter_by_catalog_title(
+    records: list[dict[str, Any]],
+    title: str,
+) -> list[dict[str, Any]]:
+    """Keep catalog rows whose ``ctTitle`` matches ``title`` (case-insensitive)."""
+    wanted = normalize_title(title)
+    if not wanted:
+        return []
+    return [
+        record
+        for record in records
+        if normalize_title(record.get("ctTitle")) == wanted
+    ]

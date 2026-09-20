@@ -568,10 +568,9 @@ def editor_due_for_weekly_assignment(
     today: date,
     assignment_weekday: int | None = None,
 ) -> bool:
-    """True until this week's assignment weekday fill has been recorded.
+    """True only on the assignment weekday until that day's fill is recorded.
 
-    Default weekday is Monday. Tuesday–Sunday catch up if last week's date is
-    still stored (Monday run missed or fill failed).
+    Default weekday is Monday. Later days do not catch up if Monday was missed.
     """
     from catalog_parser.workflow.editor_idle import (
         EDITOR_ASSIGNMENT_WEEKDAY,
@@ -581,6 +580,8 @@ def editor_due_for_weekly_assignment(
     weekday = (
         EDITOR_ASSIGNMENT_WEEKDAY if assignment_weekday is None else assignment_weekday
     )
+    if today.weekday() != weekday:
+        return False
     week_date = this_week_assignment_date(today, weekday=weekday)
     if last_assigned is None:
         return True

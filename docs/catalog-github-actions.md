@@ -121,15 +121,16 @@ Push to the branch cron-job uses in `"ref"` (`master` for this repo).
 - **mode `full`** (default) — editor assignment, mixing, ingest, and the rest of the daily orchestrator.
   - Leave **dry_run** unchecked for a real run.
   - Check **dry_run** to print planned actions without writing to Airtable or Drive.
-- **mode `ingest`** — create unassigned Airtable rows only (`7. Not Assigned`). Skips assignment, mixing, HappyScribe watch, and workflow-state artifacts.
+- **mode `ingest`** — ingest catalog rows without running the daily orchestrator. Skips assignment, mixing, HappyScribe watch, and workflow-state artifacts.
   - **video_type** — `Reel`, `Short`, or `Video`
-  - **count** — how many rows to ingest (default `4`)
+  - **count** — how many rows to ingest (default `4`) as unassigned (`7. Not Assigned`). If this is not a positive integer, it is treated as a catalog **title**: ingest that one row of the selected type with Translator **High Priority** and Status **`1. To do`**. Duplicate, Smartcat, mix, duration, and other ingest checks still apply.
   - **dry_run** — preview eligible rows without writing to Airtable
 
 Local equivalent:
 
 ```powershell
 python -m catalog_parser ingest --unassigned --type reel --count 4
+python -m catalog_parser ingest --unassigned --type video --title "Exact Catalog Title"
 ```
 
 Ingest reads the catalog spreadsheet id from `config/workflow_config.json` (`catalog_id`). The first sheet tab is used.
@@ -423,7 +424,7 @@ Field names must match Airtable **Translator** / **Editor** / **Timing Editor** 
 
 ### Weekly editor assignment (Translation done)
 
-Each **Monday** (Europe/Sofia; later days catch up if that week's assignment did not complete), the orchestrator assigns every editor a **new** batch equal to `weekly_capacity_reels`, independent of videos still in their queue. Work comes from **unassigned** `2. Translation done` rows of the matching `preferred_editing_type` (translator `preferred_editor` still wins and ignores type).
+Each **Monday** (Europe/Sofia), the orchestrator assigns every editor a **new** batch equal to `weekly_capacity_reels`, independent of videos still in their queue. If that Monday run is missed, later days do **not** catch up. Work comes from **unassigned** `2. Translation done` rows of the matching `preferred_editing_type` (translator `preferred_editor` still wins and ignores type).
 
 When the unassigned pool is short, or has the wrong type, the rest of that week's batch is ingested directly into Translation done, assigned to that editor, with Translator **Sir Translatesalot**. Editors who already received this week's batch are not given another one mid-week even if they finish early.
 
