@@ -39,7 +39,7 @@ def _parse_person(item: object) -> PersonProfile | None:
     if not name:
         return None
     weekly_capacity_reels = int(item.get("weekly_capacity_reels", 0))
-    if weekly_capacity_reels <= 0:
+    if weekly_capacity_reels < 0:
         return None
     preferred_translation_type = item.get("preferred_translation_type")
     if preferred_translation_type is not None:

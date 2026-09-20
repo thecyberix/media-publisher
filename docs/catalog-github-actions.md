@@ -424,7 +424,7 @@ Field names must match Airtable **Translator** / **Editor** / **Timing Editor** 
 
 ### Weekly editor assignment (Translation done)
 
-Each **Monday** (Europe/Sofia), the orchestrator assigns every editor a **new** batch equal to `weekly_capacity_reels`, independent of videos still in their queue. If that Monday run is missed, later days do **not** catch up. Work comes from **unassigned** `2. Translation done` rows of the matching `preferred_editing_type` (translator `preferred_editor` still wins and ignores type).
+Each **Monday** (Europe/Sofia), the orchestrator assigns every editor a **new** batch equal to `weekly_capacity_reels`, independent of videos still in their queue. Capacity `0` is valid: the person stays in the roster, but that week's autonomous ingest is skipped. If that Monday run is missed, later days do **not** catch up. Work comes from **unassigned** `2. Translation done` rows of the matching `preferred_editing_type` (translator `preferred_editor` still wins and ignores type).
 
 When the unassigned pool is short, or has the wrong type, the rest of that week's batch is ingested directly into Translation done, assigned to that editor, with Translator **Sir Translatesalot**. Editors who already received this week's batch are not given another one mid-week even if they finish early.
 

@@ -842,6 +842,17 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
         self.assertEqual(actions[0].ingest_type, "Reel")
         self.assertEqual(actions[0].ingest_count, 4)
 
+    def test_zero_capacity_does_not_ingest(self) -> None:
+        actions, processed = plan_weekly_editor_assignment_actions(
+            [],
+            editors=[("Nina Rueva", 0, "Reel")],
+            last_assigned={"Nina Rueva": date(2026, 8, 17)},
+            today=date(2026, 8, 24),
+            target_reel_to_video_ratio=6,
+        )
+        self.assertEqual(processed, ["Nina Rueva"])
+        self.assertEqual(actions, [])
+
     def test_friday_does_not_catch_up_if_monday_fill_missing(self) -> None:
         today = date(2026, 8, 28)
         actions, processed = plan_weekly_editor_assignment_actions(
