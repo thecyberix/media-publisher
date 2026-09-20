@@ -427,4 +427,38 @@ def ingest_batch(
     if table_cache is not None and created_ids:
         table_cache.register_created_from_catalog(eligible, created_ids)
     emit(f"Created {len(created_ids)} Airtable row(s).")
+
+    if review_items:
+        _auto_sort_ingest_review_thumbnails(
+            airtable,
+            table_cache=table_cache,
+            emit=emit,
+        )
     return created_ids
+
+
+def _auto_sort_ingest_review_thumbnails(
+    airtable: AirtableClient,
+    *,
+    table_cache: TableCache | None,
+    emit: Callable[[str], None],
+) -> None:
+    """Auto-approve original-background review files after any ingest."""
+    from catalog_parser.workflow.approved_thumbnails import (
+        process_approved_review_thumbnails_in_workflow,
+        process_pending_review_thumbnails_in_workflow,
+    )
+
+    records = table_cache.records if table_cache is not None else airtable.list_records()
+    process_approved_review_thumbnails_in_workflow(
+        project_root=PROJECT_ROOT,
+        records=records,
+        dry_run=False,
+        log=emit,
+    )
+    process_pending_review_thumbnails_in_workflow(
+        project_root=PROJECT_ROOT,
+        records=records,
+        dry_run=False,
+        log=emit,
+    )

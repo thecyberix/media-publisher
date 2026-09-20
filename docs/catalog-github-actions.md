@@ -261,7 +261,7 @@ After that, the same run vision-classifies remaining original-background files i
 - **Reject** when the image has overlay text that is only subtitle/caption style, or when the background is empty / photo-only. Those files are moved into **Rejected** when that folder already exists. If **Rejected** is missing, they are not uploaded and the folder is not created.
 - **Keep** leftover manual Canva download placeholders in **Thumbnails for approval**. New ingest writes these again when API and share-preview both fail for a package design.
 
-Ingest still uploads review-queue files to Drive and sends the review email for visibility; auto-approve no longer waits until the next daily run to write Airtable.
+Ingest still uploads review-queue files to Drive and sends the review email for visibility. After every ingest (title, count, translator, or editor fill), the same auto-sort runs immediately so titled original backgrounds are approved into Airtable without waiting for a later daily pass. The daily orchestrator still auto-sorts once more at the end of the run for leftover files.
 
 Auto-sort is skipped when `TRANSLATION_PROVIDER` is `none` or no translation API key is configured.
 

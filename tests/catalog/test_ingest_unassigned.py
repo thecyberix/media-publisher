@@ -232,6 +232,136 @@ class IngestBatchTests(unittest.TestCase):
         airtable.create_records.assert_not_called()
         self.assertTrue(any("would ingest" in line for line in logs))
 
+    @patch(
+        "catalog_parser.workflow.ingest._auto_sort_ingest_review_thumbnails"
+    )
+    @patch(
+        "catalog_parser.workflow.ingest.defer_or_send_review_notification"
+    )
+    @patch("media_publisher.sources.thumbnail_review.upload_review_thumbnail")
+    @patch(
+        "media_publisher.sources.drive_layout.resolve_thumbnails_for_approval_id",
+        return_value="review-folder",
+    )
+    @patch("media_publisher.config.load_settings")
+    @patch("catalog_parser.workflow.ingest.build_eligible_catalog_records")
+    @patch("catalog_parser.workflow.ingest.build_canva_client_from_env", return_value=None)
+    @patch("catalog_parser.workflow.ingest.get_docs_service")
+    @patch("catalog_parser.workflow.ingest.get_drive_service")
+    @patch("catalog_parser.workflow.ingest.get_sheets_service")
+    @patch("catalog_parser.workflow.ingest.parse_catalog")
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
+    def test_standalone_ingest_auto_sorts_review_thumbnails(
+        self,
+        _mock_catalog_id: MagicMock,
+        mock_parse_catalog: MagicMock,
+        _mock_sheets: MagicMock,
+        _mock_drive: MagicMock,
+        _mock_docs: MagicMock,
+        _mock_canva: MagicMock,
+        mock_build_eligible: MagicMock,
+        mock_settings: MagicMock,
+        _resolve_review: MagicMock,
+        _upload_review: MagicMock,
+        _defer_email: MagicMock,
+        mock_auto_sort: MagicMock,
+    ) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            review_path = Path(tmp) / "Hello.review.jpg"
+            review_path.write_bytes(b"jpg")
+            mock_parse_catalog.return_value = [{"ctTitle": "Hello"}]
+            mock_build_eligible.return_value = (
+                [
+                    {
+                        "ctTitle": "Hello",
+                        "_thumbnailReviewPath": str(review_path),
+                    }
+                ],
+                1,
+            )
+            mock_settings.return_value.drive_url = "https://drive.example/folder"
+            airtable = MagicMock()
+            airtable.create_records.return_value = ["recHello"]
+
+            ingest_batch_unassigned(
+                airtable,
+                desired_type="Reel",
+                target_count=1,
+                max_video_seconds=900,
+            )
+
+        mock_auto_sort.assert_called_once()
+        self.assertIs(mock_auto_sort.call_args.args[0], airtable)
+        self.assertIsNone(mock_auto_sort.call_args.kwargs["table_cache"])
+
+    @patch(
+        "catalog_parser.workflow.ingest._auto_sort_ingest_review_thumbnails"
+    )
+    @patch(
+        "catalog_parser.workflow.ingest.defer_or_send_review_notification"
+    )
+    @patch("media_publisher.sources.thumbnail_review.upload_review_thumbnail")
+    @patch(
+        "media_publisher.sources.drive_layout.resolve_thumbnails_for_approval_id",
+        return_value="review-folder",
+    )
+    @patch("media_publisher.config.load_settings")
+    @patch("catalog_parser.workflow.ingest.build_eligible_catalog_records")
+    @patch("catalog_parser.workflow.ingest.build_canva_client_from_env", return_value=None)
+    @patch("catalog_parser.workflow.ingest.get_docs_service")
+    @patch("catalog_parser.workflow.ingest.get_drive_service")
+    @patch("catalog_parser.workflow.ingest.get_sheets_service")
+    @patch("catalog_parser.workflow.ingest.parse_catalog")
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
+    def test_daily_ingest_also_auto_sorts_review_thumbnails(
+        self,
+        _mock_catalog_id: MagicMock,
+        mock_parse_catalog: MagicMock,
+        _mock_sheets: MagicMock,
+        _mock_drive: MagicMock,
+        _mock_docs: MagicMock,
+        _mock_canva: MagicMock,
+        mock_build_eligible: MagicMock,
+        mock_settings: MagicMock,
+        _resolve_review: MagicMock,
+        _upload_review: MagicMock,
+        _defer_email: MagicMock,
+        mock_auto_sort: MagicMock,
+    ) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            review_path = Path(tmp) / "Hello.review.jpg"
+            review_path.write_bytes(b"jpg")
+            mock_parse_catalog.return_value = [{"ctTitle": "Hello"}]
+            mock_build_eligible.return_value = (
+                [
+                    {
+                        "ctTitle": "Hello",
+                        "_thumbnailReviewPath": str(review_path),
+                    }
+                ],
+                1,
+            )
+            mock_settings.return_value.drive_url = "https://drive.example/folder"
+            airtable = MagicMock()
+            airtable.create_records.return_value = ["recHello"]
+            pending: list[ReviewQueueItem] = []
+
+            ingest_batch(
+                airtable,
+                desired_type="Reel",
+                target_count=1,
+                max_video_seconds=900,
+                airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+                pending_review_items=pending,
+            )
+
+        mock_auto_sort.assert_called_once()
+        self.assertIs(mock_auto_sort.call_args.args[0], airtable)
+
 
 if __name__ == "__main__":
     unittest.main()
