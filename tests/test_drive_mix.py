@@ -200,6 +200,21 @@ class DriveMixStructureTests(unittest.TestCase):
         )
         self.assertEqual(picked.id, "orig")
 
+    def test_pick_merge_video_prefers_video_over_titles_copy(self) -> None:
+        picked = _pick_merge_video(
+            [
+                self._media(
+                    "Copy of Reel-Are_You_a_Lover_or_a_Fixer_VP-22622 Titles.mp4",
+                    file_id="titles",
+                ),
+                self._media(
+                    "Copy of Reel-Are_You_a_Lover_or_a_Fixer_VP-22622 Video .mp4",
+                    file_id="video",
+                ),
+            ]
+        )
+        self.assertEqual(picked.id, "video")
+
     def test_pick_merge_video_keeps_copy_of_all_video_when_only_copies(self) -> None:
         picked = _pick_merge_video(
             [

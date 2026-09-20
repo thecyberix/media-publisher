@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -230,6 +231,21 @@ def _is_all_video_name(name: str) -> bool:
     return "all video" in Path(name).stem.casefold()
 
 
+_TITLES_VIDEO_TOKEN = re.compile(r"(?:^|[_\s-])titles(?:$|[_\s-])")
+_VIDEO_TOKEN = re.compile(r"(?:^|[_\s-])video(?:$|[_\s-])")
+
+
+def _is_titles_video_name(name: str) -> bool:
+    """True for stem files with burned-in English titles (``… Titles.mp4``)."""
+    stem = Path(name).stem.casefold().strip()
+    return bool(stem and _TITLES_VIDEO_TOKEN.search(stem))
+
+
+def _has_video_token(name: str) -> bool:
+    stem = Path(name).stem.casefold().strip()
+    return bool(stem and _VIDEO_TOKEN.search(stem))
+
+
 def _is_copy_video_name(name: str) -> bool:
     """True for Drive duplicate-style names (often English burned-in exports).
 
@@ -326,6 +342,11 @@ def _pick_preferred_video(
     # carry burned-in English captions). If every candidate is a copy, keep them.
     non_copy = [video for video in pool if not _is_copy_video_name(video.name)]
     pool = non_copy or pool
+    # Prefer clean picture over ``Titles`` / English-title burns when both exist.
+    non_titles = [video for video in pool if not _is_titles_video_name(video.name)]
+    pool = non_titles or pool
+    with_video_token = [video for video in pool if _has_video_token(video.name)]
+    pool = with_video_token or pool
     return sorted(pool, key=lambda video: video.name.casefold())[0]
 
 
