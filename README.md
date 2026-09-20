@@ -108,6 +108,7 @@ Optional (read by workflows when set):
 |----------|---------|
 | `HAPPYSCRIBE_REVIEW_URL` | HappyScribe library for performing a review before moving the files to HAPPYSCRIBE_URL for publishing. |
 | `TRANSLATION_MODEL` | Override the default model (`claude-sonnet-4-6` for Anthropic, `gpt-4o-mini` for OpenAI) |
+| `VIDEO_SCHEDULE_DAYS` | Days from the daily catalog run until the next video (default `1` = tomorrow). Use `3` for every third day. |
 
 ### Add a new language
 

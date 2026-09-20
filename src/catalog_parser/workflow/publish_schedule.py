@@ -38,6 +38,8 @@ PLATFORM_PUBLISHED_FIELDS = (
 
 TYPE_QUOTE = "Quote"
 STATUS_DONE_PUBLISHED = "Done & Published"
+VIDEO_SCHEDULE_DAYS_VARIABLE = "VIDEO_SCHEDULE_DAYS"
+DEFAULT_VIDEO_SCHEDULE_DAYS = 1
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,24 @@ def _parse_date_field(value: Any) -> date | None:
 
 def _iso_date(value: date) -> str:
     return value.isoformat()
+
+
+def video_schedule_days_from_env() -> int:
+    """Days from today until the next catalog video slot (default 1 = tomorrow)."""
+    raw = os.getenv(VIDEO_SCHEDULE_DAYS_VARIABLE, "").strip()
+    if not raw:
+        return DEFAULT_VIDEO_SCHEDULE_DAYS
+    try:
+        days = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{VIDEO_SCHEDULE_DAYS_VARIABLE} must be a positive integer"
+        ) from exc
+    if days < 1:
+        raise RuntimeError(
+            f"{VIDEO_SCHEDULE_DAYS_VARIABLE} must be a positive integer"
+        )
+    return days
 
 
 def desired_type_for_publish_date(target_date: date) -> str:
@@ -380,8 +400,38 @@ def _notify_if_missing_prepared_thumbnail(
     return False
 
 
+def _record_publish_dates(fields: dict[str, Any]) -> list[date]:
+    dates: list[date] = []
+    for field in PLATFORM_DATE_FIELDS:
+        parsed = _parse_date_field(fields.get(field))
+        if parsed is not None:
+            dates.append(parsed)
+    return dates
+
+
 def _record_has_any_publish_date(fields: dict[str, Any]) -> bool:
-    return any(_field_text(fields.get(field)) for field in PLATFORM_DATE_FIELDS)
+    return bool(_record_publish_dates(fields))
+
+
+def _has_catalog_publish_date_between(
+    records: list[dict[str, Any]],
+    *,
+    after: date,
+    before: date,
+) -> bool:
+    """True when a non-quote catalog row is dated strictly between after and before."""
+    if before <= after + timedelta(days=1):
+        return False
+    for record in records:
+        fields = record.get("fields")
+        if not isinstance(fields, dict):
+            continue
+        if is_quote_record(fields):
+            continue
+        for scheduled in _record_publish_dates(fields):
+            if after < scheduled < before:
+                return True
+    return False
 
 
 def _record_has_pending_for_date(fields: dict[str, Any], target_date: date) -> bool:
@@ -570,15 +620,30 @@ def schedule_tomorrow_publish(
     docs_service: Any | None = None,
     table_cache: Any | None = None,
 ) -> ScheduleTomorrowResult:
-    """Pick one catalog record for tomorrow and set SG publish dates."""
+    """Pick one catalog record for the next slot and set SG publish dates."""
     from zoneinfo import ZoneInfo
 
     publish_timezone, _publish_hour = _publish_settings()
+    emit = log or (lambda _message: None)
+    schedule_days = video_schedule_days_from_env()
     if target_date is None:
         today_local = datetime.now(ZoneInfo(publish_timezone)).date()
-        target_date = today_local + timedelta(days=1)
+        target_date = today_local + timedelta(days=schedule_days)
+        if _has_catalog_publish_date_between(
+            records,
+            after=today_local,
+            before=target_date,
+        ):
+            return ScheduleTomorrowResult(
+                success=True,
+                message=(
+                    f"No update needed; a video is already dated before "
+                    f"{target_date.isoformat()} "
+                    f"({VIDEO_SCHEDULE_DAYS_VARIABLE}={schedule_days})."
+                ),
+                target_date=target_date,
+            )
 
-    emit = log or (lambda _message: None)
     desired = desired_type_for_publish_date(target_date)
 
     if _has_pending_matching_type(

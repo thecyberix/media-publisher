@@ -931,6 +931,98 @@ class PublishScheduleTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("still missing", message)
 
+    def test_schedule_uses_video_schedule_days_from_env(self) -> None:
+        from datetime import datetime, timezone
+
+        class _Now(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 7, 3, 0, 5, tzinfo=tz or timezone.utc)
+
+        airtable = MagicMock()
+        records = [
+            {
+                "id": "rec-reel",
+                "createdTime": "2026-07-01T10:00:00.000Z",
+                "fields": {
+                    FIELD_STATUS: STATUS_SYNC_DONE,
+                    FIELD_TITLE: "Reel",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Tr",
+                    FIELD_TYPE: TYPE_REEL,
+                },
+            },
+        ]
+        with patch.dict("os.environ", {"VIDEO_SCHEDULE_DAYS": "3"}), patch(
+            "catalog_parser.workflow.publish_schedule._publish_settings",
+            return_value=("UTC", 18),
+        ), patch(
+            "catalog_parser.workflow.publish_schedule.datetime",
+            _Now,
+        ), patch(
+            "catalog_parser.workflow.publish_schedule._notify_if_missing_prepared_thumbnail",
+            return_value=False,
+        ):
+            result = schedule_tomorrow_publish(
+                airtable=airtable,
+                records=records,
+                drive_service=MagicMock(),
+            )
+
+        self.assertEqual(result.target_date, date(2026, 7, 6))
+        self.assertEqual(result.record_id, "rec-reel")
+        self.assertEqual(
+            airtable.update_record_fields.call_args.args[1][FIELD_SG_YT_DATE],
+            "2026-07-06",
+        )
+
+    def test_schedule_skips_when_gap_already_has_a_video(self) -> None:
+        from datetime import datetime, timezone
+
+        class _Now(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 7, 4, 0, 5, tzinfo=tz or timezone.utc)
+
+        airtable = MagicMock()
+        records = [
+            {
+                "id": "rec-existing",
+                "fields": {
+                    FIELD_STATUS: STATUS_SYNC_DONE,
+                    FIELD_TITLE: "Existing",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Tr",
+                    FIELD_TYPE: TYPE_REEL,
+                    FIELD_SG_YT_DATE: "2026-07-06",
+                },
+            },
+            {
+                "id": "rec-new",
+                "createdTime": "2026-07-02T10:00:00.000Z",
+                "fields": {
+                    FIELD_STATUS: STATUS_SYNC_DONE,
+                    FIELD_TITLE: "New",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Tr",
+                    FIELD_TYPE: TYPE_REEL,
+                },
+            },
+        ]
+        with patch.dict("os.environ", {"VIDEO_SCHEDULE_DAYS": "3"}), patch(
+            "catalog_parser.workflow.publish_schedule._publish_settings",
+            return_value=("UTC", 18),
+        ), patch(
+            "catalog_parser.workflow.publish_schedule.datetime",
+            _Now,
+        ):
+            result = schedule_tomorrow_publish(
+                airtable=airtable,
+                records=records,
+                drive_service=MagicMock(),
+            )
+
+        self.assertTrue(result.success)
+        self.assertIsNone(result.record_id)
+        airtable.update_record_fields.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

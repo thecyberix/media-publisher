@@ -194,6 +194,7 @@ These live under **Settings → Secrets and variables → Actions → Variables*
 | `TRANSLATION_PROVIDER` | `anthropic`, `openai`, or `none`. Unset: skip all AI translation. |
 | `TRANSLATION_MODEL` | Optional. Defaults to `claude-sonnet-4-6` (Anthropic) or `gpt-4o-mini` (OpenAI). |
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
+| `VIDEO_SCHEDULE_DAYS` | Optional. Positive integer: days from the daily run until the next catalog video. Unset or `1` schedules tomorrow (previous default). `3` publishes a video every third day: the run fills `today + 3` unless another catalog video is already dated in that gap. |
 | `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg` in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
 | `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |
 | `HAPPYSCRIBE_REVIEW_URL` | Optional. Parent HappyScribe library URL. If set, leftover-folder email watches child folders `Short videos` and `Long videos`; publish also searches the child that matches the video type (Reel/Short → Short videos, Video → Long videos). Unset: skip the email check. Example: `https://www.happyscribe.com/v2/8104266/library/workspace`. |
@@ -276,7 +277,7 @@ when found (live lookup in the Video Folder package docs / root images).
 
 ### Missing prepared thumbnail on publish schedule
 
-When the daily orchestrator schedules tomorrow's video and that record has an
+When the daily orchestrator schedules the next video (`VIDEO_SCHEDULE_DAYS`, default tomorrow) and that record has an
 **Original Video Thumbnail** but no matching design/file in the Canva catalog
 folder or Drive override **Thumbnails** folder, it emails `NOTIFY_EMAIL` with
 the title, translated name, and Canva design / Drive TN template links (live
