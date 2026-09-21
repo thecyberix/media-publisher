@@ -28,6 +28,10 @@ class WorkflowStateError(RuntimeError):
     """Restore cannot proceed with a trustworthy previous snapshot."""
 
 
+class MissingWorkflowStateArtifact(WorkflowStateError):
+    """The named artifact is not present on a successful run (e.g. ingest-only)."""
+
+
 def parse_github_datetime(value: Any) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise WorkflowStateError(f"Missing GitHub timestamp: {value!r}")
@@ -252,27 +256,59 @@ def restore_workflow_state(
             f"No successful {workflow} run found to restore from "
             f"(exclude run_id={exclude_run_id})."
         )
-    selected = eligible[0]
 
     log("Eligible successes (newest first by createdAt):")
     for index, run in enumerate(eligible[:10], start=1):
-        marker = " <-- selected" if run.database_id == selected.database_id else ""
-        log(f"  {index}. {format_run_log_line(run)}{marker}")
+        log(f"  {index}. {format_run_log_line(run)}")
     if exclude_run_id is not None and any(
         item.get("databaseId") == exclude_run_id for item in payloads
     ):
         log(f"Skipped current run_id={exclude_run_id} in gh run list results")
 
+    skipped_missing: list[int] = []
+    skipped_too_old: list[int] = []
+    selected = None
+    for run in eligible:
+        if max_run_age is not None and not run_is_within_max_age(
+            run, now=now, max_age=max_run_age
+        ):
+            skipped_too_old.append(run.database_id)
+            log(
+                f"Skipping run {run.database_id}: older than {max_run_age} "
+                f"(created {run.created_at.isoformat()})"
+            )
+            continue
+        log(f"Trying: {format_run_log_line(run)}")
+        validate_selected_run(
+            run,
+            now=now,
+            max_run_age=None,
+            warn_run_age=warn_run_age,
+            log=log,
+        )
+        log(f"Downloading artifact {artifact} from run {run.database_id}")
+        try:
+            download(run_id=run.database_id, artifact=artifact, extract_dir=extract_dir)
+        except MissingWorkflowStateArtifact as exc:
+            skipped_missing.append(run.database_id)
+            log(f"Skipping run {run.database_id}: {exc}")
+            continue
+        selected = run
+        break
+
+    if selected is None:
+        reasons: list[str] = []
+        if skipped_missing:
+            reasons.append(f"no {artifact} artifact: {skipped_missing}")
+        if skipped_too_old:
+            reasons.append(f"older than {max_run_age}: {skipped_too_old}")
+        detail = f" ({'; '.join(reasons)})" if reasons else ""
+        raise WorkflowStateError(
+            f"No successful {workflow} run with artifact {artifact} found "
+            f"(exclude run_id={exclude_run_id}).{detail}"
+        )
+
     log(f"Selected: {format_run_log_line(selected)}")
-    validate_selected_run(
-        selected,
-        now=now,
-        max_run_age=max_run_age,
-        warn_run_age=warn_run_age,
-        log=log,
-    )
-    log(f"Downloading artifact {artifact} from run {selected.database_id}")
-    download(run_id=selected.database_id, artifact=artifact, extract_dir=extract_dir)
     backup_source = find_restored_file(extract_dir, BACKUP_RELATIVE)
     if backup_source is not None:
         validate_backup_matches_run(

@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from catalog_parser.workflow.github_state import (
+    MissingWorkflowStateArtifact,
     WorkflowStateError,
     backup_fetched_at_matches_run,
     eligible_runs_newest_first,
@@ -288,6 +289,104 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
             self.assertTrue(
                 (output_root / "workflow" / "status_history.json").is_file()
             )
+
+    def test_restore_skips_success_without_workflow_state_artifact(self) -> None:
+        payloads = [
+            _run(
+                113,
+                "2026-09-20T12:32:22Z",
+                number=113,
+                started_at="2026-09-20T12:32:26Z",
+                updated_at="2026-09-20T12:36:25Z",
+            ),
+            _run(
+                110,
+                "2026-09-20T00:01:11Z",
+                number=110,
+                started_at="2026-09-20T00:01:11Z",
+                updated_at="2026-09-20T00:03:42Z",
+            ),
+        ]
+        tried: list[int] = []
+
+        def fake_download(*, run_id: int, artifact: str, extract_dir: Path) -> None:
+            tried.append(run_id)
+            if run_id == 113:
+                raise MissingWorkflowStateArtifact(
+                    f"gh run download failed for run {run_id} artifact {artifact}: "
+                    "no valid artifacts found to download"
+                )
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            backup = extract_dir / "backups" / "airtable-latest.json"
+            backup.parent.mkdir(parents=True)
+            backup.write_text(
+                json.dumps(
+                    {
+                        "fetched_at": "2026-09-20T00:03:38+00:00",
+                        "records": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            history = extract_dir / "workflow" / "status_history.json"
+            history.parent.mkdir(parents=True)
+            history.write_text("[]", encoding="utf-8")
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            selected = restore_workflow_state(
+                workflow="catalog-daily-workflow.yml",
+                exclude_run_id=114,
+                artifact="workflow-state",
+                extract_dir=tmp / "extract",
+                output_root=tmp / "output",
+                required=[
+                    "backups/airtable-latest.json",
+                    "workflow/status_history.json",
+                ],
+                optional=[],
+                list_limit=20,
+                max_run_age=timedelta(hours=72),
+                warn_run_age=timedelta(hours=36),
+                backup_slack=timedelta(hours=2),
+                now=datetime(2026, 9, 21, 0, 3, 24, tzinfo=timezone.utc),
+                list_runs=lambda workflow, *, limit: payloads,
+                download=fake_download,
+            )
+        self.assertEqual(tried, [113, 110])
+        self.assertEqual(selected.database_id, 110)
+
+    def test_restore_fails_when_download_errors_for_another_reason(self) -> None:
+        payloads = [
+            _run(113, "2026-09-20T12:32:22Z", number=113),
+            _run(110, "2026-09-20T00:01:11Z", number=110),
+        ]
+
+        def fake_download(*, run_id: int, artifact: str, extract_dir: Path) -> None:
+            raise WorkflowStateError(
+                f"gh run download failed for run {run_id} artifact {artifact}: "
+                "HTTP 403"
+            )
+
+        with self.assertRaises(WorkflowStateError) as ctx:
+            restore_workflow_state(
+                workflow="catalog-daily-workflow.yml",
+                exclude_run_id=114,
+                artifact="workflow-state",
+                extract_dir=Path("unused"),
+                output_root=Path("unused"),
+                required=["backups/airtable-latest.json"],
+                optional=[],
+                list_limit=20,
+                max_run_age=timedelta(hours=72),
+                warn_run_age=timedelta(hours=36),
+                backup_slack=timedelta(hours=2),
+                now=datetime(2026, 9, 21, 0, 3, 24, tzinfo=timezone.utc),
+                list_runs=lambda workflow, *, limit: payloads,
+                download=fake_download,
+            )
+        self.assertIn("HTTP 403", str(ctx.exception))
+        self.assertNotIn("Skipped runs", str(ctx.exception))
 
     def test_restore_fails_when_selected_run_is_too_old(self) -> None:
 

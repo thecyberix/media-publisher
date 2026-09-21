@@ -147,7 +147,7 @@ Status changes between daily snapshots are appended to `output/workflow/status_h
 
 On GitHub Actions, the daily workflow:
 
-1. Restores `workflow-state` from the **newest successful** daily run **other than the current run** (status history, editor last-assigned dates, and previous backup). The restore step logs the selected run id / URL / `createdAt`, refuses a snapshot whose Airtable `fetched_at` does not match that run, and fails the job if the previous success is older than 72 hours.
+1. Restores `workflow-state` from the **newest successful** daily run **other than the current run** that uploaded that artifact (status history, editor last-assigned dates, and previous backup). Ingest-only successes are skipped because they do not upload `workflow-state`. The restore step logs the selected run id / URL / `createdAt`, refuses a snapshot whose Airtable `fetched_at` does not match that run, and fails the job if the previous success with the artifact is older than 72 hours.
 2. Runs the orchestrator and appends any new status events.
 3. Uploads `airtable-latest.json`, `status_history.json`, and `editor_last_assigned.json` as artifacts **only if restore succeeded** (so a failed restore cannot publish a truncated history).
 
@@ -459,7 +459,7 @@ The [Reporting workflow](../.github/workflows/reporting.yml) emails a summary ev
 
 The report covers the **previous calendar week** (Monday 00:00 – Sunday 23:59, UTC+3). It reads `output/workflow/status_history.json` accumulated by daily runs — **no Airtable API calls**.
 
-Daily runs restore the previous `workflow-state` artifact (Airtable backup + status history) before writing a new snapshot. Restore selects the newest successful daily run by `createdAt`, skips the current `github.run_id`, logs that choice, and fails if the backup `fetched_at` does not belong to the selected run. `actions/upload-artifact@v4` strips the common `output/` prefix from uploaded paths, so restore looks under both `backups/…` / `workflow/…` and legacy `output/backups/…` / `output/workflow/…`.
+Daily runs restore the previous `workflow-state` artifact (Airtable backup + status history) before writing a new snapshot. Restore selects the newest successful daily run by `createdAt` that actually uploaded `workflow-state`, skips the current `github.run_id` and ingest-only successes, logs that choice, and fails if the backup `fetched_at` does not belong to the selected run. `actions/upload-artifact@v4` strips the common `output/` prefix from uploaded paths, so restore looks under both `backups/…` / `workflow/…` and legacy `output/backups/…` / `output/workflow/…`.
 
 - **Translation** — record entered `2. Translation done` without an Editor (Translator field used for attribution)
 - **Editing** — record entered `3. Editing done` without Combined Media File (Editor field used for attribution)

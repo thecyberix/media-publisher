@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from catalog_parser.workflow.github_state import (
+    MissingWorkflowStateArtifact,
     WorkflowStateError,
     restore_workflow_state,
 )
@@ -77,9 +78,12 @@ def download_artifact(*, run_id: int, artifact: str, extract_dir: Path) -> None:
     )
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
-        raise WorkflowStateError(
+        message = (
             f"gh run download failed for run {run_id} artifact {artifact}: {stderr}"
         )
+        if "no valid artifacts found" in stderr.lower():
+            raise MissingWorkflowStateArtifact(message)
+        raise WorkflowStateError(message)
     if result.stdout.strip():
         print(result.stdout.rstrip(), flush=True)
     if result.stderr.strip():
@@ -99,7 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Restore workflow-state from the newest successful daily catalog "
-            "run, excluding the current GitHub Actions run."
+            "run that uploaded the artifact, excluding the current GitHub "
+            "Actions run. Ingest-only successes are skipped."
         )
     )
     parser.add_argument("--workflow", default=DEFAULT_WORKFLOW)
