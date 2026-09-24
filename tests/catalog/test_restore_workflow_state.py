@@ -14,6 +14,7 @@ from catalog_parser.workflow.github_state import (
     find_restored_file,
     read_backup_fetched_at,
     restore_workflow_state,
+    run_ids_from_artifact_list,
     run_is_within_max_age,
     select_previous_successful_run,
     workflow_run_from_payload,
@@ -77,6 +78,52 @@ class SelectPreviousSuccessfulRunTests(unittest.TestCase):
         payloads = [_run(19, "2026-09-19T00:01:10Z", number=109)]
         self.assertIsNone(
             select_previous_successful_run(payloads, exclude_run_id=19)
+        )
+
+
+class ArtifactListRunIdTests(unittest.TestCase):
+    def test_newest_unexpired_unique_run_ids_skip_expired_and_current(self) -> None:
+        payload = {
+            "artifacts": [
+                {
+                    "name": "workflow-state",
+                    "expired": False,
+                    "created_at": "2026-09-23T00:03:45Z",
+                    "workflow_run": {"id": 35800130240},
+                },
+                {
+                    "name": "workflow-state",
+                    "expired": True,
+                    "created_at": "2026-09-24T00:03:00Z",
+                    "workflow_run": {"id": 35936422236},
+                },
+                {
+                    "name": "airtable-backup-118",
+                    "expired": False,
+                    "created_at": "2026-09-23T00:03:44Z",
+                    "workflow_run": {"id": 35800130240},
+                },
+                {
+                    "name": "workflow-state",
+                    "expired": False,
+                    "created_at": "2026-09-22T00:03:43Z",
+                    "workflow_run": {"id": 35670139057},
+                },
+                {
+                    "name": "workflow-state",
+                    "expired": False,
+                    "created_at": "2026-09-21T02:56:06Z",
+                    "workflow_run": {"id": 35554947520},
+                },
+            ]
+        }
+        self.assertEqual(
+            run_ids_from_artifact_list(
+                payload,
+                artifact_name="workflow-state",
+                exclude_run_id=35936422236,
+            ),
+            [35800130240, 35670139057, 35554947520],
         )
 
 

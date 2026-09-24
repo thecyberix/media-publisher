@@ -88,6 +88,37 @@ def eligible_runs_newest_first(
     return eligible
 
 
+def run_ids_from_artifact_list(
+    payload: dict[str, Any],
+    *,
+    artifact_name: str,
+    exclude_run_id: int | None = None,
+) -> list[int]:
+    """Newest unique workflow run ids that uploaded an unexpired named artifact."""
+    items = payload.get("artifacts")
+    if not isinstance(items, list):
+        raise WorkflowStateError("Artifact list JSON must contain an artifacts array")
+    ranked: list[tuple[datetime, int]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("name") != artifact_name:
+            continue
+        if item.get("expired") is True:
+            continue
+        workflow_run = item.get("workflow_run")
+        run_id = workflow_run.get("id") if isinstance(workflow_run, dict) else None
+        if not isinstance(run_id, int) or run_id == exclude_run_id:
+            continue
+        ranked.append((parse_github_datetime(item.get("created_at")), run_id))
+    ranked.sort(key=lambda pair: (pair[0], pair[1]), reverse=True)
+    seen: list[int] = []
+    for _, run_id in ranked:
+        if run_id not in seen:
+            seen.append(run_id)
+    return seen
+
+
 def format_run_log_line(run: WorkflowRun) -> str:
     title = run.display_title or "(no title)"
     url = f"  {run.url}" if run.url else ""

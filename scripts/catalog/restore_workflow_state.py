@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +17,7 @@ from catalog_parser.workflow.github_state import (
     MissingWorkflowStateArtifact,
     WorkflowStateError,
     restore_workflow_state,
+    run_ids_from_artifact_list,
 )
 
 DEFAULT_WORKFLOW = "catalog-daily-workflow.yml"
@@ -37,13 +39,79 @@ def _run_gh(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _parse_json(stdout: str, *, what: str):
+    try:
+        return json.loads(stdout)
+    except ValueError as exc:
+        raise WorkflowStateError(f"{what} returned invalid JSON: {exc}") from exc
+
+
+def _repo_slug() -> str:
+    env = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    if env:
+        return env
+    result = _run_gh(
+        ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise WorkflowStateError(f"gh repo view failed: {stderr}")
+    slug = result.stdout.strip()
+    if not slug or "/" not in slug:
+        raise WorkflowStateError(f"Could not determine GitHub repository: {slug!r}")
+    return slug
+
+
+def _run_view_payload(run_id: int) -> dict:
+    result = _run_gh(
+        ["run", "view", str(run_id), "--json", _GH_RUN_JSON_FIELDS]
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise WorkflowStateError(f"gh run view failed for {run_id}: {stderr}")
+    payload = _parse_json(result.stdout, what=f"gh run view {run_id}")
+    if not isinstance(payload, dict):
+        raise WorkflowStateError(f"gh run view {run_id} JSON must be an object")
+    return payload
+
+
+def list_runs_from_artifacts(*, artifact: str, limit: int) -> list[dict]:
+    slug = _repo_slug()
+    result = _run_gh(
+        [
+            "api",
+            f"repos/{slug}/actions/artifacts?name={artifact}&per_page={max(limit, 30)}",
+        ]
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise WorkflowStateError(f"gh api artifacts failed: {stderr}")
+    payload = _parse_json(result.stdout, what="gh api artifacts")
+    if not isinstance(payload, dict):
+        raise WorkflowStateError("gh api artifacts JSON must be an object")
+    run_ids = run_ids_from_artifact_list(payload, artifact_name=artifact)
+    print(
+        f"Artifact {artifact}: {len(run_ids)} unexpired run(s) "
+        f"(loading up to {limit})",
+        flush=True,
+    )
+    runs: list[dict] = []
+    for run_id in run_ids:
+        if len(runs) >= limit:
+            break
+        runs.append(_run_view_payload(run_id))
+    return runs
+
+
 def list_successful_runs(workflow: str, *, limit: int) -> list[dict]:
+    since = (datetime.now(timezone.utc) - timedelta(days=4)).date().isoformat()
     result = _run_gh(
         [
             "run",
             "list",
             f"--workflow={workflow}",
             "--status=success",
+            f"--created=>={since}",
             f"--limit={limit}",
             "--json",
             _GH_RUN_JSON_FIELDS,
@@ -52,13 +120,31 @@ def list_successful_runs(workflow: str, *, limit: int) -> list[dict]:
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
         raise WorkflowStateError(f"gh run list failed: {stderr}")
-    try:
-        payload = json.loads(result.stdout)
-    except ValueError as exc:
-        raise WorkflowStateError(f"gh run list returned invalid JSON: {exc}") from exc
+    payload = _parse_json(result.stdout, what="gh run list")
     if not isinstance(payload, list):
         raise WorkflowStateError("gh run list JSON must be an array of runs")
     return payload
+
+
+def list_candidate_runs(
+    workflow: str, *, limit: int, artifact: str
+) -> list[dict]:
+    try:
+        from_artifacts = list_runs_from_artifacts(artifact=artifact, limit=limit)
+    except WorkflowStateError as exc:
+        print(
+            f"WARNING: artifact listing failed ({exc}); falling back to gh run list",
+            flush=True,
+        )
+        from_artifacts = []
+    if from_artifacts:
+        return from_artifacts
+    print(
+        "WARNING: no unexpired workflow-state artifacts listed; "
+        "falling back to gh run list",
+        flush=True,
+    )
+    return list_successful_runs(workflow, limit=limit)
 
 
 def download_artifact(*, run_id: int, artifact: str, extract_dir: Path) -> None:
@@ -102,9 +188,9 @@ def _parse_run_id(value: str | None) -> int | None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Restore workflow-state from the newest successful daily catalog "
-            "run that uploaded the artifact, excluding the current GitHub "
-            "Actions run. Ingest-only successes are skipped."
+            "Restore workflow-state from the newest unexpired GitHub artifact "
+            "of that name, not from gh run list pagination. Ingest-only "
+            "successes are skipped because they do not upload the artifact."
         )
     )
     parser.add_argument("--workflow", default=DEFAULT_WORKFLOW)
@@ -186,7 +272,9 @@ def main(argv: list[str] | None = None) -> int:
             max_run_age=max_run_age,
             warn_run_age=timedelta(hours=args.warn_run_age_hours),
             backup_slack=timedelta(hours=args.backup_match_slack_hours),
-            list_runs=list_successful_runs,
+            list_runs=lambda workflow, *, limit: list_candidate_runs(
+                workflow, limit=limit, artifact=args.artifact
+            ),
             download=download_artifact,
         )
     except WorkflowStateError as exc:
