@@ -19,6 +19,11 @@ from catalog_parser.workflow.archive_sources import (
 
 
 class ArchiveSourceDiscoveryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from catalog_parser.workflow import archive_sources as sources_module
+
+        sources_module._PROCESS_RESOLVED.clear()
+
     def test_parse_archive_pointer_title(self) -> None:
         parsed = parse_archive_pointer_title(
             "2024 archive: https://airtable.com/invite/l?inviteId=abc"
@@ -113,6 +118,11 @@ class ArchiveSourceDiscoveryTests(unittest.TestCase):
             ],
         )
         self.assertEqual(tables_mock.call_count, 2)
+
+        with patch.object(client, "list_base_tables") as second_tables:
+            again = resolve_archive_sources(client, records=records)
+        self.assertEqual(again, sources)
+        second_tables.assert_not_called()
 
     def test_resolve_archive_sources_returns_empty_without_archive_rows(self) -> None:
         client = AirtableClient("pat-test", "app-current", "Translator's Paradise")

@@ -822,6 +822,14 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
         api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
         or "https://api.airtable.com/v0",
     )
+    from catalog_parser.workflow.table_cache import TableCache
+
+    table_cache = TableCache.load(
+        airtable_client,
+        project_root=PROJECT_ROOT,
+        backup=False,
+        record_status_history=False,
+    )
 
     print(
         (
@@ -841,6 +849,7 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
             credentials_path=args.credentials,
             token_path=args.token,
             use_console=args.console_auth,
+            table_cache=table_cache,
             dry_run=args.dry_run,
             require_pkg_tn=bool(getattr(args, "require_pkg_tn", False)),
             log=print,

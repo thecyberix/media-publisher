@@ -12,6 +12,7 @@ from catalog_parser.workflow.archive_title_cache import (
     archive_cache_path,
     fetch_archive_titles,
     load_archive_titles,
+    peek_archive_title_cache,
     read_archive_title_cache,
     write_archive_title_cache,
 )
@@ -20,6 +21,8 @@ from catalog_parser.workflow.archive_title_cache import (
 class ArchiveTitleCacheTests(unittest.TestCase):
     def setUp(self) -> None:
         cache_module._PROCESS_CACHE.clear()
+        cache_module._UNVERIFIED_FILE_CACHE = None
+        cache_module._UNVERIFIED_FILE_CACHE_PATH = None
 
     def test_write_and_read_cache_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -186,6 +189,24 @@ class ArchiveTitleCacheTests(unittest.TestCase):
 
         self.assertEqual(titles, {"title a", "title b"})
         self.assertEqual(variants_mock.call_count, 2)
+
+    def test_peek_archive_title_cache_does_not_require_matching_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_archive_title_cache(
+                archive_cache_path(root),
+                sources=[
+                    AirtableArchiveSource(
+                        base_id="app-archive",
+                        table_name="Archive",
+                        title_fields=(FIELD_ORIGINAL_VIDEO_NAME,),
+                    )
+                ],
+                titles={"cached archive title"},
+            )
+            titles = peek_archive_title_cache(archive_cache_path(root))
+
+        self.assertEqual(titles, {"cached archive title"})
 
 
 if __name__ == "__main__":

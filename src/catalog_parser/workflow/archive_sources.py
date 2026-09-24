@@ -18,6 +18,8 @@ ARCHIVE_POINTER_RE = re.compile(
 )
 CATALOG_TITLE_FIELDS = (FIELD_TITLE, FIELD_ORIGINAL_VIDEO_NAME)
 
+_PROCESS_RESOLVED: dict[str, list[AirtableArchiveSource]] = {}
+
 
 def parse_archive_pointer_title(title: Any) -> tuple[str, str] | None:
     if not isinstance(title, str):
@@ -115,6 +117,11 @@ def resolve_archive_sources(
     if not pointers:
         return []
 
+    cache_key = f"{airtable.base_id}\t{airtable.table_name}\t{pointers!r}"
+    cached = _PROCESS_RESOLVED.get(cache_key)
+    if cached is not None:
+        return list(cached)
+
     bases = airtable.list_accessible_bases()
     sources: list[AirtableArchiveSource] = []
     for year, _invite_url in pointers:
@@ -153,4 +160,5 @@ def resolve_archive_sources(
             f"{table_name!r} using title field(s): {', '.join(title_fields)}"
         )
 
+    _PROCESS_RESOLVED[cache_key] = list(sources)
     return sources

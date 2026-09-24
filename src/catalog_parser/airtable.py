@@ -299,6 +299,8 @@ class AirtableClient:
             raise AirtableError("AIRTABLE_URL is required (missing base id)")
         if not self.table_name:
             raise AirtableError("AIRTABLE_URL is required (missing table id)")
+        self._base_tables_by_id: dict[str, list[dict[str, Any]]] = {}
+        self._known_url_fields: set[str] = set()
 
     def _table_url(
         self,
@@ -462,10 +464,16 @@ class AirtableClient:
         return [base for base in bases if isinstance(base, dict)]
 
     def list_base_tables(self, base_id: str) -> list[dict[str, Any]]:
-        encoded_base_id = urllib.parse.quote(base_id.strip(), safe="")
+        key = base_id.strip()
+        cached = self._base_tables_by_id.get(key)
+        if cached is not None:
+            return cached
+        encoded_base_id = urllib.parse.quote(key, safe="")
         response = self._request("GET", f"{self.api_base}/meta/bases/{encoded_base_id}/tables")
         tables = response.get("tables", [])
-        return [table for table in tables if isinstance(table, dict)]
+        result = [table for table in tables if isinstance(table, dict)]
+        self._base_tables_by_id[key] = result
+        return result
 
     def list_title_variants(
         self,
@@ -655,6 +663,8 @@ class AirtableClient:
         name = field_name.strip()
         if not name:
             raise AirtableError("field_name is required")
+        if name in self._known_url_fields:
+            return False
         tables = self.list_base_tables(self.base_id)
         table = next(
             (
@@ -670,6 +680,7 @@ class AirtableClient:
         if isinstance(fields, list):
             for item in fields:
                 if isinstance(item, dict) and item.get("name") == name:
+                    self._known_url_fields.add(name)
                     return False
         table_id = table.get("id")
         if not isinstance(table_id, str) or not table_id:
@@ -681,6 +692,7 @@ class AirtableClient:
             f"{self.api_base}/meta/bases/{encoded_base}/tables/{encoded_table}/fields",
             body={"name": name, "type": "url"},
         )
+        self._known_url_fields.add(name)
         return True
 
     def create_record_comment(self, record_id: str, text: str) -> None:
@@ -805,12 +817,31 @@ def load_existing_titles_for_ingest(
     project_root: Path | None = None,
 ) -> set[str]:
     from catalog_parser.workflow.archive_sources import resolve_archive_sources
-    from catalog_parser.workflow.archive_title_cache import load_archive_titles
+    from catalog_parser.workflow.archive_title_cache import (
+        archive_cache_enabled,
+        archive_cache_path,
+        archive_cache_refresh_requested,
+        load_archive_titles,
+        peek_archive_title_cache,
+    )
 
     if table_cache is not None:
         titles = table_cache.existing_title_keys()
     else:
         titles = airtable.list_existing_titles()
+
+    root = project_root or Path(__file__).resolve().parents[2]
+    refresh_archives = archive_cache_refresh_requested()
+    if (
+        archive_sources is None
+        and archive_cache_enabled()
+        and not refresh_archives
+    ):
+        cached_archive_titles = peek_archive_title_cache(archive_cache_path(root))
+        if cached_archive_titles:
+            for archive_title in cached_archive_titles:
+                titles.update(title_identity_keys(archive_title, TITLE_KEY_ANY_TYPE))
+            return titles
 
     if archive_sources is None:
         records = table_cache.records if table_cache is not None else None
@@ -827,7 +858,6 @@ def load_existing_titles_for_ingest(
         filtered_sources.append(source)
 
     if filtered_sources:
-        root = project_root or Path(__file__).resolve().parents[2]
         # Archive rows are type-unknown: block that title for every ingest type.
         for archive_title in load_archive_titles(
             airtable,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -120,6 +121,68 @@ class AirtableMappingTests(unittest.TestCase):
         self.assertIn("reel\tcurrent title", titles)
         self.assertIn("*\tarchived title", titles)
         archive_mock.assert_called_once()
+
+    def test_load_existing_titles_uses_archive_file_cache_without_meta_api(self) -> None:
+        from catalog_parser.workflow.archive_title_cache import (
+            archive_cache_path,
+            write_archive_title_cache,
+        )
+        from catalog_parser.workflow import archive_title_cache as cache_module
+
+        cache_module._PROCESS_CACHE.clear()
+        cache_module._UNVERIFIED_FILE_CACHE = None
+        cache_module._UNVERIFIED_FILE_CACHE_PATH = None
+
+        client = AirtableClient("pat-test", "app-current", "Catalog")
+        cache = type(
+            "Cache",
+            (),
+            {
+                "existing_title_keys": lambda self: {"reel\tlive title"},
+                "records": [],
+            },
+        )()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_archive_title_cache(
+                archive_cache_path(root),
+                sources=[
+                    AirtableArchiveSource(
+                        base_id="app-archive",
+                        table_name="Archive",
+                        title_fields=("Original Video Name",),
+                    )
+                ],
+                titles={"archived title"},
+            )
+            with patch(
+                "catalog_parser.workflow.archive_sources.resolve_archive_sources"
+            ) as resolve_mock:
+                titles = load_existing_titles_for_ingest(
+                    client,
+                    table_cache=cache,
+                    project_root=root,
+                )
+
+        self.assertIn("reel\tlive title", titles)
+        self.assertIn("*\tarchived title", titles)
+        resolve_mock.assert_not_called()
+
+    def test_list_base_tables_and_ensure_url_field_reuse_schema(self) -> None:
+        client = AirtableClient("pat-test", "app-current", "Catalog")
+        tables = [
+            {
+                "id": "tbl1",
+                "name": "Catalog",
+                "fields": [{"name": "Translated subtitles", "type": "url"}],
+            }
+        ]
+        with patch.object(client, "_request", return_value={"tables": tables}) as request_mock:
+            self.assertFalse(client.ensure_url_field("Translated subtitles"))
+            self.assertFalse(client.ensure_url_field("Translated subtitles"))
+            self.assertEqual(client.list_base_tables("app-current"), tables)
+        request_mock.assert_called_once()
 
     def test_normalize_original_video_name_strips_sadhguru_suffix(self) -> None:
         self.assertEqual(

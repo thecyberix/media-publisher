@@ -369,6 +369,7 @@ def ingest_batch(
                     record_id,
                     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
                     path,
+                    replace=False,
                 )
                 path.unlink(missing_ok=True)
             continue

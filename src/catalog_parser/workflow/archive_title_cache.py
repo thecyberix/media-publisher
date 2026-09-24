@@ -13,6 +13,8 @@ from catalog_parser.workflow.table_cache import DEFAULT_BACKUP_DIR
 DEFAULT_CACHE_FILENAME = "airtable-archive-titles.json"
 
 _PROCESS_CACHE: dict[str, frozenset[str]] = {}
+_UNVERIFIED_FILE_CACHE: frozenset[str] | None = None
+_UNVERIFIED_FILE_CACHE_PATH: str | None = None
 
 
 def archive_cache_enabled() -> bool:
@@ -62,6 +64,19 @@ def _sources_from_payload(payload: dict[str, Any]) -> list[AirtableArchiveSource
     return sources
 
 
+def _titles_from_payload(payload: dict[str, Any]) -> set[str] | None:
+    if _parse_fetched_at(payload.get("fetched_at")) is None:
+        return None
+    titles = payload.get("titles")
+    if not isinstance(titles, list):
+        raise ValueError("Archive title cache is missing a titles array")
+    normalized: set[str] = set()
+    for title in titles:
+        if isinstance(title, str) and title.strip():
+            normalized.add(title.strip())
+    return normalized
+
+
 def _title_fields_from_payload(item: dict[str, Any]) -> tuple[str, ...]:
     raw_fields = item.get("title_fields")
     if isinstance(raw_fields, list):
@@ -90,18 +105,36 @@ def read_archive_title_cache(
     if cached_sources != sources:
         return None
 
-    if _parse_fetched_at(payload.get("fetched_at")) is None:
+    titles = _titles_from_payload(payload)
+    return titles
+
+
+def peek_archive_title_cache(cache_path: Path) -> set[str] | None:
+    """Load cached titles without resolving archive bases (no Airtable calls)."""
+    global _UNVERIFIED_FILE_CACHE, _UNVERIFIED_FILE_CACHE_PATH
+    path_key = str(cache_path)
+    if (
+        _UNVERIFIED_FILE_CACHE is not None
+        and _UNVERIFIED_FILE_CACHE_PATH == path_key
+    ):
+        return set(_UNVERIFIED_FILE_CACHE)
+
+    if not cache_path.is_file():
         return None
 
-    titles = payload.get("titles")
-    if not isinstance(titles, list):
-        raise ValueError(f"Archive title cache {cache_path} is missing a titles array")
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        titles = _titles_from_payload(payload)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
 
-    normalized: set[str] = set()
-    for title in titles:
-        if isinstance(title, str) and title.strip():
-            normalized.add(title.strip())
-    return normalized
+    if titles is None:
+        return None
+    _UNVERIFIED_FILE_CACHE = frozenset(titles)
+    _UNVERIFIED_FILE_CACHE_PATH = path_key
+    return titles
 
 
 def write_archive_title_cache(
@@ -183,4 +216,7 @@ def load_archive_titles(
 
     frozen = frozenset(titles)
     _PROCESS_CACHE[fingerprint] = frozen
+    global _UNVERIFIED_FILE_CACHE, _UNVERIFIED_FILE_CACHE_PATH
+    _UNVERIFIED_FILE_CACHE = frozen
+    _UNVERIFIED_FILE_CACHE_PATH = str(cache_path)
     return set(frozen)
