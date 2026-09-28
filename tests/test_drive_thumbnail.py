@@ -267,7 +267,7 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertEqual(source, "canva-share-preview")
         self.assertGreater(destination.stat().st_size, 1000)
 
-    def test_download_canva_thumbnail_does_not_fallback_on_auth_error(
+    def test_download_canva_thumbnail_uses_share_preview_on_auth_error(
         self,
     ) -> None:
         import tempfile
@@ -284,14 +284,44 @@ class DriveThumbnailTests(unittest.TestCase):
         ):
             with patch(
                 "catalog_parser.drive_thumbnail.download_canva_share_preview",
+                side_effect=lambda _url, dest: _write_test_jpeg(dest),
             ) as preview_mock:
-                with self.assertRaises(DriveThumbnailError):
+                source = download_canva_thumbnail(
+                    "https://www.canva.com/design/DAGa81rbUOw/view",
+                    destination,
+                    canva_client=MagicMock(),
+                )
+        preview_mock.assert_called_once()
+        self.assertEqual(source, "canva-share-preview")
+
+    def test_download_canva_thumbnail_raises_auth_error_when_share_preview_fails(
+        self,
+    ) -> None:
+        import tempfile
+
+        from catalog_parser.canva import CanvaError
+
+        destination = Path(tempfile.mkdtemp()) / "thumb.jpg"
+        with patch(
+            "catalog_parser.drive_thumbnail._resolve_canva_attachment",
+            side_effect=CanvaError(
+                'Canva token exchange failed with HTTP 400: '
+                '{"error":"invalid_grant"}'
+            ),
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_share_preview",
+                side_effect=RuntimeError("share preview unavailable"),
+            ) as preview_mock:
+                with self.assertRaises(DriveThumbnailError) as ctx:
                     download_canva_thumbnail(
                         "https://www.canva.com/design/DAGa81rbUOw/view",
                         destination,
                         canva_client=MagicMock(),
                     )
-        preview_mock.assert_not_called()
+        preview_mock.assert_called_once()
+        self.assertIn("invalid_grant", str(ctx.exception).casefold())
+        self.assertTrue(is_canva_auth_error(ctx.exception))
 
     def test_enrich_records_uses_share_preview_when_download_succeeds(
         self,

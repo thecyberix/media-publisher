@@ -492,18 +492,20 @@ def download_canva_thumbnail(
             skipped_empty += 1
         raise DriveThumbnailError("Canva export pages were empty")
     except Exception as exc:
-        if is_canva_auth_error(exc):
-            raise DriveThumbnailError(str(exc)) from exc
         print(f"  -> Canva API export failed; trying public share preview: {exc}")
         try:
             download_canva_share_preview(canva_url, destination)
             if destination.is_file() and not image_looks_empty(destination):
                 return "canva-share-preview"
         except Exception as preview_exc:
+            if is_canva_auth_error(exc):
+                raise DriveThumbnailError(str(exc)) from exc
             raise DriveThumbnailError(
                 f"Canva API export failed ({exc}); "
                 f"share preview also failed ({preview_exc})"
             ) from preview_exc
+        if is_canva_auth_error(exc):
+            raise DriveThumbnailError(str(exc)) from exc
         raise DriveThumbnailError(
             f"Canva API export failed ({exc}); share preview was empty"
         ) from exc

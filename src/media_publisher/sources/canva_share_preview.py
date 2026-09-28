@@ -29,7 +29,14 @@ QUALITY_RANK = {
     "PICO_THUMBNAIL": 0,
 }
 MIN_PREVIEW_BYTES = 1000
+MIN_PREVIEW_EDGE = 32
+MIN_PREVIEW_LUMA_STD = 2.0
 _SHARE_PATH_STOP = {"view", "edit", "screen"}
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
 
 
 def normalize_canva_share_url(canva_url: str) -> str:
@@ -83,6 +90,36 @@ def _fetch_dom(canva_url: str) -> str:
             f"Canva page DOM was empty for {canva_url!r}: {stderr[-400:]}"
         )
     return html
+
+
+def _html_has_preview_hints(html: str) -> bool:
+    lowered = html.casefold()
+    return (
+        "media.canva.com" in lowered
+        or "bootstrap" in lowered
+        or "og:image" in lowered
+    )
+
+
+def _fetch_page_html(canva_url: str) -> str:
+    """Return Canva share-page HTML, preferring a plain HTTP fetch.
+
+    Publish-share ``/view`` pages often embed ``media.canva.com`` preview URLs
+    in the initial HTML, so CI runners without Chrome can still resolve them.
+    Falls back to headless Chrome when the static response is unusable.
+    """
+    request = urllib.request.Request(
+        canva_url,
+        headers={"User-Agent": DEFAULT_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            html = response.read().decode("utf-8", errors="replace")
+        if len(html) >= 1000 and _html_has_preview_hints(html):
+            return html
+    except urllib.error.URLError:
+        pass
+    return _fetch_dom(canva_url)
 
 
 def _extract_bootstrap_dimensions(html: str) -> tuple[int, int] | None:
@@ -142,7 +179,7 @@ def probe_canva_design_dimensions(canva_url: str) -> tuple[int, int] | None:
     """Return the preview image dimensions for a public Canva design link."""
     resolved = resolve_canva_url(canva_url)
     normalized = normalize_canva_share_url(resolved)
-    html = _fetch_dom(normalized)
+    html = _fetch_page_html(normalized)
     return _extract_bootstrap_dimensions(html)
 
 
@@ -241,10 +278,16 @@ def _pick_best_media_url(html: str) -> str:
 def _download_url(url: str, destination: Path) -> None:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; media-publisher/1.0)"},
+        headers={"User-Agent": DEFAULT_USER_AGENT},
     )
     with urllib.request.urlopen(request, timeout=120) as response:
-        destination.write_bytes(response.read())
+        content_type = str(response.headers.get("Content-Type", "")).casefold()
+        payload = response.read()
+        if content_type and not content_type.startswith("image/"):
+            raise urllib.error.URLError(
+                f"Expected image Content-Type for {url!r}, got {content_type!r}"
+            )
+        destination.write_bytes(payload)
 
 
 def _screen_url(canva_url: str) -> str:
@@ -263,8 +306,56 @@ def _screen_url(canva_url: str) -> str:
     )
 
 
+def _luma_std(pixels: list[int]) -> float:
+    if not pixels:
+        return 0.0
+    mean = sum(pixels) / len(pixels)
+    variance = sum((value - mean) ** 2 for value in pixels) / len(pixels)
+    return variance ** 0.5
+
+
 def _preview_looks_valid(destination: Path) -> bool:
-    return destination.is_file() and destination.stat().st_size >= MIN_PREVIEW_BYTES
+    """True when ``destination`` is a real, non-blank preview image.
+
+    Canva often returns an HTML login/bot wall (still >1KB) for ``/screen``
+    from datacenter IPs. Size-only checks accepted those and skipped the DOM
+    fallback, so callers reported \"share preview was empty\".
+    """
+    if not destination.is_file() or destination.stat().st_size < MIN_PREVIEW_BYTES:
+        return False
+    try:
+        from PIL import Image
+
+        with Image.open(destination) as image:
+            image.load()
+            width, height = image.size
+            if width < MIN_PREVIEW_EDGE or height < MIN_PREVIEW_EDGE:
+                return False
+            sample = image.convert("L").resize((64, 64))
+            pixels = list(sample.getdata())
+            sample_std = _luma_std(pixels)
+            if sample_std < MIN_PREVIEW_LUMA_STD:
+                return False
+            inner = sample.crop(
+                (
+                    sample.size[0] // 4,
+                    sample.size[1] // 4,
+                    3 * sample.size[0] // 4,
+                    3 * sample.size[1] // 4,
+                )
+            )
+            inner_pixels = list(inner.getdata())
+            inner_mean = (
+                sum(inner_pixels) / len(inner_pixels) if inner_pixels else 0.0
+            )
+            inner_std = _luma_std(inner_pixels)
+            if inner_std < MIN_PREVIEW_LUMA_STD and (
+                inner_mean <= 8 or inner_mean >= 247
+            ):
+                return False
+    except Exception:
+        return False
+    return True
 
 
 def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
@@ -283,7 +374,7 @@ def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
             pass
 
     normalized = normalize_canva_share_url(resolved)
-    html = _fetch_dom(normalized)
+    html = _fetch_page_html(normalized)
     preview_url = _pick_best_media_url(html)
     if "media.canva.com" not in preview_url.casefold():
         raise RuntimeError(f"No usable Canva preview image for {canva_url!r}")
@@ -302,13 +393,13 @@ def resolve_canva_share_preview_url(canva_url: str) -> str:
     """Return the best public preview image URL from a Canva share/design link."""
     resolved = resolve_canva_url(canva_url)
     normalized = normalize_canva_share_url(resolved)
-    html = _fetch_dom(normalized)
+    html = _fetch_page_html(normalized)
     preview_url = _pick_best_media_url(html)
     for candidate in (preview_url, _screen_url(resolved)):
         request = urllib.request.Request(
             candidate,
             method="HEAD",
-            headers={"User-Agent": "Mozilla/5.0 (compatible; media-publisher/1.0)"},
+            headers={"User-Agent": DEFAULT_USER_AGENT},
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
