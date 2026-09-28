@@ -10,14 +10,25 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from catalog_parser.__main__ import (  # noqa: E402
-    DEFAULT_CREDENTIALS,
-    DEFAULT_TOKEN,
-    PROJECT_ROOT,
-    load_env_file,
-)
+PROJECT_ROOT = ROOT
+DEFAULT_CREDENTIALS = PROJECT_ROOT / "credentials.json"
+DEFAULT_TOKEN = PROJECT_ROOT / "token.json"
 
-load_env_file(PROJECT_ROOT / ".env")
+
+def _load_env_file(path: Path) -> None:
+    from media_publisher.sources.airtable import apply_airtable_url_env
+
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+    apply_airtable_url_env()
+
+
+_load_env_file(PROJECT_ROOT / ".env")
 
 from catalog_parser.airtable import (  # noqa: E402
     AirtableClient,
@@ -26,19 +37,22 @@ from catalog_parser.airtable import (  # noqa: E402
     FIELD_TITLE,
     FIELD_VIDEO_FOLDER,
 )
-from catalog_parser.auth import (
+from catalog_parser.auth import (  # noqa: E402
     SCOPES,
     get_docs_service,
     get_drive_service_noninteractive,
     get_service_account_credentials,
 )
-from catalog_parser.canva import build_canva_client_from_env, ensure_canva_ready
-from catalog_parser.drive_thumbnail import (
+from catalog_parser.canva import (  # noqa: E402
+    build_canva_client_from_env,
+    ensure_canva_ready,
+)
+from catalog_parser.drive_thumbnail import (  # noqa: E402
     enrich_records_with_original_video_thumbnails,
     image_looks_empty,
 )
-from catalog_parser.runtime_env import materialize_credentials
-from googleapiclient.discovery import build
+from catalog_parser.runtime_env import materialize_credentials  # noqa: E402
+from googleapiclient.discovery import build  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,7 +119,10 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             path = Path(path_value)
             if image_looks_empty(path):
-                print(f"  ERROR: staged file still looks empty ({path.stat().st_size} bytes)")
+                print(
+                    "  ERROR: staged file still looks empty "
+                    f"({path.stat().st_size} bytes)"
+                )
                 failures += 1
                 continue
             airtable.upload_attachment(
