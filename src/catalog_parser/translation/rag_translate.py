@@ -890,16 +890,20 @@ def chat_completion(
 
 
 def _guess_image_media_type(path: Path | None, raw: bytes) -> str:
-    if path is not None:
-        guessed, _ = mimetypes.guess_type(str(path))
-        if guessed and guessed.startswith("image/"):
-            return guessed
+    # Prefer magic bytes over the filename: share-preview PNGs are often saved
+    # (or attached in Airtable) with a .jpg suffix.
     if raw.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if raw.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
     if raw.startswith(b"RIFF") and b"WEBP" in raw[:16]:
         return "image/webp"
+    if raw.startswith(b"GIF87a") or raw.startswith(b"GIF89a"):
+        return "image/gif"
+    if path is not None:
+        guessed, _ = mimetypes.guess_type(str(path))
+        if guessed and guessed.startswith("image/"):
+            return guessed
     return "image/jpeg"
 
 
