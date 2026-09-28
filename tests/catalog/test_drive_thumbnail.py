@@ -12,9 +12,30 @@ from catalog_parser.drive_thumbnail import (
     enrich_records_with_original_video_thumbnails,
     find_peer_youtube_ct_link,
     find_thumbnail_image_in_folder,
+    image_looks_empty,
     resolve_canva_design_drive_url,
     resolve_original_video_thumbnail,
 )
+
+
+def _write_solid_jpeg(path: Path, color: tuple[int, int, int] = (0, 0, 0)) -> Path:
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (256, 256), color).save(path, "JPEG", quality=90)
+    return path
+
+
+def _write_noisy_jpeg(path: Path) -> Path:
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (128, 128))
+    image.putdata(
+        [(index % 256, (index * 3) % 256, (index * 7) % 256) for index in range(128 * 128)]
+    )
+    image.save(path, "JPEG", quality=90)
+    return path
 
 
 class DriveThumbnailTests(unittest.TestCase):
@@ -117,6 +138,51 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertIn("_thumbnailReviewPath", enriched[0])
         self.assertEqual(enriched[0]["ytThumbnailSource"], "original-platform:review-queue")
 
+    def test_enrich_records_stages_drive_psd_after_canva_missing(self) -> None:
+        import tempfile
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+
+        def _stage_psd(_drive, _folder, *, destination, updated, thumbnail_field):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"psd-jpeg")
+            updated["_originalThumbnailPath"] = str(destination)
+            updated.pop("_thumbnailReviewPath", None)
+            updated[f"{thumbnail_field}Source"] = "drive-psd"
+            return True
+
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value=None,
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail._try_stage_drive_psd_original",
+                side_effect=_stage_psd,
+            ):
+                with patch(
+                    "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                ) as platform_mock:
+                    enriched = enrich_records_with_original_video_thumbnails(
+                        records,
+                        drive_service,
+                        None,
+                        staging_dir=staging_dir,
+                    )
+
+        platform_mock.assert_not_called()
+        self.assertIsNone(enriched[0]["ytThumbnail"])
+        self.assertIn("_originalThumbnailPath", enriched[0])
+        self.assertNotIn("_thumbnailReviewPath", enriched[0])
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "drive-psd")
+
     def test_enrich_records_stages_canva_thumbnail_when_canva_link(self) -> None:
         import tempfile
 
@@ -201,7 +267,7 @@ class DriveThumbnailTests(unittest.TestCase):
         ):
             with patch(
                 "catalog_parser.drive_thumbnail.download_canva_share_preview",
-                side_effect=lambda _url, dest: dest.write_bytes(b"share-preview" * 80) or dest,
+                side_effect=lambda _url, dest: _write_noisy_jpeg(dest),
             ):
                 source = download_canva_thumbnail(
                     "https://www.canva.com/design/DAG_-usKEHQ/Gf7htm9P2120Plv54YiiNw/view",
@@ -209,7 +275,7 @@ class DriveThumbnailTests(unittest.TestCase):
                     canva_client=MagicMock(),
                 )
         self.assertEqual(source, "canva-share-preview")
-        self.assertEqual(destination.read_bytes(), b"share-preview" * 80)
+        self.assertFalse(image_looks_empty(destination))
 
     def test_download_canva_thumbnail_does_not_fallback_on_auth_error(
         self,
@@ -236,6 +302,65 @@ class DriveThumbnailTests(unittest.TestCase):
                         canva_client=MagicMock(),
                     )
         preview_mock.assert_not_called()
+
+    def test_download_canva_thumbnail_skips_blank_first_export_page(self) -> None:
+        import tempfile
+
+        destination = Path(tempfile.mkdtemp()) / "thumb.jpg"
+
+        class FakeClient:
+            def export_design_image_urls(self, design_id: str) -> list[str]:
+                self.assertEqual(design_id, "DAGa81rbUOw")
+                return [
+                    "https://cdn.example/page1.jpg",
+                    "https://cdn.example/page2.jpg",
+                ]
+
+        client = FakeClient()
+        client.assertEqual = self.assertEqual
+
+        def fake_download(url: str, dest: Path) -> None:
+            if "page1" in url:
+                _write_solid_jpeg(dest)
+            else:
+                _write_noisy_jpeg(dest)
+
+        with patch(
+            "catalog_parser.drive_thumbnail._download_http_url",
+            side_effect=fake_download,
+        ):
+            source = download_canva_thumbnail(
+                "https://www.canva.com/design/DAGa81rbUOw/view",
+                destination,
+                canva_client=client,
+            )
+        self.assertEqual(source, "canva-export")
+        self.assertFalse(image_looks_empty(destination))
+
+    def test_image_looks_empty_detects_solid_black(self) -> None:
+        import tempfile
+
+        empty = Path(tempfile.mkdtemp()) / "empty.jpg"
+        noisy = Path(tempfile.mkdtemp()) / "noisy.jpg"
+        _write_solid_jpeg(empty)
+        _write_noisy_jpeg(noisy)
+        self.assertTrue(image_looks_empty(empty))
+        self.assertFalse(image_looks_empty(noisy))
+
+    def test_image_looks_empty_detects_blank_center_cover(self) -> None:
+        import tempfile
+        from PIL import Image
+
+        path = Path(tempfile.mkdtemp()) / "cover.jpg"
+        image = Image.new("RGB", (256, 256), (40, 40, 40))
+        for x in range(256):
+            for y in range(256):
+                if x < 16 or y < 16 or x >= 240 or y >= 240:
+                    image.putpixel((x, y), ((x * 3) % 80, (y * 5) % 80, 30))
+                else:
+                    image.putpixel((x, y), (255, 255, 255))
+        image.save(path, "JPEG", quality=90)
+        self.assertTrue(image_looks_empty(path))
 
     def test_enrich_records_uses_share_preview_when_download_succeeds(
         self,

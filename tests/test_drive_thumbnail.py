@@ -16,6 +16,18 @@ from catalog_parser.drive_thumbnail import (
 )
 
 
+def _write_test_jpeg(path: Path) -> Path:
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (128, 128))
+    image.putdata(
+        [(index % 256, (index * 3) % 256, (index * 7) % 256) for index in range(128 * 128)]
+    )
+    image.save(path, "JPEG", quality=90)
+    return path
+
+
 class DriveThumbnailTests(unittest.TestCase):
     def test_find_thumbnail_image_prefers_thumbnail_name(self) -> None:
         drive_service = MagicMock()
@@ -116,6 +128,51 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertIn("_thumbnailReviewPath", enriched[0])
         self.assertEqual(enriched[0]["ytThumbnailSource"], "original-platform:review-queue")
 
+    def test_enrich_records_stages_drive_psd_after_canva_missing(self) -> None:
+        import tempfile
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+
+        def _stage_psd(_drive, _folder, *, destination, updated, thumbnail_field):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"psd-jpeg")
+            updated["_originalThumbnailPath"] = str(destination)
+            updated.pop("_thumbnailReviewPath", None)
+            updated[f"{thumbnail_field}Source"] = "drive-psd"
+            return True
+
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value=None,
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail._try_stage_drive_psd_original",
+                side_effect=_stage_psd,
+            ):
+                with patch(
+                    "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                ) as platform_mock:
+                    enriched = enrich_records_with_original_video_thumbnails(
+                        records,
+                        drive_service,
+                        None,
+                        staging_dir=staging_dir,
+                    )
+
+        platform_mock.assert_not_called()
+        self.assertIsNone(enriched[0]["ytThumbnail"])
+        self.assertIn("_originalThumbnailPath", enriched[0])
+        self.assertNotIn("_thumbnailReviewPath", enriched[0])
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "drive-psd")
+
     def test_enrich_records_stages_canva_thumbnail_when_canva_link(self) -> None:
         import tempfile
 
@@ -200,7 +257,7 @@ class DriveThumbnailTests(unittest.TestCase):
         ):
             with patch(
                 "catalog_parser.drive_thumbnail.download_canva_share_preview",
-                side_effect=lambda _url, dest: dest.write_bytes(b"share-preview" * 80) or dest,
+                side_effect=lambda _url, dest: _write_test_jpeg(dest),
             ):
                 source = download_canva_thumbnail(
                     "https://www.canva.com/design/DAG_-usKEHQ/Gf7htm9P2120Plv54YiiNw/view",
@@ -208,7 +265,7 @@ class DriveThumbnailTests(unittest.TestCase):
                     canva_client=MagicMock(),
                 )
         self.assertEqual(source, "canva-share-preview")
-        self.assertEqual(destination.read_bytes(), b"share-preview" * 80)
+        self.assertGreater(destination.stat().st_size, 1000)
 
     def test_download_canva_thumbnail_does_not_fallback_on_auth_error(
         self,

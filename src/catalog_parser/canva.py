@@ -563,14 +563,14 @@ class CanvaClient:
             raise CanvaError(f"Canva export job {export_id!r} has no job payload")
         return job
 
-    def export_design_image_url(
+    def export_design_image_urls(
         self,
         design_id: str,
         *,
         file_type: str = "jpg",
         quality: int = 90,
         timeout_seconds: float = EXPORT_POLL_TIMEOUT_SECONDS,
-    ) -> str:
+    ) -> list[str]:
         export_id = self.create_design_export_job(
             design_id,
             file_type=file_type,
@@ -588,12 +588,15 @@ class CanvaClient:
                     raise CanvaError(
                         f"Canva export job {export_id!r} succeeded without URLs"
                     )
-                first_url = urls[0]
-                if not isinstance(first_url, str) or not first_url.strip():
+                cleaned: list[str] = []
+                for item in urls:
+                    if isinstance(item, str) and item.strip():
+                        cleaned.append(item.strip())
+                if not cleaned:
                     raise CanvaError(
                         f"Canva export job {export_id!r} returned an invalid URL"
                     )
-                return first_url.strip()
+                return cleaned
             if status == "failed":
                 error = job.get("error")
                 raise CanvaError(
@@ -608,6 +611,21 @@ class CanvaClient:
                 delay_seconds * EXPORT_POLL_INCREASE_FACTOR,
                 EXPORT_POLL_MAX_DELAY_SECONDS,
             )
+
+    def export_design_image_url(
+        self,
+        design_id: str,
+        *,
+        file_type: str = "jpg",
+        quality: int = 90,
+        timeout_seconds: float = EXPORT_POLL_TIMEOUT_SECONDS,
+    ) -> str:
+        return self.export_design_image_urls(
+            design_id,
+            file_type=file_type,
+            quality=quality,
+            timeout_seconds=timeout_seconds,
+        )[0]
 
     def export_design_url_from_link(self, canva_url: str) -> str:
         design_id = parse_canva_design_url(canva_url)

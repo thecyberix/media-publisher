@@ -11,6 +11,7 @@ from catalog_parser.canva import (
     CanvaError,
     extract_canva_design_url,
     is_canva_auth_error,
+    parse_canva_design_url,
 )
 from media_publisher.sources.canva_share_preview import download_canva_share_preview
 from catalog_parser.canva_selection import (
@@ -339,7 +340,8 @@ def resolve_original_video_thumbnail(
 ) -> tuple[list[dict[str, str]] | None, str | None]:
     """Resolve an Original Video Thumbnail attachment for ingest.
 
-    Drive TN templates are ignored here (used later for offline translated TN render).
+    Drive TN templates are ignored here (used later for offline translated TN render
+    or for ingest staging via ``_stage_original_thumbnail_for_ingest``).
     Canva designs are preferred when present.
     """
     fields: dict[str, str | None]
@@ -381,6 +383,69 @@ def has_original_video_thumbnail_source(
     return _discover_canva_url(drive_service, docs_service, folder_id, fields) is not None
 
 
+def _luma_std(pixels: list[int]) -> tuple[float, float]:
+    if not pixels:
+        return 0.0, 0.0
+    mean = sum(pixels) / len(pixels)
+    variance = sum((value - mean) ** 2 for value in pixels) / len(pixels)
+    return mean, variance ** 0.5
+
+
+def image_looks_empty(path: Path, *, min_std: float = 2.0) -> bool:
+    """True for missing, tiny, or blank Canva pages (solid or empty-center)."""
+    if not path.is_file() or path.stat().st_size < 1000:
+        return True
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            sample = image.convert("L").resize((64, 64))
+            pixels = list(sample.getdata())
+            width, height = sample.size
+            inner = sample.crop(
+                (width // 4, height // 4, 3 * width // 4, 3 * height // 4)
+            )
+            inner_pixels = list(inner.getdata())
+    except Exception:
+        return True
+    _mean, std = _luma_std(pixels)
+    if std < min_std:
+        return True
+    inner_mean, inner_std = _luma_std(inner_pixels)
+    # Cover templates: textured border around a solid black or white hole.
+    return inner_std < min_std and (inner_mean <= 8 or inner_mean >= 247)
+
+
+def _canva_export_urls(canva_url: str, canva_client: CanvaClient | None) -> list[str]:
+    if canva_client is None:
+        raise CanvaError("Canva client is not configured")
+    design_id = parse_canva_design_url(canva_url)
+    if design_id is None:
+        raise CanvaError(f"Could not parse Canva design id from {canva_url!r}")
+    urls: list[str] | None = None
+    export_urls = getattr(canva_client, "export_design_image_urls", None)
+    if callable(export_urls):
+        raw = export_urls(design_id)
+        if isinstance(raw, list) and raw and all(
+            isinstance(item, str) and item.strip() for item in raw
+        ):
+            urls = [item.strip() for item in raw]
+    if urls:
+        return urls
+    attachment, _source = _resolve_canva_attachment(
+        canva_url,
+        canva_client=canva_client,
+    )
+    if not attachment:
+        raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
+    url = attachment[0].get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise DriveThumbnailError(
+            f"Canva thumbnail attachment missing URL for {canva_url!r}"
+        )
+    return [url.strip()]
+
+
 def _download_http_url(url: str, destination: Path) -> None:
     import urllib.error
     import urllib.request
@@ -409,30 +474,30 @@ def download_canva_thumbnail(
     Tries the Canva Connect API first. When that design is not accessible to
     the integration, tries the public publish-share ``/screen`` preview (the
     share-token link, no login). Playwright is kept in ``canva_web`` for
-    manual use and is not part of ingest.
+    manual use and is not part of ingest. Blank first pages are skipped when
+    the export returns later pages with content.
     """
     del canva_web_client
     try:
-        attachment, source = _resolve_canva_attachment(
-            canva_url,
-            canva_client=canva_client,
-        )
-        if not attachment:
-            raise DriveThumbnailError(f"No Canva thumbnail attachment for {canva_url!r}")
-        url = attachment[0].get("url")
-        if not isinstance(url, str) or not url.strip():
-            raise DriveThumbnailError(
-                f"Canva thumbnail attachment missing URL for {canva_url!r}"
-            )
-        _download_http_url(url.strip(), destination)
-        return source
+        urls = _canva_export_urls(canva_url, canva_client)
+        skipped_empty = 0
+        for url in urls:
+            _download_http_url(url, destination)
+            if destination.is_file() and not image_looks_empty(destination):
+                if skipped_empty:
+                    print(
+                        f"  -> skipped {skipped_empty} empty Canva export page(s)"
+                    )
+                return "canva-export"
+            skipped_empty += 1
+        raise DriveThumbnailError("Canva export pages were empty")
     except Exception as exc:
         if is_canva_auth_error(exc):
             raise DriveThumbnailError(str(exc)) from exc
         print(f"  -> Canva API export failed; trying public share preview: {exc}")
         try:
             download_canva_share_preview(canva_url, destination)
-            if destination.is_file() and destination.stat().st_size >= 1000:
+            if destination.is_file() and not image_looks_empty(destination):
                 return "canva-share-preview"
         except Exception as preview_exc:
             raise DriveThumbnailError(
@@ -529,6 +594,113 @@ def _original_thumbnail_matches_video_aspect(
     return aspects_match(width, height, video_size[0], video_size[1])
 
 
+def _looks_like_drive_psd(name: str, mime_type: str) -> bool:
+    suffix = Path(name).suffix.casefold()
+    if suffix == ".psd":
+        return True
+    if "photoshop" in mime_type.casefold():
+        return True
+    # Some Video Folder TNs are Photoshop files with no suffix (octet-stream).
+    if suffix == "" and name.casefold().startswith("tn_"):
+        return True
+    return False
+
+
+def _psd_candidate_rank(name: str) -> tuple[int, str]:
+    normalized = name.casefold()
+    if normalized.endswith(".psd"):
+        return (0, normalized)
+    if normalized.startswith("tn_"):
+        return (1, normalized)
+    return (2, normalized)
+
+
+def _try_stage_drive_psd_original(
+    drive_service: Resource,
+    folder_id: str,
+    *,
+    destination: Path,
+    updated: dict[str, Any],
+    thumbnail_field: str,
+) -> bool:
+    """Composite a matching Video Folder PSD (with text) for Airtable upload."""
+    from catalog_parser.drive_mix import find_video_and_audio_subfolder
+    from catalog_parser.drive_video_size import video_size_from_drive_file_metadata
+    from media_publisher.sources.google_drive import GoogleDriveClient
+    from media_publisher.sources.tn_psd import (
+        TnPsdError,
+        export_original_thumbnail_from_psd,
+        is_psd_file,
+    )
+
+    try:
+        media = find_video_and_audio_subfolder(drive_service, folder_id)
+        video_size = video_size_from_drive_file_metadata(drive_service, media.video.id)
+    except Exception:
+        video_size = None
+    if video_size is None:
+        return False
+
+    candidates: list[dict[str, Any]] = []
+    try:
+        for item in list_folder_children(drive_service, folder_id):
+            resolved = resolve_drive_item(drive_service, item)
+            name = resolved.get("name")
+            mime_type = resolved.get("mimeType")
+            file_id = resolved.get("id")
+            if (
+                not isinstance(name, str)
+                or not isinstance(mime_type, str)
+                or not isinstance(file_id, str)
+            ):
+                continue
+            if not _looks_like_drive_psd(name, mime_type):
+                continue
+            candidates.append(resolved)
+    except Exception as exc:
+        print(f"  -> Drive PSD listing failed: {exc}")
+        return False
+
+    if not candidates:
+        return False
+
+    candidates.sort(key=lambda item: _psd_candidate_rank(str(item.get("name", ""))))
+    drive = GoogleDriveClient(drive_service)
+    cache_path = destination.with_name(f"{destination.stem}.drive-tn.psd")
+
+    for item in candidates:
+        file_id = str(item["id"])
+        name = str(item.get("name") or file_id)
+        try:
+            drive.download_file(file_id, cache_path)
+            if not is_psd_file(cache_path):
+                continue
+            export_original_thumbnail_from_psd(
+                cache_path,
+                destination,
+                video_width=video_size[0],
+                video_height=video_size[1],
+            )
+        except TnPsdError as exc:
+            print(f"  -> Drive PSD {name!r} skipped: {exc}")
+            continue
+        except Exception as exc:
+            print(f"  -> Drive PSD {name!r} failed: {exc}")
+            continue
+        finally:
+            cache_path.unlink(missing_ok=True)
+
+        if destination.is_file() and destination.stat().st_size > 0:
+            updated["_originalThumbnailPath"] = str(destination)
+            updated.pop("_thumbnailReviewPath", None)
+            updated[f"{thumbnail_field}Source"] = "drive-psd"
+            print(f"  -> staged Drive PSD original for Airtable upload: {destination.name}")
+            return True
+
+    destination.unlink(missing_ok=True)
+    return False
+
+
 def _stage_original_thumbnail_for_ingest(
     drive_service: Resource,
     docs_service: Resource | None,
@@ -547,10 +719,11 @@ def _stage_original_thumbnail_for_ingest(
     1. Canva link → Canva API design export (direct Airtable upload)
     2. Canva link + design-level API failure → public publish-share preview
     3. Still failing → manual-download placeholder for review
-    4. Otherwise matching-aspect original-platform thumbs are queued for review
+    4. No Canva → Video Folder PSD composite (English text included) uploaded
+       to Original Video Thumbnail when an artboard matches the video aspect
+    5. Otherwise matching-aspect original-platform thumbs are queued for review
 
-    Canva OAuth failures raise (workflow should fail). Drive TN templates are
-    ignored at ingest (used later for offline translated TN render).
+    Canva OAuth failures raise (workflow should fail).
     """
     updated[thumbnail_field] = None
     updated.pop(f"{thumbnail_field}Error", None)
@@ -592,6 +765,15 @@ def _stage_original_thumbnail_for_ingest(
         updated.pop("_thumbnailReviewPath", None)
         updated[f"{thumbnail_field}Source"] = source
         print(f"  -> staged Canva design for Airtable upload: {destination.name}")
+        return
+
+    if _try_stage_drive_psd_original(
+        drive_service,
+        folder_id,
+        destination=destination,
+        updated=updated,
+        thumbnail_field=thumbnail_field,
+    ):
         return
 
     download_original_platform_thumbnail(source_url, destination)

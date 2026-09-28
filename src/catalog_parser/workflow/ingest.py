@@ -364,14 +364,18 @@ def ingest_batch(
         thumbnail_path = record.get("_originalThumbnailPath")
         if isinstance(thumbnail_path, str) and thumbnail_path.strip():
             path = Path(thumbnail_path)
-            if path.is_file():
+            from catalog_parser.drive_thumbnail import image_looks_empty
+
+            if path.is_file() and not image_looks_empty(path):
                 airtable.upload_attachment(
                     record_id,
                     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
                     path,
                     replace=False,
                 )
-                path.unlink(missing_ok=True)
+            elif path.is_file():
+                emit(f"  skipped empty thumbnail upload: {title}")
+            path.unlink(missing_ok=True)
             continue
 
         review_path = record.get("_thumbnailReviewPath")

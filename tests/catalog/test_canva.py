@@ -171,8 +171,18 @@ class CanvaClientTests(unittest.TestCase):
             with patch.object(
                 client,
                 "get_design_export_job",
-                return_value={"status": "success", "urls": ["https://cdn.example/a.jpg"]},
+                return_value={
+                    "status": "success",
+                    "urls": [
+                        "https://cdn.example/a.jpg",
+                        "https://cdn.example/b.jpg",
+                    ],
+                },
             ):
+                self.assertEqual(
+                    client.export_design_image_urls("DAF123abc"),
+                    ["https://cdn.example/a.jpg", "https://cdn.example/b.jpg"],
+                )
                 self.assertEqual(
                     client.export_design_image_url("DAF123abc"),
                     "https://cdn.example/a.jpg",

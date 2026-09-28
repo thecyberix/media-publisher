@@ -1,0 +1,45 @@
+name: Refresh original video thumbnails
+
+on:
+  workflow_dispatch:
+    inputs:
+      record_ids:
+        description: Space-separated Airtable record ids
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          extras: thumbnails
+
+      - name: Restore Canva token
+        env:
+          CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
+        run: |
+          mkdir -p credentials
+          printf '%s' "$CANVA_TOKEN_JSON" > credentials/canva-token.json
+
+      - name: Refresh Airtable thumbnails
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
+          CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+          CONFIG_SYNC_PAT: ${{ secrets.CONFIG_SYNC_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python -u scripts/catalog/refresh_original_video_thumbnails.py \
+            ${{ inputs.record_ids }}
