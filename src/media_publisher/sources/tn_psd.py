@@ -158,10 +158,20 @@ def list_artboard_sizes(path: Path) -> list[ImageSize]:
     return [ImageSize(width=psd.width, height=psd.height, source="psd-document")]
 
 
+def is_psd_file(path: Path) -> bool:
+    """True for ``.psd`` suffixes or files that start with the Photoshop 8BPS header."""
+    if path.suffix.casefold() == ".psd":
+        return True
+    try:
+        with path.open("rb") as handle:
+            return handle.read(4) == b"8BPS"
+    except OSError:
+        return False
+
+
 def collect_image_sizes(path: Path) -> list[ImageSize]:
-    suffix = path.suffix.casefold()
     sizes: list[ImageSize] = []
-    if suffix == ".psd":
+    if is_psd_file(path):
         sizes.extend(list_artboard_sizes(path))
         if not sizes:
             data = path.read_bytes()
@@ -624,6 +634,39 @@ def composite_without_text(target) -> Image.Image:
     return image
 
 
+def composite_with_text(target) -> Image.Image:
+    image = target.composite()
+    if image.mode != "RGB":
+        return image.convert("RGB")
+    return image
+
+
+def export_original_thumbnail_from_psd(
+    psd_path: Path,
+    destination: Path,
+    *,
+    video_width: int,
+    video_height: int,
+) -> Path:
+    """Rasterize the artboard matching the video aspect, including English type layers."""
+    if not is_psd_file(psd_path):
+        raise TnPsdError(f"Not a Photoshop file: {psd_path}")
+    reference = ImageSize(
+        width=video_width,
+        height=video_height,
+        source="drive-video",
+    )
+    matches = best_aspect_matches(reference, collect_image_sizes(psd_path))
+    if not matches:
+        raise TnPsdError(
+            f"No PSD artboard matches {video_width}x{video_height} for {psd_path.name}"
+        )
+    image = composite_with_text(resolve_psd_target(psd_path, reference))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    image.save(destination, format="JPEG", quality=92)
+    return destination
+
+
 def _offset_line_styles(
     line_styles: list[TnLineStyle],
     offset_x: int,
@@ -649,8 +692,7 @@ def _offset_line_styles(
 
 
 def load_template_image(path: Path, matched: ImageSize) -> tuple[Image.Image, list[TnLineStyle]]:
-    suffix = path.suffix.casefold()
-    if suffix == ".psd":
+    if is_psd_file(path):
         target = resolve_psd_target(path, matched)
         offset_x, offset_y = (int(target.bbox[0]), int(target.bbox[1]))
         line_styles = _offset_line_styles(extract_line_styles(target), offset_x, offset_y)
