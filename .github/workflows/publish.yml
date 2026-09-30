@@ -64,11 +64,6 @@ env:
   META_INSTAGRAM_USERNAME: ${{ vars.META_INSTAGRAM_USERNAME }}
   TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
   SMARTLINK_URL: ${{ vars.SMARTLINK_URL }}
-  # When set, quotes use Playwright Business Suite for public FB photo posts
-  # (Development-mode Graph photos stay role-only). Export credentials/facebook-browser-state.json.
-  FACEBOOK_BROWSER_STATE_JSON: ${{ secrets.FACEBOOK_BROWSER_STATE_JSON }}
-  # Optional Playwright egress (Webshare): http://USER:PASS@p.webshare.io:80
-  FACEBOOK_BROWSER_PROXY: ${{ secrets.FACEBOOK_BROWSER_PROXY }}
 
 jobs:
   videos:
@@ -128,8 +123,6 @@ jobs:
         with:
           install-ffmpeg: "true"
           extras: thumbnails
-          # Needed when FACEBOOK_BROWSER_STATE_JSON enables Playwright FB photos.
-          install-playwright: ${{ secrets.FACEBOOK_BROWSER_STATE_JSON != '' && 'true' || 'false' }}
 
       - name: Verify configuration
         run: python -m media_publisher --check-config

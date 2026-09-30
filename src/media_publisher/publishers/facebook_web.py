@@ -1,8 +1,9 @@
 """Temporary Facebook Page photo publishing via Playwright.
 
-Used while the Meta app is in Development mode: Graph API photo posts are only
-visible to app roles, but the Page composer creates public posts. Remove this
-path after App Review makes Graph posts public.
+Used for event photo posts while the Meta app is in Development mode: Graph API
+photo posts are only visible to app roles, but the Page composer creates public
+posts. Quote photos use Graph (see publishers.quotes). Remove this path after
+App Review makes Graph posts public.
 """
 from __future__ import annotations
 

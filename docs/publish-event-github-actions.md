@@ -56,9 +56,9 @@ Required scopes:
 
 If `pages_manage_posts` is missing, re-authorize a Page token for a user with the Page **CREATE CONTENT** task and update `META_ACCESS_TOKEN`.
 
-### Temporary: public photo posts while the Meta app is in Development mode
+### Temporary: public event photo posts while the Meta app is in Development mode
 
-Graph API photo posts from a Development-mode app are only visible to app roles. Quotes and event **photos** can post via Meta Business Suite (Playwright) instead; videos/reels stay on Graph.
+Graph API photo posts from a Development-mode app are only visible to app roles. **Event** photos can post via Meta Business Suite (Playwright) instead; quote photos and videos/reels stay on Graph.
 
 **Local**
 
@@ -70,15 +70,15 @@ python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption"
 python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption" --now
 ```
 
-After login, quotes/events photo publish uses the browser session automatically. Future `publish_at` values use the composer Schedule controls.
+After login, event photo publish uses the browser session when `FACEBOOK_BROWSER_STATE_JSON` / local state is present. Future `publish_at` values use the composer Schedule controls.
 
 **GitHub Actions**
 
 1. After a working local login, copy `credentials/facebook-browser-state.json`.
-2. Add repository secret **`FACEBOOK_BROWSER_STATE_JSON`** with that file’s contents.
-3. When the secret is set, **Publish videos and quotes** (quotes job) and **Publish event** write the session file, install Playwright Chromium, and use the browser path automatically (headless). Unset the secret to fall back to Graph.
+2. Add repository secret **`FACEBOOK_BROWSER_STATE_JSON`** with that file’s contents (optional `FACEBOOK_BROWSER_PROXY`).
+3. When the secret is set, **Publish event** writes the session file, installs Playwright Chromium, and uses the browser path (headless). Unset the secret to fall back to Graph.
 
-Re-export and update the secret when the session expires (login wall / failed composer). Remove the secret (and local flag) after Meta App Review makes Graph posts public.
+Re-export and update the secret when the session expires (login wall / failed composer). Remove the secret after Meta App Review makes Graph posts public.
 
 ## Past events
 
