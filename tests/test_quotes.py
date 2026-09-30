@@ -91,6 +91,37 @@ class QuoteRenderPlanningTests(unittest.TestCase):
         )
         self.assertEqual(days, {16})
 
+    def test_resolve_quote_days_to_prepare_staggered_month_boundary(self) -> None:
+        days_ig = resolve_quote_days_to_prepare(
+            year=2026,
+            month=9,
+            publish_mode="staggered",
+            reference_date=date(2026, 9, 30),
+            platforms=("instagram",),
+        )
+        self.assertEqual(days_ig, {30})
+        # Facebook-only against September finds nothing (tomorrow is October).
+        self.assertEqual(
+            resolve_quote_days_to_prepare(
+                year=2026,
+                month=9,
+                publish_mode="staggered",
+                reference_date=date(2026, 9, 30),
+                platforms=("facebook",),
+            ),
+            set(),
+        )
+        self.assertEqual(
+            resolve_quote_days_to_prepare(
+                year=2026,
+                month=10,
+                publish_mode="staggered",
+                reference_date=date(2026, 9, 30),
+                platforms=("facebook",),
+            ),
+            {1},
+        )
+
     def test_resolve_quote_days_to_prepare_single_day(self) -> None:
         days = resolve_quote_days_to_prepare(
             year=2026,
@@ -694,6 +725,53 @@ class QuotesPipelineTests(unittest.TestCase):
                     for line in logs
                 )
             )
+
+    def test_run_quotes_pipeline_facebook_only_month_boundary_uses_next_month(
+        self,
+    ) -> None:
+        """Facebook-only staggered on 30 Sep must prepare 1 Oct, not empty Sep."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            tomorrow_post, _ = self._sample_posts(work_dir, stem="2026-10-01")
+            settings = self._settings(
+                work_dir,
+                reference_date=date(2026, 9, 30),
+                platforms=("facebook",),
+            )
+            logs: list[str] = []
+            prepare_calls: list[dict] = []
+
+            def prepare_side_effect(*, platforms=None, year=None, month=None, **kwargs):
+                prepare_calls.append(
+                    {"platforms": platforms, "year": year, "month": month}
+                )
+                self.assertEqual(platforms, ("facebook",))
+                self.assertEqual((year, month), (2026, 10))
+                return [tomorrow_post], {}
+
+            with patch(
+                "media_publisher.quotes_pipeline.prepare_quote_posts_for_publish",
+                side_effect=prepare_side_effect,
+            ), patch(
+                "media_publisher.quotes_pipeline.publish_local_quote",
+                return_value="https://www.facebook.com/scheduled/",
+            ) as publish_mock:
+                exit_code, results = run_quotes_pipeline(
+                    settings,
+                    meta_client=unittest.mock.Mock(),
+                    sheets_client=unittest.mock.Mock(),
+                    drive_client=unittest.mock.Mock(),
+                    quotes_config=unittest.mock.Mock(),
+                    print_line=logs.append,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(prepare_calls), 1)
+            self.assertEqual(prepare_calls[0]["year"], 2026)
+            self.assertEqual(prepare_calls[0]["month"], 10)
+            self.assertEqual([r.platform for r in results if r.success], ["facebook"])
+            publish_mock.assert_called_once()
+            self.assertFalse(any("No quote posts found for 2026-09" in line for line in logs))
 
     def test_filter_quotes_for_local_date(self) -> None:
         if not MONTHLY_PDF.is_file():

@@ -396,13 +396,16 @@ def run_quotes_pipeline(
 
     def prepare_for(
         platforms: tuple[PlatformName, ...] | None,
+        *,
+        for_year: int | None = None,
+        for_month: int | None = None,
     ) -> tuple[list[LocalQuotePost], dict[str, Path]]:
         return prepare_quote_posts_for_publish(
             config=config,
             sheets_client=sheets_client,
             drive_client=drive_client,
-            year=year,
-            month=month,
+            year=year if for_year is None else for_year,
+            month=month if for_month is None else for_month,
             publish_timezone=settings.publish_timezone,
             publish_hour=settings.publish_hour,
             publish_mode=settings.publish_mode,
@@ -443,9 +446,10 @@ def run_quotes_pipeline(
         nonlocal processed_any, work_items_error
         if not posts:
             return False
+        prepared_label = posts[0].stem[:7] if posts[0].stem else f"{year}-{month:02d}"
         print_line(
             f"Using rendered quotes from Google Sheet + Drive backgrounds "
-            f"({len(posts)} day(s) prepared for {year}-{month:02d})."
+            f"({len(posts)} day(s) prepared for {prepared_label})."
         )
         if require_instagram and not ig_images_by_stem:
             print_line("Warning: no Instagram quote renders were prepared.")
@@ -517,8 +521,18 @@ def run_quotes_pipeline(
         if ig_posts:
             dispatch_posts(ig_posts, ig_images_by_stem, require_instagram=True)
 
+        # Tomorrow may fall in the next calendar month (e.g. 30 Sep → 1 Oct).
+        tomorrow = (
+            settings.reference_date + timedelta(days=1)
+            if settings.reference_date is not None
+            else None
+        )
         try:
-            yt_posts, _ = prepare_for(("youtube", "facebook"))
+            yt_posts, _ = prepare_for(
+                ("youtube", "facebook"),
+                for_year=None if tomorrow is None else tomorrow.year,
+                for_month=None if tomorrow is None else tomorrow.month,
+            )
         except QuotesRenderPipelineError as exc:
             record_ytfb_prepare_failure(str(exc))
             yt_posts = []
@@ -527,13 +541,26 @@ def run_quotes_pipeline(
         elif not ytfb_prepare_failed:
             record_ytfb_prepare_failure("no posts found")
     else:
+        prep_year, prep_month = year, month
+        if (
+            settings.publish_mode == "staggered"
+            and settings.reference_date is not None
+            and not quotes_need_instagram_images(settings)
+        ):
+            # Facebook/YouTube-only staggered run: prepare tomorrow's month.
+            tomorrow = settings.reference_date + timedelta(days=1)
+            prep_year, prep_month = tomorrow.year, tomorrow.month
         try:
-            posts, ig_images_by_stem = prepare_for(settings.platforms)
+            posts, ig_images_by_stem = prepare_for(
+                settings.platforms,
+                for_year=prep_year,
+                for_month=prep_month,
+            )
         except QuotesRenderPipelineError as exc:
             print_line(f"Failed to prepare quote images: {exc}")
             return 1, []
         if not posts:
-            print_line(f"No quote posts found for {year}-{month:02d}.")
+            print_line(f"No quote posts found for {prep_year}-{prep_month:02d}.")
             return 0, []
         if not dispatch_posts(
             posts,
@@ -554,7 +581,6 @@ def run_quotes_pipeline(
             else:
                 print_line("No quote posts ready to publish.")
             return 0, []
-
     if work_items_error:
         return 1, results
 

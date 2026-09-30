@@ -290,6 +290,7 @@ def _launch_persistent_context(
     *,
     channel: str | None,
     headless: bool,
+    timezone_id: str | None = None,
 ) -> Any:
     profile_dir.mkdir(parents=True, exist_ok=True)
     launch_kwargs: dict[str, Any] = {
@@ -305,6 +306,8 @@ def _launch_persistent_context(
             "--disable-extensions",
         ],
     }
+    if timezone_id:
+        launch_kwargs["timezone_id"] = timezone_id
     if channel:
         launch_kwargs["channel"] = channel
     context = playwright.chromium.launch_persistent_context(**launch_kwargs)
@@ -338,6 +341,7 @@ def _launch_storage_context(
     *,
     channel: str | None,
     headless: bool,
+    timezone_id: str | None = None,
 ) -> tuple[Any, Any]:
     launch_kwargs: dict[str, Any] = {
         "headless": headless,
@@ -353,12 +357,15 @@ def _launch_storage_context(
     if channel:
         launch_kwargs["channel"] = channel
     browser = playwright.chromium.launch(**launch_kwargs)
-    context = browser.new_context(
-        storage_state=str(storage_state_path),
-        viewport={"width": 1280, "height": 900},
-        locale="en-US",
-        user_agent=DEFAULT_USER_AGENT,
-    )
+    context_kwargs: dict[str, Any] = {
+        "storage_state": str(storage_state_path),
+        "viewport": {"width": 1280, "height": 900},
+        "locale": "en-US",
+        "user_agent": DEFAULT_USER_AGENT,
+    }
+    if timezone_id:
+        context_kwargs["timezone_id"] = timezone_id
+    context = browser.new_context(**context_kwargs)
     context.add_init_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )
@@ -564,37 +571,83 @@ def _ensure_session_ready(page: Any) -> None:
 
 
 def _fill_composer_caption(page: Any, caption: str) -> None:
+    """Fill the Business Suite composer caption (Lexical contenteditable).
+
+    Plain ``textContent`` assignment does not stick in Lexical; use
+    ``execCommand('insertText')`` / keyboard typing and verify the text.
+    """
     text = caption.strip()
     if not text:
         raise FacebookWebError("Facebook photo post caption is required")
 
-    # Prefer bounded evaluate — get_by_role("textbox") can hang on this SPA.
+    probe = text[: min(40, len(text))]
+
+    # Prefer the Lexical caption box; avoid search / destination fields.
     try:
         filled = bool(
             _eval_bounded(
                 page,
                 """(text) => {
-                  const nodes = document.querySelectorAll(
-                    'div[role="textbox"][contenteditable="true"], div[contenteditable="true"], textarea'
-                  );
-                  const n = Math.min(nodes.length, 20);
-                  for (let i = 0; i < n; i++) {
-                    const el = nodes[i];
+                  const probe = text.slice(0, Math.min(40, text.length));
+                  const nodes = Array.from(
+                    document.querySelectorAll(
+                      'div[role="textbox"][contenteditable="true"], div[contenteditable="true"], textarea'
+                    )
+                  ).slice(0, 30);
+                  const score = (el) => {
+                    const ph = (
+                      (el.getAttribute('aria-placeholder') || '') +
+                      ' ' +
+                      (el.getAttribute('placeholder') || '') +
+                      ' ' +
+                      (el.getAttribute('aria-label') || '')
+                    ).toLowerCase();
+                    let s = 0;
+                    if (/write|say|start typing|what.?s on|caption|create a post|share/i.test(ph)) {
+                      s += 5;
+                    }
+                    if (el.getAttribute('data-lexical-editor') === 'true') s += 4;
+                    if (el.getAttribute('role') === 'textbox') s += 2;
+                    if (/search|comment|message|destination/i.test(ph)) s -= 10;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width < 80 || rect.height < 20) s -= 5;
+                    return s;
+                  };
+                  nodes.sort((a, b) => score(b) - score(a));
+                  for (const el of nodes) {
+                    if (score(el) < 0) continue;
                     el.focus();
+                    el.click();
                     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
                       el.value = text;
                       el.dispatchEvent(new Event('input', { bubbles: true }));
-                      return true;
+                    } else {
+                      try { document.execCommand('selectAll', false); } catch (e) {}
+                      let ok = false;
+                      try {
+                        ok = document.execCommand('insertText', false, text);
+                      } catch (e) {
+                        ok = false;
+                      }
+                      if (!ok) {
+                        el.innerHTML = '';
+                        el.textContent = text;
+                        el.dispatchEvent(
+                          new InputEvent('input', {
+                            bubbles: true,
+                            inputType: 'insertText',
+                            data: text,
+                          })
+                        );
+                      }
                     }
-                    el.innerHTML = '';
-                    el.textContent = text;
-                    el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
-                    return true;
+                    const shown = (el.innerText || el.textContent || el.value || '').trim();
+                    if (shown.includes(probe)) return true;
                   }
                   return false;
                 }""",
                 text,
-                timeout_ms=8_000,
+                timeout_ms=10_000,
             )
         )
         if filled:
@@ -603,7 +656,9 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
     except Exception:
         pass
 
+    # Playwright keyboard path — more reliable for Lexical when JS insert fails.
     candidates = (
+        page.locator('[data-lexical-editor="true"][contenteditable="true"]'),
         page.locator('div[role="textbox"][contenteditable="true"]'),
         page.locator("textarea"),
     )
@@ -614,18 +669,45 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                 continue
             box = locator.first
             box.click(timeout=5_000)
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
             try:
-                box.fill(text)
-                return
+                box.press_sequentially(text, delay=5)
             except Exception:
-                pass
-            box.type(text, delay=10)
-            return
+                page.keyboard.type(text, delay=5)
+            page.wait_for_timeout(400)
+            verified = bool(
+                _eval_bounded(
+                    page,
+                    """(probe) => {
+                      const nodes = document.querySelectorAll(
+                        'div[role="textbox"][contenteditable="true"], [data-lexical-editor="true"]'
+                      );
+                      for (const el of Array.from(nodes).slice(0, 20)) {
+                        const t = (el.innerText || el.textContent || '').trim();
+                        if (t.includes(probe)) return true;
+                      }
+                      return false;
+                    }""",
+                    probe,
+                    timeout_ms=5_000,
+                )
+            )
+            if verified:
+                return
+            shown = ""
+            try:
+                shown = (box.inner_text(timeout=2_000) or "").strip()
+            except Exception:
+                shown = ""
+            last_error = FacebookWebError(
+                f"Caption textbox did not keep the text (shows {shown[:80]!r})."
+            )
         except Exception as exc:
             last_error = exc
             continue
     raise FacebookWebError(
-        "Could not find the Facebook post caption textbox. "
+        "Could not fill the Facebook post caption textbox. "
         f"Last error: {last_error}"
     ) from last_error
 
@@ -1449,6 +1531,7 @@ def _launch_facebook_context(
     browser_profile_dir: Path | None,
     browser_channel: str | None,
     headless: bool,
+    timezone_id: str | None = None,
 ) -> tuple[Any, Any | None]:
     has_auth_state = storage_state_has_auth_cookies(storage_state_path)
     has_profile = browser_profile_dir is not None and browser_profile_dir.exists()
@@ -1471,6 +1554,7 @@ def _launch_facebook_context(
                     storage_state_path,
                     channel=channel,
                     headless=headless,
+                    timezone_id=timezone_id,
                 )
                 return context, browser
             if has_profile:
@@ -1479,6 +1563,7 @@ def _launch_facebook_context(
                     browser_profile_dir,
                     channel=channel,
                     headless=headless,
+                    timezone_id=timezone_id,
                 )
                 return context, None
             if storage_state_path.is_file():
@@ -1487,6 +1572,7 @@ def _launch_facebook_context(
                     storage_state_path,
                     channel=channel,
                     headless=headless,
+                    timezone_id=timezone_id,
                 )
                 return context, browser
         except Exception as exc:
@@ -1505,6 +1591,7 @@ def _facebook_page(
     browser_profile_dir: Path | None,
     browser_channel: str | None,
     headless: bool,
+    timezone_id: str | None = None,
 ) -> Iterator[Any]:
     sync_playwright = _require_playwright()
     with sync_playwright() as playwright:
@@ -1514,6 +1601,7 @@ def _facebook_page(
             browser_profile_dir=browser_profile_dir,
             browser_channel=browser_channel,
             headless=headless,
+            timezone_id=timezone_id,
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(20_000)
@@ -1579,11 +1667,13 @@ def publish_facebook_photo_via_browser(
         raise FacebookWebError(f"Image file not found: {resolved_image}")
 
     print("Launching browser…", flush=True)
+    tz = (display_timezone or "Europe/Sofia").strip() or "Europe/Sofia"
     with _facebook_page(
         storage_state_path=state_path,
         browser_profile_dir=profile_dir,
         browser_channel=channel,
         headless=use_headless,
+        timezone_id=tz,
     ) as page:
         try:
             print(f"Opening Business Suite composer…", flush=True)
@@ -1598,12 +1688,15 @@ def publish_facebook_photo_via_browser(
             _fill_composer_caption(page, caption)
             # Destinations after media+caption — opening Post to earlier freezes the SPA.
             _disable_instagram_destination(page)
+            # Post-to picker can steal focus / clear Lexical; re-apply caption.
+            print("Re-checking caption…", flush=True)
+            _fill_composer_caption(page, caption)
             if schedule_at is not None:
                 print(f"Scheduling for {schedule_at.isoformat()}…", flush=True)
                 _schedule_composer_post(
                     page,
                     schedule_at,
-                    display_timezone=display_timezone or "Europe/Sofia",
+                    display_timezone=tz,
                 )
                 permalink = _wait_for_schedule_success(page, page_username=page_username)
             else:

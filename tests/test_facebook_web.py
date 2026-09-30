@@ -20,6 +20,21 @@ from media_publisher.publishers.facebook_web import (
 
 
 class FacebookWebHelpersTest(unittest.TestCase):
+    def test_browser_context_accepts_timezone_id(self) -> None:
+        """Schedule spinbuttons use the browser clock; CI runners are UTC.
+
+        Playwright must launch with timezone_id=Europe/Sofia so 8:00 AM in the
+        UI is Sofia time (not 8:00 UTC → 11:00 Sofia).
+        """
+        import inspect
+
+        from media_publisher.publishers.facebook_web import (
+            _launch_storage_context,
+            _facebook_page,
+        )
+
+        self.assertIn("timezone_id", inspect.signature(_launch_storage_context).parameters)
+        self.assertIn("timezone_id", inspect.signature(_facebook_page).parameters)
     def test_browser_enabled_by_session_secret(self) -> None:
         with patch.dict(
             os.environ,

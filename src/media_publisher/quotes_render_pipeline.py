@@ -201,6 +201,9 @@ def resolve_quote_days_to_prepare(
     In staggered mode, Instagram uses today's quote and YouTube/Facebook use
     tomorrow's. When ``platforms`` is set, only days needed for those platforms
     are prepared (so an Instagram-only run does not require tomorrow's row).
+
+    When tomorrow falls in the next month, callers must pass that month as
+    ``year``/``month`` (typical for Facebook/YouTube-only staggered runs).
     """
     days_in_month = calendar.monthrange(year, month)[1]
     all_days = set(range(1, days_in_month + 1))
@@ -215,14 +218,13 @@ def resolve_quote_days_to_prepare(
             platform in platforms for platform in ("youtube", "facebook")
         )
         days: set[int] = set()
-        if need_today:
+        if need_today and reference_date.year == year and reference_date.month == month:
             days.add(reference_date.day)
         if need_tomorrow:
             tomorrow = reference_date + timedelta(days=1)
             if tomorrow.year == year and tomorrow.month == month:
                 days.add(tomorrow.day)
         return days & all_days
-
     if reference_date is not None:
         if reference_date.year != year or reference_date.month != month:
             return set()
