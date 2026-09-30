@@ -163,8 +163,7 @@ When Original Video Thumbnail is set but Drive override and Canva catalog have n
 | `TARGET_LANGUAGE` | Language key in `config/languages.json`. Required. |
 | `SMARTLINK_URL` | Metricool Smartlink for video captions. Required for publish. |
 | `ENGLISH_QUOTES_URL` | English source quotes spreadsheet. Required for `--prepare-quote-texts`. |
-| `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts, and quote-text add/update mail. Unset: skip those emails. |
-| `GENERATED_QUOTES_NOTIFY_EMAIL` | Generated-quotes Drive sync emails. Unset: skip those emails. |
+| `NOTIFY_EMAIL` | Catalog / auth / thumbnail alerts, quote-text and generated-quotes Drive sync mail. Unset: skip those emails. |
 | `PUBLISH_JSON` | Timezone and local hours: `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}`. Required. |
 
 Also uses secrets `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD` when sending email. If those or `NOTIFY_EMAIL` are unset, email is skipped.

@@ -673,7 +673,6 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
             os.environ,
             {
                 "NOTIFY_EMAIL": "ops@example.com, quotes@example.com",
-                "GENERATED_QUOTES_NOTIFY_EMAIL": "should-not-appear@example.com",
             },
             clear=False,
         ):

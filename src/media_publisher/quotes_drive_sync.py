@@ -196,8 +196,8 @@ def save_sync_state(path: Path, state: dict[str, dict[str, str]]) -> None:
 
 
 def generated_quotes_notify_recipients() -> list[str]:
-    """Recipients from GENERATED_QUOTES_NOTIFY_EMAIL (comma-separated list)."""
-    return _parse_email_list(os.getenv("GENERATED_QUOTES_NOTIFY_EMAIL", ""))
+    """Recipients from NOTIFY_EMAIL (comma-separated list)."""
+    return _parse_email_list(os.getenv("NOTIFY_EMAIL", ""))
 
 
 def _email_change_line(item: GeneratedQuoteChange) -> str:
@@ -252,7 +252,7 @@ def send_generated_quotes_notification_email(
     to_addresses: list[str] | None = None,
     drive_folder_url: str = "",
 ) -> bool:
-    """Email quote Drive add/update summary to GENERATED_QUOTES_NOTIFY_EMAIL recipients."""
+    """Email quote Drive add/update summary to NOTIFY_EMAIL recipients."""
     if not changes:
         return False
 

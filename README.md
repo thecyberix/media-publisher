@@ -92,7 +92,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | `HAPPYSCRIBE_URL` | HappyScribe library URL. If it contains `Short videos` / `Long videos` children, publish uses the folder that matches the video type. |
 | `META_INSTAGRAM_USERNAME` | Instagram username for the linked business account |
 | `META_PAGE_USERNAME` | Facebook Page username |
-| `NOTIFY_EMAIL` | Recipients for catalog / auth / workflow failure mail, and quote-text add/update mail |
+| `NOTIFY_EMAIL` | Recipients for catalog / auth / workflow failure mail, quote-text and generated-quotes Drive sync mail |
 | `PUBLISH_JSON` | Publish schedule, e.g. `{"timezone":"Europe/Sofia","quotes_hour":8,"videos_hour":18}` |
 | `SMARTLINK_URL` | Metricool Smartlink URL used in captions |
 | `TARGET_LANGUAGE` | Language name for channel-report sheet tab and related copy (e.g. `Bulgarian`) |
@@ -107,7 +107,6 @@ Optional (read by workflows when set):
 
 | Variable | Purpose |
 |----------|---------|
-| `GENERATED_QUOTES_NOTIFY_EMAIL` | Recipients for generated-quotes Drive sync mail (comma-separated). Unset: skip those emails. |
 | `HAPPYSCRIBE_REVIEW_URL` | HappyScribe library for performing a review before moving the files to HAPPYSCRIBE_URL for publishing. |
 | `TRANSLATION_MODEL` | Override the default model (`claude-sonnet-4-6` for Anthropic, `gpt-4o-mini` for OpenAI) |
 | `VIDEO_SCHEDULE_DAYS` | Days from the daily catalog run until the next video (default `1` = tomorrow). Use `3` for every third day. |
