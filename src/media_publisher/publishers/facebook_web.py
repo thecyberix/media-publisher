@@ -576,69 +576,130 @@ def _caption_text_present(page: Any, caption: str) -> bool:
     if not text:
         return False
     probe = text[: min(24, len(text))]
-    try:
-        return bool(
-            _eval_bounded(
-                page,
-                """(probe) => {
-                  const nodes = document.querySelectorAll(
-                    'div[role="textbox"][contenteditable="true"], [data-lexical-editor="true"], textarea, div[contenteditable="true"]'
-                  );
-                  for (const el of Array.from(nodes).slice(0, 30)) {
-                    const role = (el.getAttribute('role') || '').toLowerCase();
-                    if (role === 'combobox') continue;
-                    const t = (el.innerText || el.textContent || el.value || '')
-                      .replace(/\\u00a0/g, ' ')
-                      .trim();
-                    if (t.includes(probe)) return true;
-                  }
-                  return false;
-                }""",
-                probe,
-                timeout_ms=5_000,
+
+    def _check(target: Any) -> bool:
+        try:
+            return bool(
+                target.evaluate(
+                    """(probe) => {
+                      const nodes = document.querySelectorAll(
+                        '[contenteditable="true"], textarea, [role="textbox"]'
+                      );
+                      for (const el of Array.from(nodes).slice(0, 40)) {
+                        const role = (el.getAttribute('role') || '').toLowerCase();
+                        if (role === 'combobox') continue;
+                        const t = (el.innerText || el.textContent || el.value || '')
+                          .replace(/\\u00a0/g, ' ')
+                          .trim();
+                        if (t.includes(probe)) return true;
+                      }
+                      return false;
+                    }""",
+                    probe,
+                )
             )
-        )
+        except Exception:
+            return False
+
+    if _check(page):
+        return True
+    try:
+        for frame in page.frames:
+            if frame == page.main_frame:
+                continue
+            if _check(frame):
+                return True
     except Exception:
-        return False
+        pass
+    return False
 
 
-def _fill_composer_caption(page: Any, caption: str) -> None:
-    """Fill the Business Suite composer caption (Lexical contenteditable).
+def _iter_page_and_frames(page: Any) -> list[Any]:
+    targets = [page]
+    try:
+        for frame in page.frames:
+            if frame != page.main_frame:
+                targets.append(frame)
+    except Exception:
+        pass
+    return targets
 
-    Lexical ignores plain ``textContent`` assignment. Prefer Playwright ``fill``,
-    then clipboard paste, then keyboard typing — and verify the text stuck.
-    """
-    text = caption.strip()
-    if not text:
-        raise FacebookWebError("Facebook photo post caption is required")
 
-    probe = text[: min(24, len(text))]
-
-    def _caption_present() -> bool:
-        return _caption_text_present(page, text)
-
-    def _pick_caption_locator() -> Any | None:
-        selectors = (
-            '[data-lexical-editor="true"][contenteditable="true"]',
-            'div[role="textbox"][contenteditable="true"]',
-            'div[aria-placeholder*="Write" i][contenteditable="true"]',
-            'div[aria-placeholder*="Start" i][contenteditable="true"]',
-            'div[aria-placeholder*="what" i][contenteditable="true"]',
-            'div[contenteditable="true"]',
-            "textarea",
-        )
-        best = None
-        best_score = -999
-        for sel in selectors:
-            locator = page.locator(sel)
+def _activate_caption_surface(page: Any) -> None:
+    """Click common caption placeholders so Lexical mounts the editor."""
+    patterns = (
+        r"Write something",
+        r"Start typing",
+        r"What.?s on your mind",
+        r"Create a post",
+        r"Say something",
+        r"Напишете",
+        r"Какво мислите",
+    )
+    for target in _iter_page_and_frames(page):
+        for pattern in patterns:
             try:
+                loc = target.get_by_text(re.compile(pattern, re.I))
+                if loc.count() > 0:
+                    loc.first.click(timeout=2_000, no_wait_after=True)
+                    page.wait_for_timeout(400)
+                    return
+            except Exception:
+                continue
+            try:
+                token = pattern.split()[0].replace(r".?", "")
+                loc = target.locator(
+                    f'[aria-placeholder*="{token}" i], [placeholder*="{token}" i]'
+                )
+                if loc.count() > 0:
+                    loc.first.click(timeout=2_000, no_wait_after=True)
+                    page.wait_for_timeout(400)
+                    return
+            except Exception:
+                continue
+    try:
+        page.evaluate(
+            """() => {
+              const main = document.querySelector('[role="main"]') || document.body;
+              const r = main.getBoundingClientRect();
+              const x = r.left + Math.min(r.width * 0.45, 420);
+              const y = r.top + Math.min(260, r.height * 0.35);
+              const el = document.elementFromPoint(x, y);
+              if (el && el.click) el.click();
+            }"""
+        )
+        page.wait_for_timeout(400)
+    except Exception:
+        pass
+
+
+def _pick_caption_box(page: Any) -> Any | None:
+    """Return a Playwright locator for the caption editor, if present."""
+    selectors = (
+        '[data-lexical-editor="true"][contenteditable="true"]',
+        'div[role="textbox"][contenteditable="true"]',
+        'div[aria-placeholder*="Write" i][contenteditable="true"]',
+        'div[aria-placeholder*="Start" i][contenteditable="true"]',
+        'div[aria-placeholder*="what" i][contenteditable="true"]',
+        'div[aria-placeholder*="Say" i][contenteditable="true"]',
+        'div[aria-placeholder*="Напиш" i][contenteditable="true"]',
+        'p[contenteditable="true"]',
+        'div[contenteditable="true"]',
+        "textarea",
+    )
+    best = None
+    best_score = -999
+    for target in _iter_page_and_frames(page):
+        for sel in selectors:
+            try:
+                locator = target.locator(sel)
                 count = locator.count()
             except Exception:
                 continue
-            for i in range(min(count, 10)):
+            for i in range(min(count, 12)):
                 box = locator.nth(i)
                 try:
-                    if not box.is_visible(timeout=500):
+                    if not box.is_visible(timeout=400):
                         continue
                     role = (box.get_attribute("role") or "").casefold()
                     if role == "combobox":
@@ -651,37 +712,83 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                         + (box.get_attribute("aria-label") or "")
                     ).casefold()
                     score = 0
-                    if "write" in label or "start" in label or "what" in label:
-                        score += 5
+                    if any(
+                        token in label
+                        for token in ("write", "start", "what", "say", "напиш", "мисл")
+                    ):
+                        score += 6
                     if "search" in label or "comment" in label or "message" in label:
                         score -= 10
                     if box.get_attribute("data-lexical-editor") == "true":
-                        score += 3
+                        score += 4
                     if role == "textbox":
                         score += 2
-                    try:
-                        geom = box.bounding_box() or {}
-                        if float(geom.get("height") or 0) >= 40:
-                            score += 2
-                    except Exception:
-                        pass
+                    geom = box.bounding_box() or {}
+                    height = float(geom.get("height") or 0)
+                    width = float(geom.get("width") or 0)
+                    if height >= 36:
+                        score += 2
+                    if width >= 200:
+                        score += 1
+                    if height < 18 or width < 80:
+                        score -= 5
                     if score > best_score:
                         best_score = score
                         best = box
                 except Exception:
                     continue
-        return best
+    return best
 
-    # Give the composer a moment after photo attach / Post-to changes.
-    page.wait_for_timeout(600)
+
+def _dump_caption_debug(page: Any) -> None:
+    try:
+        frames = []
+        for idx, target in enumerate(_iter_page_and_frames(page)):
+            try:
+                diag = target.evaluate(
+                    """() => Array.from(
+                      document.querySelectorAll(
+                        '[contenteditable], [role="textbox"], textarea, [data-lexical-editor], [aria-placeholder]'
+                      )
+                    ).slice(0, 20).map((el) => ({
+                      tag: el.tagName,
+                      role: el.getAttribute('role'),
+                      lexical: el.getAttribute('data-lexical-editor'),
+                      ce: el.getAttribute('contenteditable'),
+                      ph: (el.getAttribute('aria-placeholder') || el.getAttribute('placeholder') || '').slice(0, 80),
+                      text: ((el.innerText || el.textContent || '').trim()).slice(0, 60),
+                      w: Math.round(el.getBoundingClientRect().width),
+                      h: Math.round(el.getBoundingClientRect().height),
+                    }))"""
+                )
+                frames.append({"frame": idx, "nodes": diag})
+            except Exception as exc:
+                frames.append({"frame": idx, "error": str(exc)})
+        print(f"  caption debug: {frames!r}", flush=True)
+    except Exception as exc:
+        print(f"  caption debug failed: {exc}", flush=True)
+
+
+def _fill_composer_caption(page: Any, caption: str) -> None:
+    """Fill the Business Suite composer caption (Lexical contenteditable).
+
+    Lexical ignores plain ``textContent`` assignment. Prefer Playwright ``fill``,
+    then clipboard paste, then keyboard typing — and verify the text stuck.
+    """
+    text = caption.strip()
+    if not text:
+        raise FacebookWebError("Facebook photo post caption is required")
+
+    page.wait_for_timeout(800)
     last_error: Exception | None = None
 
-    for attempt in range(3):
-        box = _pick_caption_locator()
+    for attempt in range(4):
+        _activate_caption_surface(page)
+        box = _pick_caption_box(page)
         if box is None:
             last_error = FacebookWebError("No caption textbox found in the composer")
             _refocus_composer_caption(page)
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(600)
             continue
         try:
             box.click(timeout=5_000)
@@ -689,15 +796,13 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
             page.keyboard.press("Backspace")
             page.wait_for_timeout(150)
 
-            # 1) Playwright fill (handles many contenteditables).
             try:
                 box.fill(text, timeout=5_000)
-                if _caption_present():
+                if _caption_text_present(page, text):
                     return
             except Exception as exc:
                 last_error = exc
 
-            # 2) Clipboard paste — Lexical usually accepts this.
             try:
                 page.context.grant_permissions(
                     ["clipboard-read", "clipboard-write"],
@@ -726,12 +831,11 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                 )
                 page.keyboard.press("Control+V")
                 page.wait_for_timeout(400)
-                if _caption_present():
+                if _caption_text_present(page, text):
                     return
             except Exception as exc:
                 last_error = exc
 
-            # 3) Character typing fallback.
             try:
                 box.click(timeout=3_000)
                 page.keyboard.press("Control+A")
@@ -741,16 +845,14 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                 except Exception:
                     page.keyboard.type(text, delay=8)
                 page.wait_for_timeout(400)
-                if _caption_present():
+                if _caption_text_present(page, text):
                     return
             except Exception as exc:
                 last_error = exc
 
-            # 4) Bounded insertText in the focused editor.
             try:
                 inserted = bool(
-                    _eval_bounded(
-                        page,
+                    page.evaluate(
                         """(text) => {
                           const el = document.activeElement;
                           if (!el || el.getAttribute('contenteditable') !== 'true') {
@@ -765,49 +867,22 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                           }
                         }""",
                         text,
-                        timeout_ms=5_000,
                     )
                 )
                 page.wait_for_timeout(300)
-                if inserted and _caption_present():
+                if inserted and _caption_text_present(page, text):
                     return
             except Exception as exc:
                 last_error = exc
         except Exception as exc:
             last_error = exc
-        page.wait_for_timeout(400 + attempt * 300)
+        page.wait_for_timeout(500 + attempt * 300)
 
-    # Diagnostics for CI logs.
-    try:
-        diag = _eval_bounded(
-            page,
-            """() => {
-              const nodes = Array.from(
-                document.querySelectorAll(
-                  'div[role="textbox"], [contenteditable="true"], textarea'
-                )
-              ).slice(0, 12);
-              return nodes.map((el) => ({
-                tag: el.tagName,
-                role: el.getAttribute('role'),
-                lexical: el.getAttribute('data-lexical-editor'),
-                ph: (el.getAttribute('aria-placeholder') || el.getAttribute('placeholder') || '').slice(0, 80),
-                text: ((el.innerText || el.textContent || '').trim()).slice(0, 60),
-                w: Math.round(el.getBoundingClientRect().width),
-                h: Math.round(el.getBoundingClientRect().height),
-              }));
-            }""",
-            timeout_ms=5_000,
-        )
-        print(f"  caption debug textboxes: {diag!r}", flush=True)
-    except Exception:
-        pass
-
+    _dump_caption_debug(page)
     raise FacebookWebError(
         "Could not fill the Facebook post caption textbox. "
         f"Last error: {last_error}"
     ) from last_error
-
 
 def _click_add_photo_control(page: Any) -> bool:
     # Prefer bounded JS click — role/name scans hang on Business Suite.
@@ -1834,6 +1909,7 @@ def publish_facebook_photo_via_browser(
             print("Attaching photo…", flush=True)
             page.wait_for_timeout(SPA_SETTLE_MS)
             _attach_photo(page, resolved_image)
+            page.wait_for_timeout(1_500)
             print("Filling caption…", flush=True)
             _fill_composer_caption(page, caption)
             # Post-to remounts Lexical; exclude IG then restore/refill caption.
