@@ -63,6 +63,8 @@ env:
   META_INSTAGRAM_USERNAME: ${{ vars.META_INSTAGRAM_USERNAME }}
   TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
   PUBLISH_JSON: ${{ vars.PUBLISH_JSON }}
+  # When set, event photos post via Playwright Business Suite (public while app is in Dev mode).
+  FACEBOOK_BROWSER_STATE_JSON: ${{ secrets.FACEBOOK_BROWSER_STATE_JSON }}
 
 jobs:
   publish:
@@ -76,6 +78,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup-python-env
+        with:
+          install-playwright: ${{ secrets.FACEBOOK_BROWSER_STATE_JSON != '' && 'true' || 'false' }}
 
       - name: Check Meta event scopes
         if: ${{ inputs.dry_run == false && inputs.skip_facebook == false }}

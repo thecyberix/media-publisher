@@ -10,6 +10,11 @@ from media_publisher.post_templates import (
     build_quote_youtube_title,
 )
 from media_publisher.publishers.facebook import FacebookPublishError
+from media_publisher.publishers.facebook_web import (
+    FacebookWebError,
+    facebook_photo_via_browser_enabled,
+    publish_facebook_photo_via_browser,
+)
 from media_publisher.publishers.instagram import InstagramPublishError
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.publishers.youtube import (
@@ -28,7 +33,28 @@ def publish_local_quote_to_facebook(
     page_id: str,
     access_token: str,
     unpublished: bool = False,
+    page_username: str | None = None,
+    project_root: Path | None = None,
+    display_timezone: str = "Europe/Sofia",
 ) -> str:
+    if facebook_photo_via_browser_enabled():
+        if not page_username:
+            raise FacebookPublishError(
+                "META_PAGE_USERNAME is required for Facebook browser photo publishing"
+            )
+        try:
+            _post_id, permalink = publish_facebook_photo_via_browser(
+                page_username=page_username,
+                image_path=image_path,
+                caption=caption,
+                publish_at=publish_at,
+                display_timezone=display_timezone,
+                project_root=project_root,
+            )
+        except FacebookWebError as exc:
+            raise FacebookPublishError(str(exc)) from exc
+        return permalink
+
     try:
         client = MetaClient(access_token)
         return client.schedule_facebook_photo(
@@ -139,6 +165,9 @@ def publish_local_quote(
     ffmpeg_path: str | None = None,
     template_urls: dict[str, str] | None = None,
     private: bool = False,
+    page_username: str | None = None,
+    project_root: Path | None = None,
+    display_timezone: str = "Europe/Sofia",
 ) -> str:
     post_caption = build_quote_post_caption(caption)
     if platform == "youtube":
@@ -169,7 +198,13 @@ def publish_local_quote(
             access_token=access_token,
             # Schedule for later = public at publish_at; immediate = public now.
             unpublished=False,
+            page_username=page_username,
+            project_root=project_root,
+            display_timezone=display_timezone,
         )
+        if facebook_photo_via_browser_enabled():
+            # Browser path already returns a public permalink.
+            return photo_id
         if publish_at is None and private:
             return meta_client.get_facebook_post_permalink(photo_id)
         return meta_client.get_facebook_photo_permalink(photo_id)

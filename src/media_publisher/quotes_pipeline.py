@@ -69,6 +69,7 @@ class QuotesPipelineSettings:
     platforms: tuple[PlatformName, ...] | None = None
     youtube_daily_playlist_id: str | None = None
     youtube_daily_playlist_slots_path: Path | None = None
+    meta_page_username: str = ""
 
 
 def filter_quotes_for_local_date(
@@ -279,6 +280,9 @@ def _process_quote_work_items(
                     ffmpeg_path=settings.ffmpeg_path,
                     template_urls=settings.template_urls,
                     youtube_work_dir=quote_video_dir,
+                    page_username=settings.meta_page_username,
+                    project_root=settings.project_root,
+                    display_timezone=settings.publish_timezone,
                 )
                 mark_platform_scheduled_in_state(
                     state,

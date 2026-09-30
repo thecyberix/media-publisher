@@ -207,6 +207,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Import a Playwright storage-state JSON file exported from a normal browser login.",
     )
     parser.add_argument(
+        "--facebook-browser-login",
+        action="store_true",
+        help=(
+            "Open Facebook in Chrome/Edge, log in as a Page admin, and save a "
+            "Playwright session for temporary Facebook browser photo posts."
+        ),
+    )
+    parser.add_argument(
+        "--facebook-browser-import-session",
+        metavar="PATH",
+        help="Import a Playwright storage-state JSON file for Facebook browser photo posts.",
+    )
+    parser.add_argument(
+        "--facebook-browser-channel",
+        choices=("chrome", "msedge", "edge", "chromium"),
+        help="Preferred browser for --facebook-browser-login (default: Chrome locally, Chromium in CI).",
+    )
+    parser.add_argument(
         "--burn-happyscribe-video",
         metavar="TRANSCRIPTION_ID",
         help=(
@@ -838,6 +856,7 @@ def run_publish_event(settings, args) -> int:
             skip_facebook=bool(args.skip_facebook),
             meta_client=meta_client,
             page_id=page_id,
+            page_username=settings.meta_page_username,
             drive_client=drive_client,
             image_id=(args.image_id.strip() or None),
             language=settings.target_language,
@@ -1186,6 +1205,8 @@ def cli_requested_action(args) -> bool:
             args.export_happyscribe_web,
             args.happyscribe_save_session,
             args.happyscribe_import_session,
+            args.facebook_browser_login,
+            args.facebook_browser_import_session,
             args.burn_happyscribe_video,
             args.canva_auth,
             args.canva_auth_code is not None,
@@ -1466,6 +1487,7 @@ def build_quotes_pipeline_settings(
         meta_instagram_account_id=meta_instagram_account_id,
         meta_access_token=settings.meta_access_token or "",
         meta_app_id=settings.meta_app_id,
+        meta_page_username=settings.meta_page_username,
         youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
         youtube_token=PROJECT_ROOT / settings.youtube_token,
         youtube_channel_handle=settings.youtube_channel_handle,
@@ -2146,6 +2168,60 @@ def main() -> int:
         print(f"Imported HappyScribe browser session to {settings.happyscribe_browser_state!r}.")
         return 0
 
+    if args.facebook_browser_login:
+        from media_publisher.publishers.facebook_web import (
+            FacebookWebError,
+            resolve_facebook_browser_channel,
+            resolve_facebook_browser_profile_dir,
+            resolve_facebook_browser_state_path,
+            save_browser_session_interactive,
+        )
+
+        if not settings.meta_page_username:
+            print("META_PAGE_USERNAME is required for Facebook browser login.")
+            return 1
+        channel = (
+            args.facebook_browser_channel
+            or resolve_facebook_browser_channel()
+        )
+        if channel == "edge":
+            channel = "msedge"
+        if channel == "chromium":
+            channel = None
+        state_path = resolve_facebook_browser_state_path(project_root=PROJECT_ROOT)
+        try:
+            save_browser_session_interactive(
+                state_path,
+                browser_profile_dir=resolve_facebook_browser_profile_dir(
+                    project_root=PROJECT_ROOT
+                ),
+                page_username=settings.meta_page_username,
+                browser_channel=channel,
+            )
+        except FacebookWebError as exc:
+            print(f"Facebook browser login failed: {exc}")
+            return 1
+        return 0
+
+    if args.facebook_browser_import_session:
+        from media_publisher.publishers.facebook_web import (
+            FacebookWebError,
+            import_browser_session as import_facebook_browser_session,
+            resolve_facebook_browser_state_path,
+        )
+
+        state_path = resolve_facebook_browser_state_path(project_root=PROJECT_ROOT)
+        try:
+            import_facebook_browser_session(
+                Path(args.facebook_browser_import_session),
+                state_path,
+            )
+        except FacebookWebError as exc:
+            print(f"Facebook browser session import failed: {exc}")
+            return 1
+        print(f"Imported Facebook browser session to {state_path}.")
+        return 0
+
     if args.export_happyscribe_web:
         missing = happyscribe_web_settings_missing(settings)
         if missing:
@@ -2740,6 +2816,7 @@ def main() -> int:
         "No action specified. Try --check-config, --test-airtable, --list-pending, "
         "--test-happyscribe, --list-happyscribe-library, --download-happyscribe-library, "
         "--happyscribe-save-session, --happyscribe-import-session, --export-happyscribe-web, --burn-happyscribe-video, "
+        "--facebook-browser-login, --facebook-browser-import-session, "
         "--canva-auth, --canva-download, --canva-resolve, --test-canva, --youtube-auth, --test-youtube, "
         "--test-meta, --check-event-meta, --publish-event, --prune-past-events, "
         "--resolve-meta, "

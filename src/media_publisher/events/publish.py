@@ -91,6 +91,7 @@ def publish_event(
     skip_facebook: bool = False,
     meta_client: MetaClient | None = None,
     page_id: str | None = None,
+    page_username: str | None = None,
     drive_client: GoogleDriveClient | None = None,
     image_id: str | None = None,
     language: str = "bg",
@@ -179,6 +180,8 @@ def publish_event(
                 page_id=page_id,
                 rendered=rendered,
                 image_path=selected.local_path,
+                page_username=page_username,
+                project_root=project_root,
             )
         except (MetaError, EventImageError) as exc:
             raise EventPublishError(str(exc)) from exc

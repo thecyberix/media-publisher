@@ -19,6 +19,7 @@ CREDENTIAL_ENV_FILES: dict[str, str] = {
     "YOUTUBE_TOKEN_JSON": "credentials/youtube-token.json",
     "CANVA_TOKEN_JSON": "credentials/canva-token.json",
     "HAPPYSCRIBE_BROWSER_STATE_JSON": "credentials/happyscribe-browser.json",
+    "FACEBOOK_BROWSER_STATE_JSON": "credentials/facebook-browser-state.json",
     # Same secret name as catalog-parser (GOOGLE_SERVICE_ACCOUNT_JSON).
     "GOOGLE_SERVICE_ACCOUNT_JSON": "credentials/google-sheets-service-account.json",
     "GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON": "credentials/google-sheets-service-account.json",

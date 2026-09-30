@@ -306,12 +306,11 @@ def notify_generated_quote_changes(
     if sent:
         log(f"Sent generated-quotes email ({len(recipients)} recipient(s))")
         return []
-    reason = (
-        "missing GENERATED_QUOTES_NOTIFY_EMAIL"
-        if not recipients
-        else "missing Gmail SMTP settings"
+    if not recipients:
+        return []
+    warnings.append(
+        "Generated-quotes email skipped (missing Gmail SMTP settings)"
     )
-    warnings.append(f"Generated-quotes email skipped ({reason})")
     return warnings
 
 

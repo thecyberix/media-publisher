@@ -28,6 +28,7 @@ Same Meta secrets as the publish pipeline:
 - `META_ACCESS_TOKEN`
 - `META_APP_ID`
 - `META_APP_SECRET`
+- Optional `FACEBOOK_BROWSER_STATE_JSON` — Playwright session for public event photo posts while the Meta app is in Development mode (see below)
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — loads the Hatha message template and Facebook images from Drive
 - `DRIVE_URL` — parent Drive folder; events use the `Events` subfolder
 
@@ -54,6 +55,30 @@ Required scopes:
 - `pages_manage_posts` — create the photo post
 
 If `pages_manage_posts` is missing, re-authorize a Page token for a user with the Page **CREATE CONTENT** task and update `META_ACCESS_TOKEN`.
+
+### Temporary: public photo posts while the Meta app is in Development mode
+
+Graph API photo posts from a Development-mode app are only visible to app roles. Quotes and event **photos** can post via Meta Business Suite (Playwright) instead; videos/reels stay on Graph.
+
+**Local**
+
+```bash
+python -m media_publisher --facebook-browser-login
+# Schedules tomorrow by default (not live on the feed):
+python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption"
+# Immediate publish (visible now):
+python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption" --now
+```
+
+After login, quotes/events photo publish uses the browser session automatically. Future `publish_at` values use the composer Schedule controls.
+
+**GitHub Actions**
+
+1. After a working local login, copy `credentials/facebook-browser-state.json`.
+2. Add repository secret **`FACEBOOK_BROWSER_STATE_JSON`** with that file’s contents.
+3. When the secret is set, **Publish videos and quotes** (quotes job) and **Publish event** write the session file, install Playwright Chromium, and use the browser path automatically (headless). Unset the secret to fall back to Graph.
+
+Re-export and update the secret when the session expires (login wall / failed composer). Remove the secret (and local flag) after Meta App Review makes Graph posts public.
 
 ## Past events
 

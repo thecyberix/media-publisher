@@ -75,6 +75,7 @@ Set under **Settings → Secrets and variables → Actions → Secrets**. These 
 | `TRANSLATION_API_KEY` | Anthropic or OpenAI key (matches `TRANSLATION_PROVIDER`) |
 | `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
 | `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
+| `FACEBOOK_BROWSER_STATE_JSON` | Optional. Playwright storage state (`credentials/facebook-browser-state.json`) for public Facebook **photo** posts (quotes/events) while the Meta app is in Development mode. When set, those workflows use Business Suite instead of Graph for photos. Create via `python -m media_publisher --facebook-browser-login`. Videos/reels stay on Graph. |
 
 `WORKFLOW_PROFILES_JSON` may also be stored as a secret; this repo keeps it as a variable.
 
@@ -87,7 +88,6 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | `AIRTABLE_URL` | Live catalog table URL (`app…` / `tbl…` are parsed; the view segment is ignored) |
 | `CANVA_URL` | Parent Canva folder; catalog thumbs use child folders `Long videos` and `Short videos` |
 | `DRIVE_URL` | Parent Drive folder (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`) |
-| `GENERATED_QUOTES_NOTIFY_EMAIL` | Recipients for generated-quotes Drive sync mail (comma-separated) |
 | `HAPPYSCRIBE_URL` | HappyScribe library URL. If it contains `Short videos` / `Long videos` children, publish uses the folder that matches the video type. |
 | `META_INSTAGRAM_USERNAME` | Instagram username for the linked business account |
 | `META_PAGE_USERNAME` | Facebook Page username |
@@ -106,6 +106,7 @@ Optional (read by workflows when set):
 
 | Variable | Purpose |
 |----------|---------|
+| `GENERATED_QUOTES_NOTIFY_EMAIL` | Recipients for generated-quotes Drive sync mail (comma-separated). Unset: skip those emails. |
 | `HAPPYSCRIBE_REVIEW_URL` | HappyScribe library for performing a review before moving the files to HAPPYSCRIBE_URL for publishing. |
 | `TRANSLATION_MODEL` | Override the default model (`claude-sonnet-4-6` for Anthropic, `gpt-4o-mini` for OpenAI) |
 | `VIDEO_SCHEDULE_DAYS` | Days from the daily catalog run until the next video (default `1` = tomorrow). Use `3` for every third day. |

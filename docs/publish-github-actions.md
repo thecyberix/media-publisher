@@ -140,6 +140,7 @@ Same as the catalog workflow where noted:
 | `CANVA_CLIENT_ID` / `CANVA_CLIENT_SECRET` | Canva token refresh in CI |
 | `CONFIG_SYNC_PAT` | Persist Canva/YouTube tokens and daily-playlist slots (Secrets + Variables write) |
 | `AIRTABLE_*`, `HAPPYSCRIBE_*`, `YOUTUBE_*`, `META_*` | Catalog fetch and platform publish |
+| `FACEBOOK_BROWSER_STATE_JSON` | Optional. Playwright storage state for public Facebook **photo** posts (quotes) while the Meta app is in Development mode. When set, quotes use Business Suite instead of Graph for photos. Export `credentials/facebook-browser-state.json` after `--facebook-browser-login`. Videos/reels stay on Graph. |
 
 Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run.
 

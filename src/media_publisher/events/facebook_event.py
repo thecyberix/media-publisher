@@ -13,6 +13,11 @@ from media_publisher.events.templates import (
     get_program,
     normalize_event_type,
 )
+from media_publisher.publishers.facebook_web import (
+    FacebookWebError,
+    facebook_photo_via_browser_enabled,
+    publish_facebook_photo_via_browser,
+)
 from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.sources.drive_layout import resolve_events_folder_id
 from media_publisher.sources.google_drive import (
@@ -323,6 +328,8 @@ def publish_event_to_facebook(
     page_id: str,
     rendered: RenderedEvent,
     image_path: Path,
+    page_username: str | None = None,
+    project_root: Path | None = None,
 ) -> tuple[str, str]:
     """Post the event photo with the program caption text.
 
@@ -331,6 +338,22 @@ def publish_event_to_facebook(
     resolved = image_path.resolve()
     if not resolved.is_file():
         raise MetaError(f"Facebook event image not found: {resolved}")
+
+    if facebook_photo_via_browser_enabled():
+        username = (page_username or "").strip()
+        if not username:
+            raise MetaError(
+                "META_PAGE_USERNAME is required for Facebook browser photo publishing"
+            )
+        try:
+            return publish_facebook_photo_via_browser(
+                page_username=username,
+                image_path=resolved,
+                caption=rendered.facebook_post_text,
+                project_root=project_root,
+            )
+        except FacebookWebError as exc:
+            raise MetaError(str(exc)) from exc
 
     post_id = client.create_facebook_photo_post(
         page_id=page_id,
