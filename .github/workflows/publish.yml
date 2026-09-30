@@ -67,6 +67,8 @@ env:
   # When set, quotes use Playwright Business Suite for public FB photo posts
   # (Development-mode Graph photos stay role-only). Export credentials/facebook-browser-state.json.
   FACEBOOK_BROWSER_STATE_JSON: ${{ secrets.FACEBOOK_BROWSER_STATE_JSON }}
+  # Optional Playwright egress (Webshare): http://USER:PASS@p.webshare.io:80
+  FACEBOOK_BROWSER_PROXY: ${{ secrets.FACEBOOK_BROWSER_PROXY }}
 
 jobs:
   videos:

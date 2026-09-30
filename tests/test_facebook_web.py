@@ -9,12 +9,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from media_publisher.publishers.facebook_web import (
+    _composer_editor_visible,
+    _looks_like_login_url,
     business_suite_composer_url,
     extract_facebook_post_permalink,
     facebook_photo_via_browser_enabled,
     import_browser_session,
     page_feed_url,
     resolve_facebook_browser_channel,
+    resolve_facebook_browser_proxy,
     storage_state_has_auth_cookies,
 )
 
@@ -94,6 +97,61 @@ class FacebookWebHelpersTest(unittest.TestCase):
         ):
             self.assertIsNone(resolve_facebook_browser_channel())
 
+    def test_resolve_proxy_from_url(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FACEBOOK_BROWSER_PROXY": "http://user%40x:p%40ss@p.webshare.io:80",
+                "FACEBOOK_BROWSER_PROXY_SERVER": "",
+                "FACEBOOK_BROWSER_PROXY_USERNAME": "",
+                "FACEBOOK_BROWSER_PROXY_PASSWORD": "",
+            },
+            clear=False,
+        ):
+            proxy = resolve_facebook_browser_proxy()
+        self.assertEqual(
+            proxy,
+            {
+                "server": "http://p.webshare.io:80",
+                "username": "user@x",
+                "password": "p@ss",
+            },
+        )
+
+    def test_resolve_proxy_from_split_env(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FACEBOOK_BROWSER_PROXY": "",
+                "FACEBOOK_BROWSER_PROXY_SERVER": "p.webshare.io:80",
+                "FACEBOOK_BROWSER_PROXY_USERNAME": "u1",
+                "FACEBOOK_BROWSER_PROXY_PASSWORD": "secret",
+            },
+            clear=False,
+        ):
+            proxy = resolve_facebook_browser_proxy()
+        self.assertEqual(
+            proxy,
+            {
+                "server": "http://p.webshare.io:80",
+                "username": "u1",
+                "password": "secret",
+            },
+        )
+
+    def test_resolve_proxy_unset(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FACEBOOK_BROWSER_PROXY": "",
+                "FACEBOOK_BROWSER_PROXY_SERVER": "",
+                "FACEBOOK_BROWSER_PROXY_USERNAME": "",
+                "FACEBOOK_BROWSER_PROXY_PASSWORD": "",
+            },
+            clear=False,
+        ):
+            self.assertIsNone(resolve_facebook_browser_proxy())
+
     def test_page_feed_url(self) -> None:
         self.assertEqual(
             page_feed_url("@SadhguruBulgarian"),
@@ -118,6 +176,35 @@ class FacebookWebHelpersTest(unittest.TestCase):
         self.assertIn("business.facebook.com/latest/composer/", url)
         self.assertIn("asset_id=108518418983337", url)
         self.assertIn("business_id=2391168584397645", url)
+
+    def test_loginpage_url_detected(self) -> None:
+        login = (
+            "https://business.facebook.com/business/loginpage/"
+            "?next=https%3A%2F%2Fbusiness.facebook.com%2Flatest%2Fcomposer%2F"
+            "%3Fasset_id%3D1%26business_id%3D2"
+        )
+        self.assertTrue(_looks_like_login_url(login))
+        self.assertFalse(
+            _looks_like_login_url(
+                "https://business.facebook.com/latest/composer/?asset_id=1&business_id=2"
+            )
+        )
+
+    def test_composer_visible_ignores_login_next_param(self) -> None:
+        class _Page:
+            def __init__(self, url: str) -> None:
+                self.url = url
+
+        login = (
+            "https://business.facebook.com/business/loginpage/"
+            "?next=https%3A%2F%2Fbusiness.facebook.com%2Flatest%2Fcomposer%2F"
+        )
+        composer = (
+            "https://business.facebook.com/latest/composer/"
+            "?asset_id=108518418983337&business_id=2391168584397645"
+        )
+        self.assertFalse(_composer_editor_visible(_Page(login)))
+        self.assertTrue(_composer_editor_visible(_Page(composer)))
 
     def test_storage_state_has_auth_cookies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 DEFAULT_STORAGE_STATE = "credentials/facebook-browser-state.json"
 DEFAULT_BROWSER_PROFILE = "credentials/facebook-browser-profile"
@@ -27,7 +27,8 @@ NETWORK_IDLE_TIMEOUT_MS = 15_000
 SPA_SETTLE_MS = 2_000
 POST_TIMEOUT_MS = 60_000
 LOGIN_URL_PATTERN = re.compile(
-    r"facebook\.com/(?:login|checkpoint)|m\.facebook\.com/login",
+    # Business Suite uses /business/loginpage/?next=...composer... (not /login).
+    r"facebook\.com/(?:login|checkpoint)|loginpage|m\.facebook\.com/login",
     re.IGNORECASE,
 )
 LOGIN_MODAL_PATTERN = re.compile(
@@ -208,6 +209,85 @@ def resolve_facebook_browser_channel() -> str | None:
     return "chrome"
 
 
+def resolve_facebook_browser_proxy(
+    *,
+    override: str | dict[str, str] | None = None,
+) -> dict[str, str] | None:
+    """Playwright ``proxy=`` dict from env (Webshare / HTTP proxies).
+
+    Preferred forms (Chromium ignores ``user:pass@`` embedded in the server URL)::
+
+        FACEBOOK_BROWSER_PROXY=http://USER:PASS@p.webshare.io:80
+        # or
+        FACEBOOK_BROWSER_PROXY_SERVER=http://p.webshare.io:80
+        FACEBOOK_BROWSER_PROXY_USERNAME=USER
+        FACEBOOK_BROWSER_PROXY_PASSWORD=PASS
+
+    Returns ``None`` when unset.
+    """
+    if isinstance(override, dict):
+        server = str(override.get("server") or "").strip()
+        if not server:
+            return None
+        out: dict[str, str] = {"server": server}
+        user = str(override.get("username") or "").strip()
+        password = str(override.get("password") or "")
+        if user:
+            out["username"] = user
+            out["password"] = password
+        return out
+
+    raw = (override if isinstance(override, str) else None) or os.getenv(
+        "FACEBOOK_BROWSER_PROXY", ""
+    ).strip()
+    server = os.getenv("FACEBOOK_BROWSER_PROXY_SERVER", "").strip()
+    username = os.getenv("FACEBOOK_BROWSER_PROXY_USERNAME", "").strip()
+    password = os.getenv("FACEBOOK_BROWSER_PROXY_PASSWORD", "")
+
+    if raw:
+        parsed = urlparse(raw if "://" in raw else f"http://{raw}")
+        if not parsed.hostname:
+            raise FacebookWebError(
+                f"Invalid FACEBOOK_BROWSER_PROXY (missing host): {raw!r}"
+            )
+        scheme = (parsed.scheme or "http").lower()
+        if scheme not in {"http", "https", "socks5"}:
+            raise FacebookWebError(
+                f"Unsupported FACEBOOK_BROWSER_PROXY scheme {scheme!r}; "
+                "use http:// or socks5://"
+            )
+        port = parsed.port
+        if port is None:
+            port = 443 if scheme == "https" else 80
+        server = f"{scheme}://{parsed.hostname}:{port}"
+        if parsed.username is not None:
+            username = unquote(parsed.username)
+        if parsed.password is not None:
+            password = unquote(parsed.password)
+
+    if not server:
+        return None
+
+    if "://" not in server:
+        server = f"http://{server}"
+
+    result: dict[str, str] = {"server": server}
+    if username:
+        result["username"] = username
+        result["password"] = password
+    return result
+
+
+def _proxy_log_label(proxy: dict[str, str] | None) -> str:
+    if not proxy:
+        return "none"
+    server = proxy.get("server", "")
+    user = proxy.get("username")
+    if user:
+        return f"{server} (user={user})"
+    return server
+
+
 def resolve_facebook_business_asset_id() -> str:
     return (
         os.getenv("FACEBOOK_BUSINESS_ASSET_ID", "").strip()
@@ -291,6 +371,7 @@ def _launch_persistent_context(
     channel: str | None,
     headless: bool,
     timezone_id: str | None = None,
+    proxy: dict[str, str] | None = None,
 ) -> Any:
     profile_dir.mkdir(parents=True, exist_ok=True)
     launch_kwargs: dict[str, Any] = {
@@ -310,6 +391,8 @@ def _launch_persistent_context(
         launch_kwargs["timezone_id"] = timezone_id
     if channel:
         launch_kwargs["channel"] = channel
+    if proxy:
+        launch_kwargs["proxy"] = proxy
     context = playwright.chromium.launch_persistent_context(**launch_kwargs)
     context.add_init_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
@@ -342,6 +425,7 @@ def _launch_storage_context(
     channel: str | None,
     headless: bool,
     timezone_id: str | None = None,
+    proxy: dict[str, str] | None = None,
 ) -> tuple[Any, Any]:
     launch_kwargs: dict[str, Any] = {
         "headless": headless,
@@ -356,6 +440,9 @@ def _launch_storage_context(
     }
     if channel:
         launch_kwargs["channel"] = channel
+    # Chromium: proxy must be set at launch (per-context alone is ignored).
+    if proxy:
+        launch_kwargs["proxy"] = proxy
     browser = playwright.chromium.launch(**launch_kwargs)
     context_kwargs: dict[str, Any] = {
         "storage_state": str(storage_state_path),
@@ -421,11 +508,13 @@ def save_browser_session_interactive(
     browser_profile_dir: Path,
     page_username: str,
     browser_channel: str | None = "chrome",
+    proxy: dict[str, str] | None = None,
 ) -> None:
     """Open Business Suite in Chrome/Edge; operator logs in and saves the session."""
     sync_playwright = _require_playwright()
     browser_state_path.parent.mkdir(parents=True, exist_ok=True)
     start_url = business_suite_composer_url()
+    proxy = proxy if proxy is not None else resolve_facebook_browser_proxy()
 
     last_error: Exception | None = None
     for channel in _browser_channel_candidates(browser_channel):
@@ -437,9 +526,11 @@ def save_browser_session_interactive(
                     browser_profile_dir,
                     channel=channel,
                     headless=False,
+                    proxy=proxy,
                 )
                 page = context.pages[0] if context.pages else context.new_page()
                 print(f"Opened Meta Business Suite login using {label}.")
+                print(f"Proxy: {_proxy_log_label(proxy)}")
                 print(f"1. Log in as a Page admin for {page_username!r}.")
                 print("2. Confirm the Page is selected and the composer loads.")
                 print("3. When ready, press Enter here to save the session.")
@@ -466,6 +557,68 @@ def save_browser_session_interactive(
         "Could not launch Chrome or Edge for Facebook login. "
         "Install Google Chrome or Microsoft Edge, then retry. "
         f"Last error: {last_error}"
+    ) from last_error
+
+
+def verify_facebook_browser_proxy(
+    *,
+    proxy: dict[str, str] | None = None,
+    browser_channel: str | None = None,
+    headless: bool = True,
+    check_url: str = "https://api.ipify.org/?format=json",
+) -> str:
+    """Launch Chromium through the configured proxy and return the egress IP.
+
+    Raises ``FacebookWebError`` when no proxy is configured or the check fails.
+    """
+    resolved = proxy if proxy is not None else resolve_facebook_browser_proxy()
+    if not resolved:
+        raise FacebookWebError(
+            "No proxy configured. Set FACEBOOK_BROWSER_PROXY="
+            "http://USER:PASS@p.webshare.io:80 (Webshare Proxy List credentials)."
+        )
+    sync_playwright = _require_playwright()
+    channel = (
+        browser_channel
+        if browser_channel is not None
+        else resolve_facebook_browser_channel()
+    )
+    last_error: Exception | None = None
+    for candidate in _browser_channel_candidates(channel):
+        try:
+            with sync_playwright() as playwright:
+                launch_kwargs: dict[str, Any] = {
+                    "headless": headless,
+                    "proxy": resolved,
+                }
+                if candidate:
+                    launch_kwargs["channel"] = candidate
+                browser = playwright.chromium.launch(**launch_kwargs)
+                try:
+                    page = browser.new_page()
+                    print(f"Proxy check via {_proxy_log_label(resolved)}…", flush=True)
+                    page.goto(check_url, wait_until="domcontentloaded", timeout=30_000)
+                    body = (page.inner_text("body") or "").strip()
+                finally:
+                    browser.close()
+            ip = body
+            try:
+                payload = json.loads(body)
+                if isinstance(payload, dict) and payload.get("ip"):
+                    ip = str(payload["ip"])
+            except json.JSONDecodeError:
+                pass
+            if not ip:
+                raise FacebookWebError("Proxy check returned an empty body")
+            print(f"Egress IP: {ip}", flush=True)
+            return ip
+        except FacebookWebError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            continue
+    raise FacebookWebError(
+        f"Proxy check failed. Last error: {last_error}"
     ) from last_error
 
 
@@ -1008,11 +1161,15 @@ def _select_business_suite_page(page: Any, *, page_username: str) -> None:
 def _composer_editor_visible(page: Any) -> bool:
     """Treat loaded Business Suite composer URL as ready.
 
-    Full DOM text scans hang on this SPA; URL + short settle is enough.
+    Full DOM text scans hang on this SPA; URL path + short settle is enough.
+    Match the path only — login redirects put ``composer`` in ``?next=``.
     """
-    return "business.facebook.com" in (page.url or "").casefold() and "composer" in (
-        page.url or ""
-    ).casefold()
+    parsed = urlparse(page.url or "")
+    host = (parsed.netloc or "").casefold()
+    path = (parsed.path or "").casefold()
+    if _looks_like_login_url(page.url or ""):
+        return False
+    return "business.facebook.com" in host and "/latest/composer" in path
 
 
 def _wait_for_composer_interactive(page: Any, *, timeout_ms: int = 45_000) -> None:
@@ -1306,9 +1463,12 @@ def _open_business_suite_composer(page: Any, *, page_username: str) -> None:
     print("  checking login wall…", flush=True)
     if _page_shows_login_wall(page):
         raise FacebookWebError(
-            "Meta Business Suite shows a login wall with the current browser session. "
-            "Open https://business.facebook.com/ in normal Chrome while logged in, "
-            "export cookies (Cookie-Editor), then re-import."
+            "Meta Business Suite shows a login wall with the current browser session "
+            "(expired cookies, or Meta blocked the login — common from GitHub Actions IPs). "
+            "In Facebook: open Security / Login alerts, allow the attempt if shown, then "
+            "re-login locally (`python -m media_publisher --facebook-browser-login` or "
+            "Cookie-Editor export), update FACEBOOK_BROWSER_STATE_JSON, and avoid rapid "
+            "CI retries until the session is trusted again."
         )
 
     print("  checking composer editor…", flush=True)
@@ -1757,6 +1917,7 @@ def _launch_facebook_context(
     browser_channel: str | None,
     headless: bool,
     timezone_id: str | None = None,
+    proxy: dict[str, str] | None = None,
 ) -> tuple[Any, Any | None]:
     has_auth_state = storage_state_has_auth_cookies(storage_state_path)
     has_profile = browser_profile_dir is not None and browser_profile_dir.exists()
@@ -1780,6 +1941,7 @@ def _launch_facebook_context(
                     channel=channel,
                     headless=headless,
                     timezone_id=timezone_id,
+                    proxy=proxy,
                 )
                 return context, browser
             if has_profile:
@@ -1789,6 +1951,7 @@ def _launch_facebook_context(
                     channel=channel,
                     headless=headless,
                     timezone_id=timezone_id,
+                    proxy=proxy,
                 )
                 return context, None
             if storage_state_path.is_file():
@@ -1798,6 +1961,7 @@ def _launch_facebook_context(
                     channel=channel,
                     headless=headless,
                     timezone_id=timezone_id,
+                    proxy=proxy,
                 )
                 return context, browser
         except Exception as exc:
@@ -1817,6 +1981,7 @@ def _facebook_page(
     browser_channel: str | None,
     headless: bool,
     timezone_id: str | None = None,
+    proxy: dict[str, str] | None = None,
 ) -> Iterator[Any]:
     sync_playwright = _require_playwright()
     with sync_playwright() as playwright:
@@ -1827,6 +1992,7 @@ def _facebook_page(
             browser_channel=browser_channel,
             headless=headless,
             timezone_id=timezone_id,
+            proxy=proxy,
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(20_000)
@@ -1893,12 +2059,15 @@ def publish_facebook_photo_via_browser(
 
     print("Launching browser…", flush=True)
     tz = (display_timezone or "Europe/Sofia").strip() or "Europe/Sofia"
+    proxy = resolve_facebook_browser_proxy()
+    print(f"Proxy: {_proxy_log_label(proxy)}", flush=True)
     with _facebook_page(
         storage_state_path=state_path,
         browser_profile_dir=profile_dir,
         browser_channel=channel,
         headless=use_headless,
         timezone_id=tz,
+        proxy=proxy,
     ) as page:
         try:
             print(f"Opening Business Suite composer…", flush=True)

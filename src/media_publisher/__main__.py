@@ -220,6 +220,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Import a Playwright storage-state JSON file for Facebook browser photo posts.",
     )
     parser.add_argument(
+        "--facebook-browser-proxy-check",
+        action="store_true",
+        help=(
+            "Launch Chromium through FACEBOOK_BROWSER_PROXY and print the egress IP "
+            "(Webshare: http://USER:PASS@p.webshare.io:80)."
+        ),
+    )
+    parser.add_argument(
         "--facebook-browser-channel",
         choices=("chrome", "msedge", "edge", "chromium"),
         help="Preferred browser for --facebook-browser-login (default: Chrome locally, Chromium in CI).",
@@ -1207,6 +1215,7 @@ def cli_requested_action(args) -> bool:
             args.happyscribe_import_session,
             args.facebook_browser_login,
             args.facebook_browser_import_session,
+            args.facebook_browser_proxy_check,
             args.burn_happyscribe_video,
             args.canva_auth,
             args.canva_auth_code is not None,
@@ -2168,6 +2177,34 @@ def main() -> int:
         print(f"Imported HappyScribe browser session to {settings.happyscribe_browser_state!r}.")
         return 0
 
+    if args.facebook_browser_proxy_check:
+        from media_publisher.publishers.facebook_web import (
+            FacebookWebError,
+            resolve_facebook_browser_channel,
+            verify_facebook_browser_proxy,
+        )
+
+        channel = (
+            args.facebook_browser_channel
+            or resolve_facebook_browser_channel()
+        )
+        if channel == "edge":
+            channel = "msedge"
+        if channel == "chromium":
+            channel = None
+        try:
+            ip = verify_facebook_browser_proxy(browser_channel=channel)
+        except FacebookWebError as exc:
+            print(f"Facebook browser proxy check failed: {exc}")
+            return 1
+        print(
+            "If this IP is a cloud/datacenter host (AWS, OVH, Hetzner, …), "
+            "Webshare free Proxy Servers will not help with Meta. "
+            "Prefer a residential plan or a self-hosted runner."
+        )
+        print(f"OK — browser egress IP is {ip}")
+        return 0
+
     if args.facebook_browser_login:
         from media_publisher.publishers.facebook_web import (
             FacebookWebError,
@@ -2817,6 +2854,7 @@ def main() -> int:
         "--test-happyscribe, --list-happyscribe-library, --download-happyscribe-library, "
         "--happyscribe-save-session, --happyscribe-import-session, --export-happyscribe-web, --burn-happyscribe-video, "
         "--facebook-browser-login, --facebook-browser-import-session, "
+        "--facebook-browser-proxy-check, "
         "--canva-auth, --canva-download, --canva-resolve, --test-canva, --youtube-auth, --test-youtube, "
         "--test-meta, --check-event-meta, --publish-event, --prune-past-events, "
         "--resolve-meta, "

@@ -65,6 +65,7 @@ env:
   PUBLISH_JSON: ${{ vars.PUBLISH_JSON }}
   # When set, event photos post via Playwright Business Suite (public while app is in Dev mode).
   FACEBOOK_BROWSER_STATE_JSON: ${{ secrets.FACEBOOK_BROWSER_STATE_JSON }}
+  FACEBOOK_BROWSER_PROXY: ${{ secrets.FACEBOOK_BROWSER_PROXY }}
 
 jobs:
   publish:
