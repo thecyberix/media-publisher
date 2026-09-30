@@ -570,6 +570,38 @@ def _ensure_session_ready(page: Any) -> None:
         )
 
 
+def _caption_text_present(page: Any, caption: str) -> bool:
+    """True if any composer textbox currently shows the start of ``caption``."""
+    text = (caption or "").strip()
+    if not text:
+        return False
+    probe = text[: min(24, len(text))]
+    try:
+        return bool(
+            _eval_bounded(
+                page,
+                """(probe) => {
+                  const nodes = document.querySelectorAll(
+                    'div[role="textbox"][contenteditable="true"], [data-lexical-editor="true"], textarea, div[contenteditable="true"]'
+                  );
+                  for (const el of Array.from(nodes).slice(0, 30)) {
+                    const role = (el.getAttribute('role') || '').toLowerCase();
+                    if (role === 'combobox') continue;
+                    const t = (el.innerText || el.textContent || el.value || '')
+                      .replace(/\\u00a0/g, ' ')
+                      .trim();
+                    if (t.includes(probe)) return true;
+                  }
+                  return false;
+                }""",
+                probe,
+                timeout_ms=5_000,
+            )
+        )
+    except Exception:
+        return False
+
+
 def _fill_composer_caption(page: Any, caption: str) -> None:
     """Fill the Business Suite composer caption (Lexical contenteditable).
 
@@ -583,28 +615,7 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
     probe = text[: min(24, len(text))]
 
     def _caption_present() -> bool:
-        try:
-            return bool(
-                _eval_bounded(
-                    page,
-                    """(probe) => {
-                      const nodes = document.querySelectorAll(
-                        'div[role="textbox"][contenteditable="true"], [data-lexical-editor="true"], textarea'
-                      );
-                      for (const el of Array.from(nodes).slice(0, 25)) {
-                        const t = (el.innerText || el.textContent || el.value || '')
-                          .replace(/\\u00a0/g, ' ')
-                          .trim();
-                        if (t.includes(probe)) return true;
-                      }
-                      return false;
-                    }""",
-                    probe,
-                    timeout_ms=5_000,
-                )
-            )
-        except Exception:
-            return False
+        return _caption_text_present(page, text)
 
     def _pick_caption_locator() -> Any | None:
         selectors = (
@@ -613,6 +624,7 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
             'div[aria-placeholder*="Write" i][contenteditable="true"]',
             'div[aria-placeholder*="Start" i][contenteditable="true"]',
             'div[aria-placeholder*="what" i][contenteditable="true"]',
+            'div[contenteditable="true"]',
             "textarea",
         )
         best = None
@@ -623,10 +635,13 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                 count = locator.count()
             except Exception:
                 continue
-            for i in range(min(count, 8)):
+            for i in range(min(count, 10)):
                 box = locator.nth(i)
                 try:
                     if not box.is_visible(timeout=500):
+                        continue
+                    role = (box.get_attribute("role") or "").casefold()
+                    if role == "combobox":
                         continue
                     label = (
                         (box.get_attribute("aria-placeholder") or "")
@@ -640,9 +655,16 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                         score += 5
                     if "search" in label or "comment" in label or "message" in label:
                         score -= 10
-                    box_id = box.get_attribute("data-lexical-editor")
-                    if box_id == "true":
+                    if box.get_attribute("data-lexical-editor") == "true":
                         score += 3
+                    if role == "textbox":
+                        score += 2
+                    try:
+                        geom = box.bounding_box() or {}
+                        if float(geom.get("height") or 0) >= 40:
+                            score += 2
+                    except Exception:
+                        pass
                     if score > best_score:
                         best_score = score
                         best = box
@@ -658,6 +680,7 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
         box = _pick_caption_locator()
         if box is None:
             last_error = FacebookWebError("No caption textbox found in the composer")
+            _refocus_composer_caption(page)
             page.wait_for_timeout(500)
             continue
         try:
@@ -1142,7 +1165,60 @@ def _disable_instagram_destination(page: Any) -> None:
         )
 
     print("  Instagram destination unchecked", flush=True)
+    # Closing Post-to can remount Lexical; click the composer body so the
+    # caption editor comes back before we fill/schedule.
+    _refocus_composer_caption(page)
 
+
+def _refocus_composer_caption(page: Any) -> None:
+    """Click away from Post-to so the Lexical caption editor remounts."""
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    page.wait_for_timeout(400)
+    clicked = False
+    try:
+        clicked = bool(
+            page.evaluate(
+                """() => {
+                  const nodes = Array.from(
+                    document.querySelectorAll(
+                      'div[role="textbox"][contenteditable="true"], [data-lexical-editor="true"], div[contenteditable="true"]'
+                    )
+                  );
+                  for (const el of nodes) {
+                    const ph = (
+                      (el.getAttribute('aria-placeholder') || '') +
+                      ' ' +
+                      (el.getAttribute('aria-label') || '')
+                    ).toLowerCase();
+                    if (/combobox|search|comment/.test(ph)) continue;
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 100 || r.height < 24) continue;
+                    el.click();
+                    return true;
+                  }
+                  // Fallback: click a large main/content region under the composer.
+                  const main = document.querySelector('[role="main"]') || document.body;
+                  if (main) {
+                    const r = main.getBoundingClientRect();
+                    const x = Math.min(r.left + r.width / 2, r.right - 20);
+                    const y = Math.min(r.top + 220, r.bottom - 20);
+                    const target = document.elementFromPoint(x, y);
+                    if (target && typeof target.click === 'function') {
+                      target.click();
+                      return true;
+                    }
+                  }
+                  return false;
+                }"""
+            )
+        )
+    except Exception:
+        clicked = False
+    print(f"  refocus caption editor: {clicked}", flush=True)
+    page.wait_for_timeout(700)
 
 
 def _open_business_suite_composer(page: Any, *, page_username: str) -> None:
@@ -1758,10 +1834,13 @@ def publish_facebook_photo_via_browser(
             print("Attaching photo…", flush=True)
             page.wait_for_timeout(SPA_SETTLE_MS)
             _attach_photo(page, resolved_image)
-            # Destinations before caption — Post-to can remount Lexical and wipe text.
-            _disable_instagram_destination(page)
             print("Filling caption…", flush=True)
             _fill_composer_caption(page, caption)
+            # Post-to remounts Lexical; exclude IG then restore/refill caption.
+            _disable_instagram_destination(page)
+            print("Re-checking caption after Post-to…", flush=True)
+            if not _caption_text_present(page, caption):
+                _fill_composer_caption(page, caption)
             if schedule_at is not None:
                 print(f"Scheduling for {schedule_at.isoformat()}…", flush=True)
                 _schedule_composer_post(
