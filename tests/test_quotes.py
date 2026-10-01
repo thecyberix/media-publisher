@@ -16,6 +16,7 @@ from media_publisher.quotes_pipeline import (
     run_quotes_pipeline,
 )
 from media_publisher.quotes_render_pipeline import resolve_quote_days_to_prepare
+from media_publisher.scheduling import facebook_can_schedule
 from media_publisher.sources.quote_pdf import extract_pdf_page_text, normalize_extracted_text
 from media_publisher.sources.quotes import (
     discover_monthly_quotes,
@@ -749,9 +750,17 @@ class QuotesPipelineTests(unittest.TestCase):
                 self.assertEqual((year, month), (2026, 10))
                 return [tomorrow_post], {}
 
+            as_of = datetime(2026, 9, 30, 12, 0, tzinfo=ZoneInfo("Europe/Sofia"))
+
+            def can_schedule(publish_at, *, now=None):
+                return facebook_can_schedule(publish_at, now=now or as_of)
+
             with patch(
                 "media_publisher.quotes_pipeline.prepare_quote_posts_for_publish",
                 side_effect=prepare_side_effect,
+            ), patch(
+                "media_publisher.quotes_pipeline.facebook_can_schedule",
+                side_effect=can_schedule,
             ), patch(
                 "media_publisher.quotes_pipeline.publish_local_quote",
                 return_value="https://www.facebook.com/scheduled/",

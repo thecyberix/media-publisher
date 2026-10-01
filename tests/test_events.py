@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from dataclasses import replace
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -413,7 +413,7 @@ class EventPageTests(unittest.TestCase):
             event_type=EVENT_TYPE_SURYA_KRIYA,
             city="Пловдив",
             country="България",
-            event_date=date(2026, 10, 1),
+            event_date=date.today() + timedelta(days=14),
             event_time=time(19, 30),
             registration_link="https://example.com/plovdiv",
         )
@@ -451,7 +451,7 @@ class EventPageTests(unittest.TestCase):
             event_type=EVENT_TYPE_SURYA_KRIYA,
             city="София",
             country="България",
-            event_date=date(2026, 11, 1),
+            event_date=date.today() + timedelta(days=40),
             event_time=time(18, 0),
             registration_link="https://example.com/later",
         )
@@ -459,7 +459,7 @@ class EventPageTests(unittest.TestCase):
             event_type=EVENT_TYPE_BHUTA_SHUDDHI,
             city="Варна",
             country="България",
-            event_date=date(2026, 9, 15),
+            event_date=date.today() + timedelta(days=10),
             event_time=time(10, 0),
             registration_link="https://example.com/earlier",
         )
