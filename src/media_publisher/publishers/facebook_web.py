@@ -741,7 +741,15 @@ def _caption_text_present(page: Any, caption: str) -> bool:
                       );
                       for (const el of Array.from(nodes).slice(0, 40)) {
                         const role = (el.getAttribute('role') || '').toLowerCase();
-                        if (role === 'combobox') continue;
+                        const ph = (
+                          (el.getAttribute('aria-placeholder') || '') +
+                          ' ' +
+                          (el.getAttribute('aria-label') || '')
+                        ).toLowerCase();
+                        if (role === 'combobox' && /post to|facebook and instagram/.test(ph)) {
+                          continue;
+                        }
+                        if (role === 'combobox' && !ph.trim()) continue;
                         const t = (el.innerText || el.textContent || el.value || '')
                           .replace(/\\u00a0/g, ' ')
                           .trim();
@@ -779,13 +787,155 @@ def _iter_page_and_frames(page: Any) -> list[Any]:
     return targets
 
 
+def _dismiss_composer_overlays(page: Any) -> None:
+    """Close an open Post-to listbox if present (avoid escaping the whole composer)."""
+    try:
+        open_menu = bool(
+            page.evaluate(
+                """() => !!(
+                  document.querySelector('[role="listbox"]') ||
+                  document.querySelector('[aria-expanded="true"][role="combobox"]')
+                )"""
+            )
+        )
+    except Exception:
+        open_menu = False
+    if not open_menu:
+        return
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    page.wait_for_timeout(300)
+
+
+def _scroll_and_click_text_section(page: Any) -> bool:
+    """Scroll the Text section into view and click the empty caption box under it."""
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                  const labels = Array.from(
+                    document.querySelectorAll('span,div,label,h1,h2,h3,p')
+                  ).filter((el) => {
+                    const t = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                    return t === 'Text' || t === 'Текст';
+                  });
+                  if (!labels.length) return false;
+                  const lab = labels[0];
+                  lab.scrollIntoView({ block: 'center', inline: 'nearest' });
+                  const r = lab.getBoundingClientRect();
+                  const points = [
+                    [r.left + 48, r.bottom + 28],
+                    [r.left + 120, r.bottom + 56],
+                    [r.left + 48, r.bottom + 90],
+                  ];
+                  for (const [x, y] of points) {
+                    const el = document.elementFromPoint(x, y);
+                    if (!el) continue;
+                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                    el.click();
+                    if (typeof el.focus === 'function') el.focus();
+                  }
+                  return true;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _is_post_to_combobox(label: str, *, role: str, height: float) -> bool:
+    """True for the Post-to destination picker (not the caption editor)."""
+    lab = (label or "").casefold()
+    if "post to" in lab or "facebook and instagram" in lab:
+        return True
+    # Caption editor is also role=combobox in current Business Suite, but taller
+    # once focused and uses a Write/dialogue placeholder.
+    if role == "combobox" and any(
+        token in lab
+        for token in (
+            "write into the dialogue",
+            "write something",
+            "include text with your post",
+            "start typing",
+            "what's on your mind",
+            "whats on your mind",
+        )
+    ):
+        return False
+    # Unlabeled short combobox at the top is Post-to; caption sits lower and
+    # usually exposes the Write placeholder once queried.
+    if role == "combobox" and not lab.strip() and height <= 28:
+        return True
+    return False
+
+
+def _caption_editor_mounted(page: Any) -> bool:
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                  const nodes = Array.from(
+                    document.querySelectorAll(
+                      '[data-lexical-editor="true"], [contenteditable="true"], [role="textbox"], textarea'
+                    )
+                  );
+                  for (const el of nodes) {
+                    const role = (el.getAttribute('role') || '').toLowerCase();
+                    const ph = (
+                      (el.getAttribute('aria-placeholder') || '') +
+                      ' ' +
+                      (el.getAttribute('aria-label') || '')
+                    ).toLowerCase();
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 120) continue;
+                    if (/post to|facebook and instagram/.test(ph)) continue;
+                    if (
+                      /write into the dialogue|include text with your post|write something|start typing/.test(ph)
+                    ) {
+                      return true;
+                    }
+                    if (role === 'combobox' && !ph.trim() && r.height <= 28) continue;
+                    if (role !== 'combobox' && r.height >= 36) return true;
+                    if (role === 'combobox' && r.height >= 18 && ph.trim()) return true;
+                  }
+                  return false;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _wait_for_caption_editor(page: Any, *, timeout_ms: int = 15_000) -> bool:
+    """Wait until a non-combobox caption editor exists (Meta mounts it lazily)."""
+    deadline = timeout_ms
+    step = 500
+    elapsed = 0
+    while elapsed <= deadline:
+        _dismiss_composer_overlays(page)
+        _scroll_and_click_text_section(page)
+        page.wait_for_timeout(step)
+        if _caption_editor_mounted(page):
+            return True
+        elapsed += step
+    return _caption_editor_mounted(page)
+
+
 def _activate_caption_surface(page: Any) -> None:
-    """Click common caption placeholders so Lexical mounts the editor."""
+    """Click the caption area so Lexical mounts the editor."""
+    _dismiss_composer_overlays(page)
+    if _scroll_and_click_text_section(page):
+        page.wait_for_timeout(400)
+        if _caption_editor_mounted(page):
+            return
+
     patterns = (
         r"Write something",
         r"Start typing",
         r"What.?s on your mind",
-        r"Create a post",
         r"Say something",
         r"Напишете",
         r"Какво мислите",
@@ -816,8 +966,8 @@ def _activate_caption_surface(page: Any) -> None:
             """() => {
               const main = document.querySelector('[role="main"]') || document.body;
               const r = main.getBoundingClientRect();
-              const x = r.left + Math.min(r.width * 0.45, 420);
-              const y = r.top + Math.min(260, r.height * 0.35);
+              const x = r.left + Math.min(r.width * 0.35, 360);
+              const y = r.top + Math.min(520, r.height * 0.55);
               const el = document.elementFromPoint(x, y);
               if (el && el.click) el.click();
             }"""
@@ -832,13 +982,16 @@ def _pick_caption_box(page: Any) -> Any | None:
     selectors = (
         '[data-lexical-editor="true"][contenteditable="true"]',
         'div[role="textbox"][contenteditable="true"]',
+        'div[role="textbox"]',
         'div[aria-placeholder*="Write" i][contenteditable="true"]',
         'div[aria-placeholder*="Start" i][contenteditable="true"]',
         'div[aria-placeholder*="what" i][contenteditable="true"]',
         'div[aria-placeholder*="Say" i][contenteditable="true"]',
         'div[aria-placeholder*="Напиш" i][contenteditable="true"]',
+        'div[aria-placeholder*="Text" i][contenteditable="true"]',
         'p[contenteditable="true"]',
         'div[contenteditable="true"]',
+        '[contenteditable="true"]',
         "textarea",
     )
     best = None
@@ -850,14 +1003,24 @@ def _pick_caption_box(page: Any) -> Any | None:
                 count = locator.count()
             except Exception:
                 continue
-            for i in range(min(count, 12)):
+            for i in range(min(count, 16)):
                 box = locator.nth(i)
                 try:
-                    if not box.is_visible(timeout=400):
+                    geom = box.bounding_box()
+                    if not geom:
                         continue
+                    height = float(geom.get("height") or 0)
+                    width = float(geom.get("width") or 0)
+                    # Prefer geometry over is_visible — Meta overlays make visibility flaky.
+                    if height < 12 or width < 60:
+                        continue
+                    try:
+                        if not box.is_visible(timeout=200):
+                            if height < 40 or width < 160:
+                                continue
+                    except Exception:
+                        pass
                     role = (box.get_attribute("role") or "").casefold()
-                    if role == "combobox":
-                        continue
                     label = (
                         (box.get_attribute("aria-placeholder") or "")
                         + " "
@@ -865,24 +1028,44 @@ def _pick_caption_box(page: Any) -> Any | None:
                         + " "
                         + (box.get_attribute("aria-label") or "")
                     ).casefold()
+                    if _is_post_to_combobox(label, role=role, height=height):
+                        continue
                     score = 0
                     if any(
                         token in label
-                        for token in ("write", "start", "what", "say", "напиш", "мисл")
+                        for token in (
+                            "write",
+                            "dialogue",
+                            "include text",
+                            "start",
+                            "what",
+                            "say",
+                            "напиш",
+                            "мисл",
+                            "text",
+                            "текст",
+                        )
                     ):
-                        score += 6
+                        score += 8
                     if "search" in label or "comment" in label or "message" in label:
                         score -= 10
+                    if "post to" in label:
+                        score -= 12
                     if box.get_attribute("data-lexical-editor") == "true":
                         score += 4
                     if role == "textbox":
                         score += 2
-                    geom = box.bounding_box() or {}
-                    height = float(geom.get("height") or 0)
-                    width = float(geom.get("width") or 0)
-                    if height >= 36:
+                    if role == "combobox" and "write" in label:
+                        score += 5
+                    if height >= 48:
+                        score += 3
+                    elif height >= 36:
                         score += 2
-                    if width >= 200:
+                    elif height >= 18 and "write" in label:
+                        score += 2
+                    if width >= 280:
+                        score += 2
+                    elif width >= 200:
                         score += 1
                     if height < 18 or width < 80:
                         score -= 5
@@ -892,6 +1075,68 @@ def _pick_caption_box(page: Any) -> Any | None:
                 except Exception:
                     continue
     return best
+
+
+def _fill_caption_via_dom(page: Any, text: str) -> bool:
+    """Last-resort insert into the caption contenteditable (incl. Write combobox)."""
+    try:
+        return bool(
+            page.evaluate(
+                """(text) => {
+                  const isPostTo = (el) => {
+                    const ph = (
+                      (el.getAttribute('aria-placeholder') || '') +
+                      ' ' +
+                      (el.getAttribute('aria-label') || '')
+                    ).toLowerCase();
+                    const role = (el.getAttribute('role') || '').toLowerCase();
+                    const r = el.getBoundingClientRect();
+                    if (/post to|facebook and instagram/.test(ph)) return true;
+                    if (role === 'combobox' && !ph.trim() && r.height <= 28) return true;
+                    return false;
+                  };
+                  const isCaption = (el) => {
+                    const ph = (
+                      (el.getAttribute('aria-placeholder') || '') +
+                      ' ' +
+                      (el.getAttribute('aria-label') || '')
+                    ).toLowerCase();
+                    return /write into the dialogue|include text with your post|write something|start typing/.test(ph);
+                  };
+                  let nodes = Array.from(
+                    document.querySelectorAll(
+                      '[data-lexical-editor="true"], div[role="textbox"], [contenteditable="true"], textarea'
+                    )
+                  ).filter((el) => !isPostTo(el));
+                  const captionNodes = nodes.filter(isCaption);
+                  if (captionNodes.length) nodes = captionNodes;
+                  nodes.sort((a, b) => {
+                    const ra = a.getBoundingClientRect();
+                    const rb = b.getBoundingClientRect();
+                    return rb.width * rb.height - ra.width * ra.height;
+                  });
+                  const el = nodes[0];
+                  if (!el) return false;
+                  el.focus();
+                  el.click();
+                  try { document.execCommand('selectAll', false); } catch (e) {}
+                  try {
+                    if (document.execCommand('insertText', false, text)) return true;
+                  } catch (e) {}
+                  if ('value' in el) {
+                    el.value = text;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    return true;
+                  }
+                  el.textContent = text;
+                  el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
+                  return (el.innerText || el.textContent || '').includes(text.slice(0, 12));
+                }""",
+                text,
+            )
+        )
+    except Exception:
+        return False
 
 
 def _dump_caption_debug(page: Any) -> None:
@@ -933,7 +1178,15 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
     if not text:
         raise FacebookWebError("Facebook photo post caption is required")
 
-    page.wait_for_timeout(800)
+    print("  waiting for caption editor…", flush=True)
+    if not _wait_for_caption_editor(page, timeout_ms=15_000):
+        _dump_caption_debug(page)
+        raise FacebookWebError(
+            "No caption textbox found in the composer "
+            "(Text editor never mounted after photo attach). "
+            "Scroll to the Text section manually once and retry."
+        )
+
     last_error: Exception | None = None
 
     for attempt in range(4):
@@ -941,6 +1194,8 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
         box = _pick_caption_box(page)
         if box is None:
             last_error = FacebookWebError("No caption textbox found in the composer")
+            if _fill_caption_via_dom(page, text) and _caption_text_present(page, text):
+                return
             _refocus_composer_caption(page)
             page.wait_for_timeout(600)
             continue
@@ -1028,6 +1283,9 @@ def _fill_composer_caption(page: Any, caption: str) -> None:
                     return
             except Exception as exc:
                 last_error = exc
+
+            if _fill_caption_via_dom(page, text) and _caption_text_present(page, text):
+                return
         except Exception as exc:
             last_error = exc
         page.wait_for_timeout(500 + attempt * 300)
@@ -1403,6 +1661,63 @@ def _disable_instagram_destination(page: Any) -> None:
     _refocus_composer_caption(page)
 
 
+def _post_to_combobox_text(page: Any) -> str:
+    try:
+        return str(
+            page.evaluate(
+                """() => {
+                  const nodes = Array.from(document.querySelectorAll('[role="combobox"]'));
+                  for (const el of nodes) {
+                    const lab = (
+                      (el.getAttribute('aria-label') || '') +
+                      ' ' +
+                      (el.getAttribute('aria-placeholder') || '') +
+                      ' ' +
+                      (el.innerText || '')
+                    ).toLowerCase();
+                    if (/post to|facebook and instagram|instagram/.test(lab)) {
+                      return lab;
+                    }
+                  }
+                  const el = document.querySelector('[role="combobox"]');
+                  if (!el) return '';
+                  return ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || ''))
+                    .toLowerCase();
+                }"""
+            )
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def _ensure_instagram_destination_selected(page: Any) -> None:
+    """Confirm Business Suite Post to still includes Instagram before scheduling."""
+    ig_username = (
+        os.getenv("META_INSTAGRAM_USERNAME", "sadhguru.bulgarian").strip().lstrip("@")
+    )
+    ig_key = ig_username.casefold()
+    chip_text = _post_to_combobox_text(page)
+    print(
+        "  Post to (FB+IG check): "
+        + repr(chip_text.encode("ascii", "replace").decode("ascii")[:160]),
+        flush=True,
+    )
+    if not chip_text.strip():
+        print(
+            "  warning: could not read Post to combobox; assuming Instagram stays selected",
+            flush=True,
+        )
+        return
+    if ig_key in chip_text or "instagram" in chip_text:
+        print("  Instagram destination still selected", flush=True)
+        return
+    raise FacebookWebError(
+        "Instagram is not selected in Business Suite Post to; "
+        "refusing to schedule without IG cross-post."
+    )
+
+
 def _refocus_composer_caption(page: Any) -> None:
     """Click away from Post-to so the Lexical caption editor remounts."""
     try:
@@ -1528,34 +1843,50 @@ def _composer_root(page: Any) -> Any:
 
 
 def _enable_business_suite_schedule_toggle(page: Any) -> bool:
-    """Turn on Business Suite 'Set date and time' if present."""
+    """Turn on every Business Suite 'Set date and time' switch (FB and IG rows)."""
+    enabled_any = False
     for name in SCHEDULE_TOGGLE_NAMES:
         pattern = re.compile(name, re.IGNORECASE)
         try:
-            toggle = page.get_by_role("switch", name=pattern)
-            if toggle.count() > 0:
-                switch = toggle.first
-                checked = switch.get_attribute("aria-checked")
-                if checked != "true":
-                    switch.click(timeout=8_000)
-                    page.wait_for_timeout(SPA_SETTLE_MS)
+            toggles = page.get_by_role("switch", name=pattern)
+            count = toggles.count()
+            for index in range(count):
+                switch = toggles.nth(index)
+                try:
+                    checked = switch.get_attribute("aria-checked")
+                    if checked != "true":
+                        switch.click(timeout=8_000)
+                        page.wait_for_timeout(SPA_SETTLE_MS)
+                    enabled_any = True
+                    print(
+                        f"  schedule toggle[{index}] "
+                        f"({'on' if checked == 'true' else 'enabled'})",
+                        flush=True,
+                    )
+                except Exception:
+                    continue
+            if enabled_any:
                 return True
         except Exception:
-            continue
+            pass
         try:
-            label = page.get_by_text(pattern)
-            if label.count() < 1:
-                continue
-            # Click the nearby switch/checkbox.
-            row = label.first.locator(
-                "xpath=ancestor::*[.//*[@role='switch' or @role='checkbox']][1]"
-            )
-            switch = row.locator('[role="switch"], [role="checkbox"]').first
-            checked = switch.get_attribute("aria-checked")
-            if checked != "true":
-                switch.click(timeout=8_000)
-                page.wait_for_timeout(SPA_SETTLE_MS)
-            return True
+            labels = page.get_by_text(pattern)
+            label_count = labels.count()
+            for index in range(label_count):
+                try:
+                    row = labels.nth(index).locator(
+                        "xpath=ancestor::*[.//*[@role='switch' or @role='checkbox']][1]"
+                    )
+                    switch = row.locator('[role="switch"], [role="checkbox"]').first
+                    checked = switch.get_attribute("aria-checked")
+                    if checked != "true":
+                        switch.click(timeout=8_000)
+                        page.wait_for_timeout(SPA_SETTLE_MS)
+                    enabled_any = True
+                except Exception:
+                    continue
+            if enabled_any:
+                return True
         except Exception:
             continue
     return False
@@ -1603,6 +1934,28 @@ def _fill_first_matching_input(root: Any, selectors: tuple[str, ...], value: str
     return False
 
 
+def _fill_all_matching_inputs(root: Any, selectors: tuple[str, ...], value: str) -> int:
+    """Fill every matching visible input; return how many were updated."""
+    filled = 0
+    for selector in selectors:
+        try:
+            locator = root.locator(selector)
+            count = locator.count()
+            for index in range(count):
+                try:
+                    field = locator.nth(index)
+                    field.click(timeout=5_000)
+                    field.fill(value)
+                    filled += 1
+                except Exception:
+                    continue
+            if filled:
+                return filled
+        except Exception:
+            continue
+    return filled
+
+
 def _set_schedule_datetime(
     page: Any,
     publish_at: datetime,
@@ -1619,9 +1972,9 @@ def _set_schedule_datetime(
 
     root = _composer_root(page)
 
-    date_ok = _fill_first_matching_input(root, ('input[type="date"]',), iso_date)
+    date_ok = _fill_all_matching_inputs(root, ('input[type="date"]',), iso_date)
     if not date_ok:
-        date_ok = _fill_first_matching_input(
+        date_ok = _fill_all_matching_inputs(
             root,
             (
                 'input[placeholder*="mm/dd" i]',
@@ -1632,9 +1985,9 @@ def _set_schedule_datetime(
             us_date,
         )
 
-    time_ok = _fill_first_matching_input(root, ('input[type="time"]',), time_24)
+    time_ok = _fill_all_matching_inputs(root, ('input[type="time"]',), time_24)
     if not time_ok:
-        time_ok = _fill_first_matching_input(
+        time_ok = _fill_all_matching_inputs(
             root,
             (
                 'input[placeholder*="Time" i]',
@@ -1650,6 +2003,7 @@ def _set_schedule_datetime(
             f"(wanted {us_date} {time_12} {display_timezone}). "
             f"date_ok={date_ok} time_ok={time_ok}"
         )
+    print(f"  classic schedule fields filled: date×{date_ok} time×{time_ok}", flush=True)
 
 
 def _confirm_schedule(page: Any) -> None:
@@ -1675,7 +2029,11 @@ def _set_business_suite_schedule_values(
     *,
     display_timezone: str,
 ) -> None:
-    """Set date/time on Business Suite schedule row (mm/dd input + time spinbuttons)."""
+    """Set date/time on every Business Suite schedule row (Facebook and Instagram).
+
+    Cross-posts expose separate date/time controls per destination; only filling
+    ``.first`` leaves Instagram on the default (often \"now\").
+    """
     from media_publisher.timezones import get_timezone
 
     local = _as_utc(publish_at).astimezone(get_timezone(display_timezone))
@@ -1685,127 +2043,138 @@ def _set_business_suite_schedule_values(
     minute = local.strftime("%M")
     ampm = local.strftime("%p").upper()
 
-    print(
-        f"  setting schedule to {date_typed} {hour_12}:{minute} {ampm} "
-        f"({display_timezone})…",
-        flush=True,
-    )
-
     date_input = page.locator('input[placeholder*="mm/dd" i]')
-    if date_input.count() < 1:
+    date_count = date_input.count()
+    if date_count < 1:
         raise FacebookWebError(
             "Business Suite schedule date input (placeholder mm/dd/yyyy) not found."
         )
-    field = date_input.first
-    field.click(timeout=8_000)
-    try:
-        field.fill("")
-    except Exception:
-        pass
-    page.keyboard.press("Control+A")
-    page.keyboard.press("Backspace")
-    page.keyboard.type(date_typed, delay=30)
-    page.keyboard.press("Enter")
-    page.wait_for_timeout(500)
-
-    try:
-        current_date = (field.input_value() or "").strip()
-    except Exception:
-        current_date = ""
-    print(f"  date field now: {current_date!r}", flush=True)
-    # Accept typed mm/dd/yyyy (with or without leading zeros) or "Oct 1, 2026".
-    normalized = current_date.replace(" ", "").casefold()
-    date_ok = (
-        normalized in {date_typed.casefold(), date_typed.lstrip("0").replace("/0", "/").casefold()}
-        or (
-            f"{int(local.month)}/{local.day}/{local.year}" == normalized
-            or f"{local.month:02d}/{local.day}/{local.year}" == normalized
-            or f"{local.month:02d}/{local.day:02d}/{local.year}" == normalized
-        )
-        or (
-            local.strftime("%b")[:3].lower() in current_date.casefold()
-            and str(local.day) in current_date
-            and str(local.year) in current_date
-        )
+    print(
+        f"  setting {date_count} schedule date field(s) to {date_typed} "
+        f"{hour_12}:{minute} {ampm} ({display_timezone})…",
+        flush=True,
     )
-    if not date_ok:
-        # One more attempt with "Oct 1, 2026" style.
+
+    for index in range(date_count):
+        field = date_input.nth(index)
+        field.click(timeout=8_000)
         try:
-            pretty = local.strftime("%b %#d, %Y")
-        except ValueError:
-            pretty = local.strftime("%b %d, %Y").replace(" 0", " ")
-        field.click(timeout=5_000)
+            field.fill("")
+        except Exception:
+            pass
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
-        page.keyboard.type(pretty, delay=30)
+        page.keyboard.type(date_typed, delay=30)
         page.keyboard.press("Enter")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(400)
         try:
             current_date = (field.input_value() or "").strip()
         except Exception:
             current_date = ""
-        print(f"  date field after pretty: {current_date!r}", flush=True)
+        print(f"  date field[{index}] now: {current_date!r}", flush=True)
+        normalized = current_date.replace(" ", "").casefold()
         date_ok = (
-            str(local.year) in current_date
-            and str(local.day) in current_date
-            and local.strftime("%b")[:3].lower() in current_date.casefold()
+            normalized
+            in {
+                date_typed.casefold(),
+                date_typed.lstrip("0").replace("/0", "/").casefold(),
+            }
+            or (
+                f"{int(local.month)}/{local.day}/{local.year}" == normalized
+                or f"{local.month:02d}/{local.day}/{local.year}" == normalized
+                or f"{local.month:02d}/{local.day:02d}/{local.year}" == normalized
+            )
+            or (
+                local.strftime("%b")[:3].lower() in current_date.casefold()
+                and str(local.day) in current_date
+                and str(local.year) in current_date
+            )
         )
-    if not date_ok:
-        raise FacebookWebError(
-            f"Could not set Business Suite schedule date to {date_typed} "
-            f"(field shows {current_date!r})."
-        )
+        if not date_ok:
+            try:
+                pretty = local.strftime("%b %#d, %Y")
+            except ValueError:
+                pretty = local.strftime("%b %d, %Y").replace(" 0", " ")
+            field.click(timeout=5_000)
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
+            page.keyboard.type(pretty, delay=30)
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(400)
+            try:
+                current_date = (field.input_value() or "").strip()
+            except Exception:
+                current_date = ""
+            print(f"  date field[{index}] after pretty: {current_date!r}", flush=True)
+            date_ok = (
+                str(local.year) in current_date
+                and str(local.day) in current_date
+                and local.strftime("%b")[:3].lower() in current_date.casefold()
+            )
+        if not date_ok:
+            raise FacebookWebError(
+                f"Could not set Business Suite schedule date[{index}] to {date_typed} "
+                f"(field shows {current_date!r})."
+            )
 
-    # Time is a group of spinbuttons: hours / minutes / (optional dayPeriod).
+    # Time is groups of spinbuttons: hours / minutes / (optional dayPeriod) per row.
     hours = page.get_by_role("spinbutton", name=re.compile(r"^hours?$", re.I))
     minutes = page.get_by_role("spinbutton", name=re.compile(r"^minutes?$", re.I))
-    if hours.count() < 1 or minutes.count() < 1:
+    hour_count = hours.count()
+    minute_count = minutes.count()
+    if hour_count < 1 or minute_count < 1:
         raise FacebookWebError(
             "Business Suite schedule time spinbuttons (hours/minutes) not found."
         )
+    row_count = min(hour_count, minute_count)
+    print(f"  setting {row_count} schedule time row(s)…", flush=True)
 
     def _set_spin(locator: Any, value: str) -> None:
-        box = locator.first
-        box.click(timeout=5_000)
+        locator.click(timeout=5_000)
         page.keyboard.press("Control+A")
         page.keyboard.type(value, delay=40)
         page.keyboard.press("Tab")
         page.wait_for_timeout(200)
 
-    _set_spin(hours, hour_12)
-    _set_spin(minutes, minute)
+    for index in range(row_count):
+        _set_spin(hours.nth(index), hour_12)
+        _set_spin(minutes.nth(index), minute)
 
-    # AM/PM is a spinbutton named "meridiem" (aria-valuetext AM/PM, valuemin/max 0/1).
-    meridiem = page.get_by_role("spinbutton", name=re.compile(r"^meridiem$", re.I))
-    if meridiem.count() > 0:
-        box = meridiem.first
-        try:
-            shown = (box.get_attribute("aria-valuetext") or "").strip().upper()
-        except Exception:
-            shown = ""
-        if shown != ampm:
-            box.click(timeout=5_000)
-            page.keyboard.press("Control+A")
-            page.keyboard.type(ampm[0], delay=40)  # A or P
-            page.keyboard.press("Tab")
-            page.wait_for_timeout(300)
+        meridiem = page.get_by_role("spinbutton", name=re.compile(r"^meridiem$", re.I))
+        if meridiem.count() > index:
+            box = meridiem.nth(index)
             try:
                 shown = (box.get_attribute("aria-valuetext") or "").strip().upper()
             except Exception:
                 shown = ""
             if shown != ampm:
-                # Toggle via arrow keys (0=AM, 1=PM on this control).
-                wanted = 0 if ampm == "AM" else 1
+                box.click(timeout=5_000)
+                page.keyboard.press("Control+A")
+                page.keyboard.type(ampm[0], delay=40)  # A or P
+                page.keyboard.press("Tab")
+                page.wait_for_timeout(300)
                 try:
-                    now = int(box.get_attribute("aria-valuenow") or "-1")
+                    shown = (box.get_attribute("aria-valuetext") or "").strip().upper()
                 except Exception:
-                    now = -1
-                if now != wanted and now >= 0:
-                    box.click(timeout=3_000)
-                    page.keyboard.press("ArrowUp" if wanted > now else "ArrowDown")
-                    page.wait_for_timeout(200)
-    else:
-        print("  warning: meridiem spinbutton not found; leaving AM/PM as-is", flush=True)
+                    shown = ""
+                if shown != ampm:
+                    wanted = 0 if ampm == "AM" else 1
+                    try:
+                        now = int(box.get_attribute("aria-valuenow") or "-1")
+                    except Exception:
+                        now = -1
+                    if now != wanted and now >= 0:
+                        box.click(timeout=3_000)
+                        page.keyboard.press(
+                            "ArrowUp" if wanted > now else "ArrowDown"
+                        )
+                        page.wait_for_timeout(200)
+            print(f"  time row[{index}] meridiem={shown or ampm!r}", flush=True)
+        elif index == 0:
+            print(
+                "  warning: meridiem spinbutton not found; leaving AM/PM as-is",
+                flush=True,
+            )
 
     page.wait_for_timeout(400)
     try:
@@ -1814,15 +2183,25 @@ def _set_business_suite_schedule_values(
     except Exception:
         pass
 
-    # Verify time spinbutton values when readable.
     try:
-        hours_val = (hours.first.input_value() or hours.first.get_attribute("aria-valuenow") or "").strip()
-        mins_val = (minutes.first.input_value() or minutes.first.get_attribute("aria-valuenow") or "").strip()
+        hours_val = (
+            hours.first.input_value()
+            or hours.first.get_attribute("aria-valuenow")
+            or ""
+        ).strip()
+        mins_val = (
+            minutes.first.input_value()
+            or minutes.first.get_attribute("aria-valuenow")
+            or ""
+        ).strip()
     except Exception:
         hours_val, mins_val = "", ""
-    print(f"  time spinbuttons now: hours={hours_val!r} minutes={mins_val!r}", flush=True)
+    print(
+        f"  time spinbuttons[0] now: hours={hours_val!r} minutes={mins_val!r} "
+        f"(rows={row_count})",
+        flush=True,
+    )
     if hours_val and hours_val.lstrip("0") != hour_12.lstrip("0"):
-        # Soft check — some widgets keep aria-valuetext only.
         print("  warning: hours spinbutton value mismatch; continuing", flush=True)
 
 
@@ -2032,6 +2411,8 @@ def publish_facebook_photo_via_browser(
     browser_channel: str | None = None,
     headless: bool | None = None,
     failure_screenshot: Path | None = None,
+    proxy: dict[str, str] | None | bool = False,
+    include_instagram: bool = False,
 ) -> tuple[str, str]:
     """Publish a Page photo post via the Facebook web composer.
 
@@ -2039,6 +2420,12 @@ def publish_facebook_photo_via_browser(
 
     When ``publish_at`` is in the future, uses the composer Schedule controls so
     the post stays off the public feed until that time. Otherwise posts immediately.
+
+    ``proxy``: ``False`` (default) reads ``FACEBOOK_BROWSER_PROXY`` from the env;
+    ``None`` forces no proxy; a dict is passed to Playwright as-is.
+
+    ``include_instagram``: when True, leave Instagram selected in Post to (cross-post).
+    Default False unchecks Instagram so only Facebook is used.
     """
     now = datetime.now(timezone.utc)
     schedule_at: datetime | None = None
@@ -2060,15 +2447,18 @@ def publish_facebook_photo_via_browser(
 
     print("Launching browser…", flush=True)
     tz = (display_timezone or "Europe/Sofia").strip() or "Europe/Sofia"
-    proxy = resolve_facebook_browser_proxy()
-    print(f"Proxy: {_proxy_log_label(proxy)}", flush=True)
+    if proxy is False:
+        resolved_proxy = resolve_facebook_browser_proxy()
+    else:
+        resolved_proxy = proxy if isinstance(proxy, dict) else None
+    print(f"Proxy: {_proxy_log_label(resolved_proxy)}", flush=True)
     with _facebook_page(
         storage_state_path=state_path,
         browser_profile_dir=profile_dir,
         browser_channel=channel,
         headless=use_headless,
         timezone_id=tz,
-        proxy=proxy,
+        proxy=resolved_proxy,
     ) as page:
         try:
             print(f"Opening Business Suite composer…", flush=True)
@@ -2079,16 +2469,37 @@ def publish_facebook_photo_via_browser(
             print("Attaching photo…", flush=True)
             page.wait_for_timeout(SPA_SETTLE_MS)
             _attach_photo(page, resolved_image)
-            page.wait_for_timeout(1_500)
+            # Large quote JPEGs remount the form; wait for media + Text editor.
+            page.wait_for_timeout(2_500)
+            try:
+                page.evaluate(
+                    """() => {
+                      const img = document.querySelector('[role="main"] img');
+                      if (img) img.scrollIntoView({ block: 'nearest' });
+                    }"""
+                )
+            except Exception:
+                pass
+            page.wait_for_timeout(800)
             print("Filling caption…", flush=True)
             _fill_composer_caption(page, caption)
-            # Post-to remounts Lexical; exclude IG then restore/refill caption.
-            _disable_instagram_destination(page)
-            print("Re-checking caption after Post-to…", flush=True)
-            if not _caption_text_present(page, caption):
-                _fill_composer_caption(page, caption)
+            if include_instagram:
+                print("Keeping Instagram destination selected…", flush=True)
+                _ensure_instagram_destination_selected(page)
+            else:
+                # Post-to remounts Lexical; exclude IG then restore/refill caption.
+                _disable_instagram_destination(page)
+                print("Re-checking caption after Post-to…", flush=True)
+                if not _caption_text_present(page, caption):
+                    _fill_composer_caption(page, caption)
             if schedule_at is not None:
-                print(f"Scheduling for {schedule_at.isoformat()}…", flush=True)
+                platforms = "Facebook + Instagram" if include_instagram else "Facebook"
+                print(
+                    f"Scheduling {platforms} for {schedule_at.isoformat()}…",
+                    flush=True,
+                )
+                if include_instagram:
+                    _ensure_instagram_destination_selected(page)
                 _schedule_composer_post(
                     page,
                     schedule_at,
@@ -2096,7 +2507,10 @@ def publish_facebook_photo_via_browser(
                 )
                 permalink = _wait_for_schedule_success(page, page_username=page_username)
             else:
-                print("Publishing…", flush=True)
+                platforms = "Facebook + Instagram" if include_instagram else "Facebook"
+                print(f"Publishing {platforms}…", flush=True)
+                if include_instagram:
+                    _ensure_instagram_destination_selected(page)
                 _click_post(page)
                 permalink = _wait_for_permalink(
                     page,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -330,16 +331,24 @@ def publish_event_to_facebook(
     image_path: Path,
     page_username: str | None = None,
     project_root: Path | None = None,
+    publish_at: datetime | None = None,
+    display_timezone: str = "Europe/Sofia",
+    headless: bool | None = None,
+    proxy: dict[str, str] | None | bool = False,
 ) -> tuple[str, str]:
     """Post the event photo with the program caption text.
 
     Returns ``(post_id, permalink)``.
+
+    When ``publish_at`` is set and the browser path is used, schedules via
+    Business Suite instead of posting immediately. Graph API ignores
+    ``publish_at`` (events stay immediate on Graph).
     """
     resolved = image_path.resolve()
     if not resolved.is_file():
         raise MetaError(f"Facebook event image not found: {resolved}")
 
-    if facebook_photo_via_browser_enabled():
+    if facebook_photo_via_browser_enabled(project_root=project_root):
         username = (page_username or "").strip()
         if not username:
             raise MetaError(
@@ -350,7 +359,11 @@ def publish_event_to_facebook(
                 page_username=username,
                 image_path=resolved,
                 caption=rendered.facebook_post_text,
+                publish_at=publish_at,
+                display_timezone=display_timezone,
                 project_root=project_root,
+                headless=headless,
+                proxy=proxy,
             )
         except FacebookWebError as exc:
             raise MetaError(str(exc)) from exc

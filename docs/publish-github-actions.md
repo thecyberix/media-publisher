@@ -143,6 +143,14 @@ Same as the catalog workflow where noted:
 
 Facebook quote photos use the Graph API (same as before Playwright). Development-mode Graph posts may be visible only to app roles until App Review / Live.
 
+**Local Playwright (while Development mode limits Graph visibility)**
+
+- Quotes (Facebook only): `python scripts/schedule_prepared_quotes_facebook.py --year 2026 --month 10`
+- Events (Facebook only): `python scripts/schedule_event_facebook.py --event-type surya_kriya …`
+- Ekadashi (Facebook **+ Instagram**): `python scripts/schedule_ekadashi_facebook.py --year 2026 --month 10`
+
+Ekadashi dates come from the public Isha Google Calendar ICS (`ishacalendar@gmail.com`). Each post is scheduled for **Facebook + Instagram** one day before at **12:30 Europe/Sofia**. Captions are hard-coded from 2025 Page posts (same ordinal slot). Images are Canva `Ekadashi 2026` pages.
+
 Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run.
 
 When Original Video Thumbnail is set but Drive override and Canva catalog have no matching translated thumbnail, publish continues without one and emails `NOTIFY_EMAIL`. Generate the thumbnail offline with `scripts/_generate_thumbnails_from_original.py`.

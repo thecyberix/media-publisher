@@ -102,6 +102,7 @@ def main() -> int:
             browser_profile_dir=resolve_facebook_browser_profile_dir(project_root=ROOT),
             browser_channel=resolve_facebook_browser_channel(),
             headless=False,
+            proxy=None,
             failure_screenshot=screenshot,
         )
     except FacebookWebError as exc:

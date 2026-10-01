@@ -75,7 +75,7 @@ Set under **Settings → Secrets and variables → Actions → Secrets**. These 
 | `TRANSLATION_API_KEY` | Anthropic or OpenAI key (matches `TRANSLATION_PROVIDER`) |
 | `YOUTUBE_CLIENT_SECRETS_JSON` | Full contents of `credentials/youtube-client.json` |
 | `YOUTUBE_TOKEN_JSON` | Full contents of `credentials/youtube-token.json` |
-| `FACEBOOK_BROWSER_STATE_JSON` | Optional. Playwright storage state (`credentials/facebook-browser-state.json`) for public Facebook **event photo** posts while the Meta app is in Development mode. Quotes use Graph API. Create via `python -m media_publisher --facebook-browser-login`. Videos/reels stay on Graph. |
+| `FACEBOOK_BROWSER_STATE_JSON` | Optional. Playwright storage state (`credentials/facebook-browser-state.json`) for public Facebook **event photo** posts while the Meta app is in Development mode. Quotes use Graph API in CI; schedule quotes locally with `scripts/schedule_prepared_quotes_facebook.py`. Schedule events locally with `scripts/schedule_event_facebook.py`. Schedule Ekadashi (FB+IG) locally with `scripts/schedule_ekadashi_facebook.py`. Create session via `python -m media_publisher --facebook-browser-login`. Videos/reels stay on Graph. |
 | `FACEBOOK_BROWSER_PROXY` | Optional. HTTP(S) proxy for the event Playwright path. |
 
 `WORKFLOW_PROFILES_JSON` may also be stored as a secret; this repo keeps it as a variable.

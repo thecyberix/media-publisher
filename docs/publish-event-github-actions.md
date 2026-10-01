@@ -60,17 +60,34 @@ If `pages_manage_posts` is missing, re-authorize a Page token for a user with th
 
 Graph API photo posts from a Development-mode app are only visible to app roles. **Event** photos can post via Meta Business Suite (Playwright) instead; quote photos and videos/reels stay on Graph.
 
-**Local**
+**Local (preferred while Development mode blocks public Graph posts)**
 
 ```bash
 python -m media_publisher --facebook-browser-login
-# Schedules tomorrow by default (not live on the feed):
-python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption"
-# Immediate publish (visible now):
-python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption" --now
+
+# Full event flow: render caption, pick Drive image, schedule via headed Playwright,
+# update events/data/events.json. Default schedule = tomorrow at quotes hour.
+python scripts/schedule_event_facebook.py \
+  --event-type surya_kriya --city София --date 2026-10-12 --time 10:00 \
+  --registration-link https://example.com/register --dry-run
+
+python scripts/schedule_event_facebook.py \
+  --event-type surya_kriya --city София --date 2026-10-12 --time 10:00 \
+  --registration-link https://example.com/register --image-number 1
+
+# Immediate publish, or a specific local time:
+python scripts/schedule_event_facebook.py ... --now
+python scripts/schedule_event_facebook.py ... --at 2026-10-01T08:00:00
 ```
 
-After login, event photo publish uses the browser session when `FACEBOOK_BROWSER_STATE_JSON` / local state is present. Future `publish_at` values use the composer Schedule controls.
+History: `downloads/events/facebook-browser-schedule-history.json` (skip duplicates unless `--force`). Use `--skip-page` to post without updating the events site.
+
+Low-level PoC (image + caption only):
+
+```bash
+python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption"
+python scripts/poc_facebook_browser_photo.py path/to/image.jpg "Caption" --now
+```
 
 **GitHub Actions**
 
@@ -78,7 +95,7 @@ After login, event photo publish uses the browser session when `FACEBOOK_BROWSER
 2. Add repository secret **`FACEBOOK_BROWSER_STATE_JSON`** with that file’s contents (optional `FACEBOOK_BROWSER_PROXY`).
 3. When the secret is set, **Publish event** writes the session file, installs Playwright Chromium, and uses the browser path (headless). Unset the secret to fall back to Graph.
 
-Re-export and update the secret when the session expires (login wall / failed composer). Remove the secret after Meta App Review makes Graph posts public.
+Re-export and update the secret when the session expires (login wall / failed composer). Prefer `scripts/schedule_event_facebook.py` locally if Actions hits a login wall. Remove the secret after Meta App Review makes Graph posts public.
 
 ## Past events
 
