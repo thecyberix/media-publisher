@@ -13,6 +13,7 @@ from media_publisher.publishers.youtube import (
     YouTubeClient,
     YouTubePublishError,
     YouTubeToken,
+    _playlist_insert_retryable_error,
     _video_is_ready_for_thumbnail,
     build_video_body,
     build_video_status,
@@ -126,6 +127,19 @@ class YouTubeHelperTests(unittest.TestCase):
         self.assertTrue(
             _thumbnail_retryable_error(
                 "The video has not been processed yet. Please wait before uploading."
+            )
+        )
+
+    def test_playlist_insert_retries_video_not_found(self) -> None:
+        detail = (
+            '{"error":{"code":404,"message":"Video not found.",'
+            '"errors":[{"reason":"videoNotFound"}]}}'
+        )
+        self.assertTrue(_playlist_insert_retryable_error(404, detail))
+        self.assertFalse(
+            _playlist_insert_retryable_error(
+                404,
+                '{"error":{"code":404,"errors":[{"reason":"playlistNotFound"}]}}',
             )
         )
 
@@ -303,6 +317,72 @@ class YouTubeClientTests(unittest.TestCase):
                     client.set_thumbnail("vid123", thumb)
 
         wait_mock.assert_called_once_with("vid123")
+
+    def test_add_video_to_playlist_waits_then_retries_video_not_found(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            save_token(
+                token_path,
+                YouTubeToken(
+                    access_token="access",
+                    refresh_token="refresh",
+                    expires_at=9999999999.0,
+                ),
+            )
+            client = YouTubeClient(secrets_path, token_path)
+            not_found = (
+                b'{"error":{"code":404,"message":"Video not found.",'
+                b'"errors":[{"reason":"videoNotFound","domain":"youtube.playlistItem"}]}}'
+            )
+            with patch.object(client, "wait_for_video_processed") as wait_mock:
+                with patch(
+                    "media_publisher.publishers.youtube.time.sleep"
+                ) as sleep_mock:
+                    with patch.object(
+                        client,
+                        "_request",
+                        side_effect=[
+                            (404, {}, not_found),
+                            (200, {}, b"{}"),
+                        ],
+                    ) as request_mock:
+                        client.add_video_to_playlist("vid123", "PLtest")
+
+        wait_mock.assert_called_once_with("vid123", purpose="playlist insert")
+        self.assertEqual(request_mock.call_count, 2)
+        sleep_mock.assert_called_once()
+
+    def test_add_video_to_playlist_does_not_retry_missing_playlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            save_token(
+                token_path,
+                YouTubeToken(
+                    access_token="access",
+                    refresh_token="refresh",
+                    expires_at=9999999999.0,
+                ),
+            )
+            client = YouTubeClient(secrets_path, token_path)
+            missing = (
+                b'{"error":{"code":404,"message":"Playlist not found.",'
+                b'"errors":[{"reason":"playlistNotFound"}]}}'
+            )
+            with patch.object(client, "wait_for_video_processed"):
+                with patch("media_publisher.publishers.youtube.time.sleep") as sleep_mock:
+                    with patch.object(
+                        client,
+                        "_request",
+                        return_value=(404, {}, missing),
+                    ):
+                        with self.assertRaises(YouTubePublishError):
+                            client.add_video_to_playlist("vid123", "PLmissing")
+
+        sleep_mock.assert_not_called()
 
     def test_publish_to_youtube_prepends_short_cover_intro(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

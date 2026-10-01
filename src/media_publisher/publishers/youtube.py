@@ -45,6 +45,8 @@ VIDEO_PROCESSING_POLL_INTERVAL_SECONDS = 5.0
 VIDEO_PROCESSING_POLL_MAX_ATTEMPTS = 120
 THUMBNAIL_SET_MAX_ATTEMPTS = 12
 THUMBNAIL_SET_RETRY_SECONDS = 5.0
+PLAYLIST_INSERT_MAX_ATTEMPTS = 12
+PLAYLIST_INSERT_RETRY_SECONDS = 5.0
 
 
 class YouTubePublishError(RuntimeError):
@@ -193,6 +195,16 @@ def _thumbnail_retryable_error(detail: str) -> bool:
             "userratelimitexceeded",
         )
     )
+
+
+def _playlist_insert_retryable_error(status: int, detail: str) -> bool:
+    """True when playlist insert failed because the new upload is not visible yet."""
+    if _thumbnail_retryable_error(detail):
+        return True
+    if status not in {404, 500, 503}:
+        return False
+    lowered = detail.lower()
+    return "videonotfound" in lowered or "video not found" in lowered
 
 
 def prepare_youtube_thumbnail(
@@ -757,19 +769,30 @@ class YouTubeClient:
         }
         if position is not None:
             body["snippet"]["position"] = int(position)
+        self.wait_for_video_processed(video_id, purpose="playlist insert")
         query = urllib.parse.urlencode({"part": "snippet"})
         url = f"{API_BASE}/playlistItems?{query}"
-        status, _, payload = self._request(
-            "POST",
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        if status not in {200, 201}:
-            detail = payload.decode("utf-8", errors="replace").strip()
-            raise YouTubePublishError(
-                f"YouTube playlist insert failed with HTTP {status}: {detail}"
+        last_status = 0
+        last_detail = ""
+        for attempt in range(1, PLAYLIST_INSERT_MAX_ATTEMPTS + 1):
+            last_status, _, payload = self._request(
+                "POST",
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
             )
+            if last_status in {200, 201}:
+                return
+            last_detail = payload.decode("utf-8", errors="replace").strip()
+            if attempt < PLAYLIST_INSERT_MAX_ATTEMPTS and _playlist_insert_retryable_error(
+                last_status, last_detail
+            ):
+                time.sleep(PLAYLIST_INSERT_RETRY_SECONDS)
+                continue
+            break
+        raise YouTubePublishError(
+            f"YouTube playlist insert failed with HTTP {last_status}: {last_detail}"
+        )
 
     def set_playlist_item_position(
         self,
@@ -1068,7 +1091,13 @@ class YouTubeClient:
         item = items[0]
         return item if isinstance(item, dict) else None
 
-    def wait_for_video_ready_for_thumbnail(self, video_id: str) -> None:
+    def wait_for_video_processed(self, video_id: str, *, purpose: str) -> None:
+        """Poll videos.list until upload processing succeeded or failed.
+
+        ``uploadStatus=processed`` or ``processingStatus=succeeded`` means the
+        file is ready. Playlist insert can still return ``videoNotFound`` for a
+        short time after that, so callers retry the insert separately.
+        """
         for _ in range(VIDEO_PROCESSING_POLL_MAX_ATTEMPTS):
             item = self.get_video_status_item(video_id)
             if item is not None:
@@ -1083,8 +1112,11 @@ class YouTubeClient:
 
         raise YouTubePublishError(
             f"YouTube video {video_id!r} did not finish processing in time for "
-            "thumbnail upload"
+            f"{purpose}"
         )
+
+    def wait_for_video_ready_for_thumbnail(self, video_id: str) -> None:
+        self.wait_for_video_processed(video_id, purpose="thumbnail upload")
 
     def set_thumbnail(self, video_id: str, thumbnail_path: Path) -> None:
         if not thumbnail_path.exists():
