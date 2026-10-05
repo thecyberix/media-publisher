@@ -18,6 +18,7 @@ class PersonProfile:
     preferred_editing_type: str | None = None
     preferred_timing_type: str | None = None
     preferred_editor: str | None = None
+    email: str | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,11 @@ def _parse_person(item: object) -> PersonProfile | None:
     preferred_editor = item.get("preferred_editor")
     if preferred_editor is not None:
         preferred_editor = str(preferred_editor).strip() or None
+    email = item.get("email")
+    if email is not None:
+        email = str(email).strip() or None
+    if email is not None and ("@" not in email or any(ch.isspace() for ch in email)):
+        raise RuntimeError(f"Profile {name!r} has an invalid email")
     return PersonProfile(
         name=name,
         weekly_capacity_reels=weekly_capacity_reels,
@@ -63,6 +69,7 @@ def _parse_person(item: object) -> PersonProfile | None:
         preferred_editing_type=preferred_editing_type,
         preferred_timing_type=preferred_timing_type,
         preferred_editor=preferred_editor,
+        email=email,
     )
 
 

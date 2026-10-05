@@ -42,6 +42,8 @@ class ActionResult:
     action: WorkflowAction
     success: bool
     message: str
+    assigned_titles: tuple[str, ...] = ()
+    assignee_name: str | None = None
 
 
 def execute_action(
@@ -112,6 +114,28 @@ def execute_action(
             project_root=project_root,
         )
     return ActionResult(action=action, success=False, message=f"Unknown action: {action.action_type}")
+
+
+def _titles_for_created_records(
+    table_cache: TableCache | None,
+    created_ids: list[str],
+    *,
+    fallback: str,
+) -> tuple[str, ...]:
+    titles: list[str] = []
+    for record_id in created_ids:
+        if record_id.startswith("dry-run-"):
+            continue
+        record = table_cache.get(record_id) if table_cache is not None else None
+        fields = record.get("fields") if isinstance(record, dict) else None
+        title = fields.get(FIELD_TITLE) if isinstance(fields, dict) else None
+        if isinstance(title, str) and title.strip():
+            titles.append(title.strip())
+        elif record_id:
+            titles.append(record_id)
+    if titles:
+        return tuple(titles)
+    return (fallback,) if fallback else ()
 
 
 def _combine_media(
@@ -300,6 +324,7 @@ def _ingest_for_translator(
         dry_run=dry_run,
         pending_review_items=pending_review_items,
     )
+    fallback = f"{len(created_ids) or action.ingest_count} {action.ingest_type}(s)"
     if dry_run:
         return ActionResult(
             action=action,
@@ -310,6 +335,12 @@ def _ingest_for_translator(
                 if created_ids
                 else f"No eligible catalog row found for {action.translator_name!r}"
             ),
+            assigned_titles=_titles_for_created_records(
+                table_cache, created_ids, fallback=fallback
+            )
+            if created_ids
+            else (),
+            assignee_name=action.translator_name if created_ids else None,
         )
     if not created_ids:
         return ActionResult(
@@ -322,6 +353,10 @@ def _ingest_for_translator(
         action=action,
         success=True,
         message=f"Ingested {len(created_ids)} record(s) and assigned to {action.translator_name!r}: {', '.join(created_ids)}",
+        assigned_titles=_titles_for_created_records(
+            table_cache, created_ids, fallback=fallback
+        ),
+        assignee_name=action.translator_name,
     )
 
 
@@ -357,6 +392,7 @@ def _ingest_for_editor(
         table_cache=table_cache,
         dry_run=dry_run,
     )
+    fallback = f"{len(created_ids) or action.ingest_count} {action.ingest_type}(s)"
     if dry_run:
         return ActionResult(
             action=action,
@@ -367,6 +403,12 @@ def _ingest_for_editor(
                 if created_ids
                 else f"No eligible catalog row found for editor {action.editor_name!r}"
             ),
+            assigned_titles=_titles_for_created_records(
+                table_cache, created_ids, fallback=fallback
+            )
+            if created_ids
+            else (),
+            assignee_name=action.editor_name if created_ids else None,
         )
     if not created_ids:
         return ActionResult(
@@ -381,6 +423,10 @@ def _ingest_for_editor(
             f"Ingested {len(created_ids)} Translation done record(s) "
             f"for editor {action.editor_name!r}: {', '.join(created_ids)}"
         ),
+        assigned_titles=_titles_for_created_records(
+            table_cache, created_ids, fallback=fallback
+        ),
+        assignee_name=action.editor_name,
     )
 
 
@@ -435,16 +481,25 @@ def _assign_editor(
                 message="No eligible editors for this type",
             )
 
+    assigned_titles = (action.title,) if action.title else (action.record_id or chosen_name,)
     if dry_run:
         return ActionResult(
             action=action,
             success=True,
             message=f"Would assign editor {chosen_name!r}",
+            assigned_titles=assigned_titles,
+            assignee_name=chosen_name,
         )
     airtable.update_record_fields(action.record_id, {FIELD_EDITOR: chosen_name})
     if table_cache is not None:
         table_cache.update_fields(action.record_id, {FIELD_EDITOR: chosen_name})
-    return ActionResult(action=action, success=True, message=f"Assigned editor {chosen_name!r}")
+    return ActionResult(
+        action=action,
+        success=True,
+        message=f"Assigned editor {chosen_name!r}",
+        assigned_titles=assigned_titles,
+        assignee_name=chosen_name,
+    )
 
 
 def _assign_timing_editor(
@@ -495,11 +550,14 @@ def _assign_timing_editor(
                 message="Skipped: no eligible timing editors for this type",
             )
 
+    assigned_titles = (action.title,) if action.title else (action.record_id or chosen_name,)
     if dry_run:
         return ActionResult(
             action=action,
             success=True,
             message=f"Would assign timing editor {chosen_name!r}",
+            assigned_titles=assigned_titles,
+            assignee_name=chosen_name,
         )
     airtable.update_record_fields(action.record_id, {FIELD_TIMING_EDITOR: chosen_name})
     if table_cache is not None:
@@ -524,4 +582,10 @@ def _assign_timing_editor(
         except Exception as exc:  # noqa: BLE001 — assignment already succeeded
             message = f"{message}; corpus skipped: {exc}"
 
-    return ActionResult(action=action, success=True, message=message)
+    return ActionResult(
+        action=action,
+        success=True,
+        message=message,
+        assigned_titles=assigned_titles,
+        assignee_name=chosen_name,
+    )

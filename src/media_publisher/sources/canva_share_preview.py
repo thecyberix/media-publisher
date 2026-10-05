@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -30,7 +31,6 @@ QUALITY_RANK = {
 }
 MIN_PREVIEW_BYTES = 1000
 MIN_PREVIEW_EDGE = 32
-MIN_PREVIEW_LUMA_STD = 2.0
 _SHARE_PATH_STOP = {"view", "edit", "screen"}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -306,14 +306,6 @@ def _screen_url(canva_url: str) -> str:
     )
 
 
-def _luma_std(pixels: list[int]) -> float:
-    if not pixels:
-        return 0.0
-    mean = sum(pixels) / len(pixels)
-    variance = sum((value - mean) ** 2 for value in pixels) / len(pixels)
-    return variance ** 0.5
-
-
 def _preview_looks_valid(destination: Path) -> bool:
     """True when ``destination`` is a real, non-blank preview image.
 
@@ -331,31 +323,48 @@ def _preview_looks_valid(destination: Path) -> bool:
             width, height = image.size
             if width < MIN_PREVIEW_EDGE or height < MIN_PREVIEW_EDGE:
                 return False
-            sample = image.convert("L").resize((64, 64))
-            pixels = list(sample.getdata())
-            sample_std = _luma_std(pixels)
-            if sample_std < MIN_PREVIEW_LUMA_STD:
-                return False
-            inner = sample.crop(
-                (
-                    sample.size[0] // 4,
-                    sample.size[1] // 4,
-                    3 * sample.size[0] // 4,
-                    3 * sample.size[1] // 4,
-                )
-            )
-            inner_pixels = list(inner.getdata())
-            inner_mean = (
-                sum(inner_pixels) / len(inner_pixels) if inner_pixels else 0.0
-            )
-            inner_std = _luma_std(inner_pixels)
-            if inner_std < MIN_PREVIEW_LUMA_STD and (
-                inner_mean <= 8 or inner_mean >= 247
-            ):
-                return False
     except Exception:
         return False
-    return True
+    from catalog_parser.drive_thumbnail import image_looks_empty
+
+    return not image_looks_empty(destination)
+
+
+def _browser_screen_enabled() -> bool:
+    return os.getenv("CANVA_SHARE_PREVIEW_BROWSER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _download_screen_with_browser(url: str, destination: Path) -> bool:
+    """Fetch the flattened /screen image with a real browser stack.
+
+    Datacenter HTTP clients often get 403 for /screen. A headless browser
+    request still receives the composed preview the share link shows.
+    """
+    if not _browser_screen_enabled():
+        return False
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return False
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(user_agent=DEFAULT_USER_AGENT)
+                response = context.request.get(url, timeout=60_000)
+                content_type = str(response.headers.get("content-type", "")).casefold()
+                if response.status >= 400 or not content_type.startswith("image/"):
+                    return False
+                destination.write_bytes(response.body())
+            finally:
+                browser.close()
+    except Exception:
+        return False
+    return _preview_looks_valid(destination)
 
 
 def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
@@ -372,6 +381,8 @@ def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
                 return destination
         except urllib.error.URLError:
             pass
+        if _download_screen_with_browser(screen, destination):
+            return destination
 
     normalized = normalize_canva_share_url(resolved)
     html = _fetch_page_html(normalized)

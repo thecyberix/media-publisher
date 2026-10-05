@@ -13,6 +13,7 @@ from catalog_parser.canva import CanvaError, ensure_canva_ready
 from catalog_parser.auth import get_docs_service, get_drive_service
 from catalog_parser.drive_combine import DriveCombineError, verify_drive_output_folder_access
 from catalog_parser.workflow.actions import ActionResult, execute_action
+from catalog_parser.workflow.assignment_email import send_assignment_emails
 from catalog_parser.workflow.config import combined_media_output_folder_id, load_workflow_config
 from catalog_parser.workflow.editor_idle import (
     editor_last_assigned_path,
@@ -280,6 +281,8 @@ def run_workflow(
                 f"Would send thumbnail review email "
                 f"({len(pending_review_items)} video(s))."
             )
+
+        send_assignment_emails(config, results, dry_run=dry_run, log=print)
 
         failures = sum(1 for result in results if not result.success)
         if not dry_run:

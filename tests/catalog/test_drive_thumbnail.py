@@ -393,6 +393,19 @@ class DriveThumbnailTests(unittest.TestCase):
         image.save(path, "JPEG", quality=90)
         self.assertTrue(image_looks_empty(path))
 
+    def test_image_looks_empty_detects_gray_center_cover(self) -> None:
+        import tempfile
+        from PIL import Image
+
+        path = Path(tempfile.mkdtemp()) / "gray-cover.jpg"
+        image = Image.new("RGB", (256, 256), (54, 54, 54))
+        for x in range(256):
+            for y in range(256):
+                if x < 16 or y < 16 or x >= 240 or y >= 240:
+                    image.putpixel((x, y), ((x * 3) % 80, (y * 5) % 80, 30))
+        image.save(path, "JPEG", quality=90)
+        self.assertTrue(image_looks_empty(path))
+
     def test_enrich_records_uses_share_preview_when_download_succeeds(
         self,
     ) -> None:

@@ -238,6 +238,8 @@ class RagTranslateTests(unittest.TestCase):
         self.assertIn('"ignored"', CAPTION_EXTRACT_PROMPT)
         self.assertNotIn("Do not return every string on the image.", CANVA_COVER_EXTRACT_PROMPT)
         self.assertIn("every designed English text overlay", CANVA_COVER_EXTRACT_PROMPT)
+        self.assertIn("Wisdom Bomb", CAPTION_EXTRACT_PROMPT)
+        self.assertIn("Wisdom Bomb", CANVA_COVER_EXTRACT_PROMPT)
         self.assertEqual(
             parse_caption_lines_json(
                 '{"caption": ["Life on the Edge"], "ignored": ["Sadhguru", "2024"]}'
@@ -261,6 +263,45 @@ class RagTranslateTests(unittest.TestCase):
             ),
             ["Why Chilled", "Water", "IS NOT GOOD FOR YOU"],
         )
+
+    def test_side_series_label_is_not_caption(self) -> None:
+        from catalog_parser.translation.rag_translate import (
+            extract_caption_lines_from_image,
+            is_side_series_line,
+            without_side_series_lines,
+        )
+
+        self.assertTrue(is_side_series_line("Wisdom Bomb"))
+        self.assertTrue(is_side_series_line("Wisdom Bomb ....."))
+        self.assertTrue(is_side_series_line("Wisdom Bomb 09"))
+        self.assertTrue(is_side_series_line("09"))
+        self.assertTrue(is_side_series_line("12"))
+        self.assertFalse(is_side_series_line("Is Life Hard?"))
+        self.assertEqual(
+            without_side_series_lines(
+                [
+                    "Wisdom Bomb",
+                    "09",
+                    "Increase Your",
+                    "Productivity",
+                ]
+            ),
+            ["Increase Your", "Productivity"],
+        )
+        raw = (
+            '{"caption": ["Wisdom Bomb", "12", "A Simple Way", "to Beat", '
+            '"Compulsions"], "ignored": ["Wisdom Bomb", "11"]}'
+        )
+        with patch(
+            "catalog_parser.translation.rag_translate.chat_completion_with_image",
+            return_value=raw,
+        ):
+            lines = extract_caption_lines_from_image(
+                b"jpeg",
+                ChatConfig(api_key="test", provider="openai"),
+                include_all_overlay=True,
+            )
+        self.assertEqual(lines, ["A Simple Way", "to Beat", "Compulsions"])
 
     def test_match_source_newlines_and_quote_repair(self) -> None:
         from catalog_parser.translation.rag_translate import (

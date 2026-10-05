@@ -129,3 +129,87 @@ class LoadWorkflowConfigTests(unittest.TestCase):
             self.assertEqual(config.editors[0].weekly_capacity_reels, 0)
             self.assertEqual(config.translators[0].weekly_capacity_reels, 0)
             self.assertEqual(config.timing_editors[0].weekly_capacity_reels, 0)
+            self.assertIsNone(config.editors[0].email)
+
+    def test_optional_email_is_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_shared(
+                root,
+                {
+                    "catalog_id": "sheetFromFile01",
+                    "target_reel_to_video_ratio": 6,
+                    "max_video_seconds": 900,
+                },
+            )
+            profiles = {
+                "translators": [
+                    {
+                        "name": "T",
+                        "weekly_capacity_reels": 4,
+                        "email": " translator@example.com ",
+                    }
+                ],
+                "editors": [
+                    {"name": "E", "weekly_capacity_reels": 4, "email": ""}
+                ],
+                "timing_editors": [{"name": "TE", "weekly_capacity_reels": 4}],
+            }
+            (root / "workflow_config.json").write_text(
+                json.dumps(
+                    {
+                        "drive_url": "https://drive.google.com/drive/folders/abc",
+                        "profiles": profiles,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"DRIVE_URL": "", "WORKFLOW_PROFILES_JSON": ""},
+                clear=False,
+            ):
+                config = load_workflow_config(root)
+            self.assertEqual(config.translators[0].email, "translator@example.com")
+            self.assertIsNone(config.editors[0].email)
+            self.assertIsNone(config.timing_editors[0].email)
+
+    def test_invalid_email_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_shared(
+                root,
+                {
+                    "catalog_id": "sheetFromFile01",
+                    "target_reel_to_video_ratio": 6,
+                    "max_video_seconds": 900,
+                },
+            )
+            (root / "workflow_config.json").write_text(
+                json.dumps(
+                    {
+                        "drive_url": "https://drive.google.com/drive/folders/abc",
+                        "profiles": {
+                            "translators": [
+                                {
+                                    "name": "T",
+                                    "weekly_capacity_reels": 4,
+                                    "email": "not-an-email",
+                                }
+                            ],
+                            "editors": [{"name": "E", "weekly_capacity_reels": 4}],
+                            "timing_editors": [
+                                {"name": "TE", "weekly_capacity_reels": 4}
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"DRIVE_URL": "", "WORKFLOW_PROFILES_JSON": ""},
+                clear=False,
+            ):
+                with self.assertRaises(RuntimeError):
+                    load_workflow_config(root)

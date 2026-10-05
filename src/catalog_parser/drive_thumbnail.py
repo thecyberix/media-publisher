@@ -411,9 +411,11 @@ def image_looks_empty(path: Path, *, min_std: float = 2.0) -> bool:
     _mean, std = _luma_std(pixels)
     if std < min_std:
         return True
-    inner_mean, inner_std = _luma_std(inner_pixels)
-    # Cover templates: textured border around a solid black or white hole.
-    return inner_std < min_std and (inner_mean <= 8 or inner_mean >= 247)
+    _inner_mean, inner_std = _luma_std(inner_pixels)
+    # Cover templates: a textured border around a solid hole of any shade.
+    # Near-black and near-white were the first cases; flat gray holes
+    # (for example mean ~54) are the same blank cover page.
+    return inner_std < min_std
 
 
 def _canva_export_urls(canva_url: str, canva_client: CanvaClient | None) -> list[str]:
@@ -472,10 +474,10 @@ def download_canva_thumbnail(
     """Write a Canva design export to ``destination``; return source label.
 
     Tries the Canva Connect API first. When that design is not accessible to
-    the integration, tries the public publish-share ``/screen`` preview (the
-    share-token link, no login). Playwright is kept in ``canva_web`` for
-    manual use and is not part of ingest. Blank first pages are skipped when
-    the export returns later pages with content.
+    the integration, downloads the public publish-share ``/screen`` preview
+    (the flattened image the share link shows, no login). Playwright is kept
+    in ``canva_web`` for manual use and is not part of ingest. Blank first
+    pages are skipped when the export returns later pages with content.
     """
     del canva_web_client
     try:
@@ -719,8 +721,8 @@ def _stage_original_thumbnail_for_ingest(
 
     Priority:
     1. Canva link → Canva API design export (direct Airtable upload)
-    2. Canva link + design-level API failure → public publish-share preview
-    3. Still failing → manual-download placeholder for review
+    2. Canva link + design-level API failure → flattened public /screen preview
+    3. Empty or failed preview → manual-download placeholder for review
     4. No Canva → Video Folder PSD composite (English text included) uploaded
        to Original Video Thumbnail when an artboard matches the video aspect
     5. Otherwise matching-aspect original-platform thumbs are queued for review

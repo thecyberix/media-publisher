@@ -144,7 +144,10 @@ CAPTION_EXTRACT_PROMPT = (
     "ignored: additional overlay that is not the caption (speaker or guest "
     "names, dates, locations, campaign slogans or stamps, quotes that are not "
     "the caption, lower-thirds, burned-in subtitles, logos, watermarks, "
-    "channel names, UI chrome).\n"
+    "channel names, UI chrome). A vertical series label along the side edge "
+    "is ignored, not caption: the series name (for example \"Wisdom Bomb\") "
+    "and its episode number (for example \"09\", \"11\", \"12\"), including "
+    "when dots or a rotation separate them.\n"
     "Preserve the capitalization of each caption line as shown in the image.\n"
     'If there is no designed caption, return {"caption": [], "ignored": []}.'
 )
@@ -154,8 +157,11 @@ CANVA_COVER_EXTRACT_PROMPT = (
     "bottom.\n"
     "Include the full title, every subtitle, and any other wording that is part "
     "of the design. Do not omit smaller, secondary, or differently styled lines.\n"
-    "Skip only non-design chrome (browser UI, buttons, share-page labels such as "
-    '"View template" or "Designed with Canva").\n'
+    "Skip non-design chrome (browser UI, buttons, share-page labels such as "
+    '"View template" or "Designed with Canva"). Also skip a vertical series '
+    "label along the side edge: the series name (for example \"Wisdom Bomb\") "
+    "and its episode number (for example \"09\", \"11\", \"12\"). Put that "
+    "side text in ignored. It is not part of the caption.\n"
     "Return ONLY JSON: "
     '{"caption": ["Line one", "Line two"], "ignored": []}.\n'
     "caption: all designed cover lines in visual order. Preserve capitalization "
@@ -1074,6 +1080,25 @@ def _extract_named_json_string_array(text: str, key: str) -> list[str] | None:
     return _extract_json_string_array(sliced)
 
 
+def is_side_series_line(line: str) -> bool:
+    """True for a side-edge series label or its episode number.
+
+    These thumbnails put a series name (``Wisdom Bomb``) and a number
+    (``09``, ``11``, ``12``) vertically beside the caption. That text stays
+    in English on the design and is not part of the translated caption.
+    """
+    key = re.sub(r"[^0-9A-Za-z]+", " ", line).strip().casefold()
+    if not key:
+        return False
+    if re.fullmatch(r"wisdom bomb(?:\s+\d{1,3})?", key):
+        return True
+    return re.fullmatch(r"\d{1,3}", key) is not None
+
+
+def without_side_series_lines(lines: list[str]) -> list[str]:
+    return [line for line in lines if not is_side_series_line(line)]
+
+
 def parse_caption_lines_json(raw: str, *, include_ignored: bool = False) -> list[str]:
     """Parse vision caption extraction output into non-empty caption lines."""
     cleaned = _strip_code_fence(raw)
@@ -1116,7 +1141,8 @@ def extract_caption_lines_from_image(
         media_type=media_type,
         session=session,
     )
-    return parse_caption_lines_json(raw, include_ignored=include_all_overlay)
+    lines = parse_caption_lines_json(raw, include_ignored=include_all_overlay)
+    return without_side_series_lines(lines)
 
 
 def extract_caption_lines_from_image_path(

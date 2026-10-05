@@ -223,8 +223,12 @@ Airtable **Original Video Thumbnail**.
 Uses the **same Canva integration** as publishing (`CANVA_*` secrets →
 `credentials/canva-token.json`).
 
-Drive TN templates are **not** used at ingest; they are only used later when
-generating the translated thumbnail at publish time.
+When there is **no Canva link**, ingest looks in the Video Folder for a Photoshop
+TN template (``.psd``, Photoshop mime type, or a ``TN_`` file with no suffix).
+If an artboard matches the catalog video aspect, ingest composites the design
+**including English text** and uploads that JPEG to Airtable **Original Video
+Thumbnail**. Drive PSDs are still used later when generating the translated
+thumbnail at publish time.
 
 | Secret | Description |
 |--------|-------------|
@@ -236,18 +240,23 @@ generating the translated thumbnail at publish time.
 
 If Canva OAuth is missing or broken when a package has a Canva design link, ingest
 **fails** (do not soft-fallback). If OAuth works but that design is not accessible
-to the integration (`permission_denied`), ingest tries the public publish-share
-`/screen` preview (the share-token link from the package, no login). A successful
-API or preview image is uploaded to Airtable **Original Video Thumbnail**. If
-those still fail, ingest queues a **manual Canva download placeholder** in
-**Thumbnails for approval** instead of failing the run. Playwright Canva login
-(`--canva-login`) stays available for manual use and is not part of ingest.
+to the integration (`permission_denied`), ingest downloads the public
+publish-share `/screen` image (the flattened preview you see when opening the
+link, no login). That image is uploaded to Airtable **Original Video Thumbnail**.
+Files embedded in the share page are individual layers. The largest layer is
+often a blank background, so an empty layer is not used as the thumbnail. If
+`/screen` is blocked, the workflow retries it in a headless browser
+(`CANVA_SHARE_PREVIEW_BROWSER`). If that still fails, ingest queues a **manual
+Canva download placeholder** in **Thumbnails for approval** instead of failing
+the run. Playwright Canva login (`--canva-login`) stays available for manual
+use and is not part of ingest.
 
 ### Approved review thumbnails
 
-When ingest finds **no Canva link**, it does **not** write Original Video Thumbnail
-to Airtable. If the original-platform thumb still matches the catalog video aspect
-ratio, the file is uploaded to the Drive review folder. Standalone ingest sends one
+When ingest finds **no Canva link** and no matching Video Folder PSD, it does
+**not** write Original Video Thumbnail to Airtable. If the original-platform thumb
+still matches the catalog video aspect ratio, the file is uploaded to the Drive
+review folder. Standalone ingest sends one
 review email per ingest call; the daily orchestrator collects all queued review
 items across capacity fills and sends a single digest email for the run. Leftover
 **manual Canva** placeholders from older ingest runs stay in that folder until
@@ -400,14 +409,16 @@ Paste as one secret value (minified JSON):
       "name": "Translator Name",
       "weekly_capacity_reels": 30,
       "preferred_translation_type": "Reel",
-      "preferred_editor": "Editor Name"
+      "preferred_editor": "Editor Name",
+      "email": "translator@example.com"
     }
   ],
   "editors": [
     {
       "name": "Editor Name",
       "weekly_capacity_reels": 30,
-      "preferred_editing_type": "Video"
+      "preferred_editing_type": "Video",
+      "email": "editor@example.com"
     }
   ],
   "timing_editors": [
@@ -421,6 +432,8 @@ Paste as one secret value (minified JSON):
 ```
 
 Field names must match Airtable **Translator** / **Editor** / **Timing Editor** single-select values. Optional translator `preferred_editor` routes that translator's videos to a specific editor (type preference ignored) and those assignments run first in a workflow pass.
+
+Optional `email` on any profile sends one message to that address when the run assigns them work (translator ingest, editor ingest, editor assignment, or timing-editor assignment). Several assignments in the same run are listed in that single message. Profiles without `email` are not notified. The message uses `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD`. A dry run logs the recipient and does not send.
 
 ### Weekly editor assignment (Translation done)
 

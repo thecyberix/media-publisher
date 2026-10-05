@@ -394,8 +394,9 @@ def process_pending_review_thumbnails(
 ) -> list[PendingReviewSortResult]:
     """Sort review-queue originals; keep only Canva placeholders in the review folder.
 
-    On approve, uploads to Airtable immediately when ``airtable`` and ``records`` are
-    provided, then archives the Drive file under Approved for visibility.
+    On approve, archives the Drive file under Approved first, then uploads to
+    Airtable when ``airtable`` and ``records`` are provided. Archiving first
+    keeps a bad upload from landing in Airtable with no Approved copy.
     """
     classify_fn = classify or classify_original_background_thumbnail
     results: list[PendingReviewSortResult] = []
@@ -440,6 +441,11 @@ def process_pending_review_thumbnails(
                 caption_action = "skipped"
                 caption_detail: str | None = "dry-run" if not apply else None
                 if apply:
+                    if approved_folder is None:
+                        approved_folder = drive.ensure_folder(
+                            review_folder_id, approved_subfolder
+                        )
+                    drive.move_file(item.id, approved_folder.id)
                     title_stem = title_from_review_filename(item.name)
                     record = (
                         records_by_stem.get(title_stem)
@@ -464,11 +470,6 @@ def process_pending_review_thumbnails(
                         action = "moved-approved"
                     else:
                         action = "moved-approved"
-                    if approved_folder is None:
-                        approved_folder = drive.ensure_folder(
-                            review_folder_id, approved_subfolder
-                        )
-                    drive.move_file(item.id, approved_folder.id)
                 results.append(
                     PendingReviewSortResult(
                         drive_file=item.name,
