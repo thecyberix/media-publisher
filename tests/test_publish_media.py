@@ -433,12 +433,12 @@ class PublishMediaResolutionTests(unittest.TestCase):
                 unittest.mock.call("subs1"),
             ],
         )
-        self.assertEqual(
-            airtable.update_record.call_args_list,
-            [
-                unittest.mock.call("recABC", {FIELD_COMBINED_MEDIA_FILE: ""}),
-                unittest.mock.call("recABC", {FIELD_TRANSLATED_SUBTITLES: ""}),
-            ],
+        airtable.update_record.assert_called_once_with(
+            "recABC",
+            {
+                FIELD_COMBINED_MEDIA_FILE: "",
+                FIELD_TRANSLATED_SUBTITLES: "",
+            },
         )
         self.assertTrue(any("moved Drive override file" in message for message in messages))
         self.assertTrue(any("deleted Combined Media File" in message for message in messages))

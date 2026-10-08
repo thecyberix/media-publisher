@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from catalog_parser.airtable import (
     AirtableClient,
+    AirtableError,
     FIELD_ORIGINAL_VIDEO,
     FIELD_ORIGINAL_VIDEO_NAME,
     FIELD_TITLE,
@@ -23,6 +25,106 @@ from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.workflow.status_history import record_status_history_from_snapshots
 
 DEFAULT_BACKUP_DIR = Path("output") / "backups"
+INCREMENTAL_OVERLAP = timedelta(minutes=15)
+FULL_REFRESH_AFTER = timedelta(days=7)
+
+
+def _full_refresh_requested() -> bool:
+    value = os.getenv("AIRTABLE_FULL_REFRESH", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _modified_since_formula(since: datetime) -> str:
+    stamp = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return f"IS_AFTER(LAST_MODIFIED_TIME(), '{stamp}')"
+
+
+def merge_airtable_records(
+    baseline: list[dict[str, Any]],
+    updates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Replace baseline rows by id and append records that were not in the snapshot."""
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for record in baseline:
+        record_id = record.get("id")
+        if not isinstance(record_id, str) or not record_id:
+            continue
+        merged[record_id] = TableCache._copy_record(record)
+        order.append(record_id)
+    seen = set(order)
+    for record in updates:
+        record_id = record.get("id")
+        if not isinstance(record_id, str) or not record_id:
+            continue
+        merged[record_id] = TableCache._copy_record(record)
+        if record_id not in seen:
+            order.append(record_id)
+            seen.add(record_id)
+    return [merged[record_id] for record_id in order]
+
+
+def _request_count(airtable: AirtableClient) -> int | None:
+    count = getattr(airtable, "request_count", None)
+    return count if isinstance(count, int) else None
+
+
+def _load_table_records(
+    airtable: AirtableClient,
+    *,
+    previous_records: list[dict[str, Any]] | None,
+    previous_fetched_at: datetime | None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Load the live table, reusing a recent snapshot when one exists."""
+    now = datetime.now(timezone.utc)
+    fetched_at = previous_fetched_at
+    if fetched_at is not None and fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    snapshot_age = None if fetched_at is None else now - fetched_at.astimezone(timezone.utc)
+    can_incremental = (
+        not _full_refresh_requested()
+        and bool(previous_records)
+        and fetched_at is not None
+        and snapshot_age is not None
+        and snapshot_age <= FULL_REFRESH_AFTER
+    )
+    before = _request_count(airtable)
+    if can_incremental and fetched_at is not None and previous_records is not None:
+        cursor = fetched_at.astimezone(timezone.utc) - INCREMENTAL_OVERLAP
+        try:
+            changed = airtable.list_records(
+                filter_formula=_modified_since_formula(cursor)
+            )
+        except AirtableError as exc:
+            print(
+                "Warning: incremental Airtable sync failed "
+                f"({exc}); loading the full table"
+            )
+        else:
+            used = _calls_since(airtable, before)
+            call_note = f", {used} API call(s)" if used is not None else ""
+            return merge_airtable_records(previous_records, changed), (
+                f"incremental sync of {len(changed)} changed record(s) "
+                f"since {cursor.isoformat()}{call_note}"
+            )
+
+    records = airtable.list_records()
+    used = _calls_since(airtable, before)
+    call_note = f", {used} API call(s)" if used is not None else ""
+    if _full_refresh_requested():
+        reason = "full refresh requested"
+    elif snapshot_age is not None and snapshot_age > FULL_REFRESH_AFTER:
+        reason = "snapshot older than 7 days"
+    else:
+        reason = "full table load"
+    return records, f"{reason}{call_note}"
+
+
+def _calls_since(airtable: AirtableClient, before: int | None) -> int | None:
+    after = _request_count(airtable)
+    if before is None or after is None:
+        return None
+    return after - before
 
 
 class TableCache:
@@ -72,6 +174,7 @@ class TableCache:
         record_status_history: bool = True,
     ) -> TableCache:
         previous_records: list[dict[str, Any]] | None = None
+        previous_fetched_at: datetime | None = None
         target_dir: Path | None = None
         latest_path: Path | None = None
         previous_path: Path | None = None
@@ -82,11 +185,17 @@ class TableCache:
             previous_path = target_dir / "airtable-previous.json"
             if latest_path.is_file():
                 try:
-                    previous_records = cls.from_backup_file(latest_path).records
+                    previous_cache = cls.from_backup_file(latest_path)
+                    previous_records = previous_cache.records
+                    previous_fetched_at = previous_cache.fetched_at
                 except ValueError as exc:
                     print(f"Warning: could not load previous backup from {latest_path}: {exc}")
 
-        records = airtable.list_records()
+        records, sync_note = _load_table_records(
+            airtable,
+            previous_records=previous_records,
+            previous_fetched_at=previous_fetched_at,
+        )
         cache = cls(records)
 
         if (
@@ -108,11 +217,11 @@ class TableCache:
                 shutil.copy2(latest_path, previous_path)
             path = cache.write_backup(project_root, backup_dir=backup_dir)
             print(
-                f"Cached {len(cache._records)} Airtable record(s); "
+                f"Cached {len(cache._records)} Airtable record(s) ({sync_note}); "
                 f"backup written to {path}"
             )
         else:
-            print(f"Cached {len(cache._records)} Airtable record(s)")
+            print(f"Cached {len(cache._records)} Airtable record(s) ({sync_note})")
         return cache
 
     @property

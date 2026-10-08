@@ -769,6 +769,7 @@ def apply_publish_media_cleanup(
             except GoogleDriveError as exc:
                 emit(f"  cleanup: failed to delete Drive file {file_id}: {exc}")
 
+        cleared_fields: dict[str, str] = {}
         if cleanup.combined_media_file_id:
             try:
                 action = drive.remove_file(cleanup.combined_media_file_id)
@@ -776,12 +777,7 @@ def apply_publish_media_cleanup(
                     "  cleanup: "
                     f"{action} Combined Media File {cleanup.combined_media_file_id}"
                 )
-                if airtable is not None and record_id:
-                    airtable.update_record(
-                        record_id,
-                        {FIELD_COMBINED_MEDIA_FILE: ""},
-                    )
-                    emit(f"  cleanup: cleared {FIELD_COMBINED_MEDIA_FILE!r} on {record_id}")
+                cleared_fields[FIELD_COMBINED_MEDIA_FILE] = ""
             except GoogleDriveError as exc:
                 emit(
                     "  cleanup: failed to remove Combined Media File "
@@ -795,19 +791,17 @@ def apply_publish_media_cleanup(
                     "  cleanup: "
                     f"{action} Translated subtitles {cleanup.translated_subtitles_file_id}"
                 )
-                if airtable is not None and record_id:
-                    airtable.update_record(
-                        record_id,
-                        {FIELD_TRANSLATED_SUBTITLES: ""},
-                    )
-                    emit(
-                        f"  cleanup: cleared {FIELD_TRANSLATED_SUBTITLES!r} on {record_id}"
-                    )
+                cleared_fields[FIELD_TRANSLATED_SUBTITLES] = ""
             except GoogleDriveError as exc:
                 emit(
                     "  cleanup: failed to remove Translated subtitles "
                     f"{cleanup.translated_subtitles_file_id}: {exc}"
                 )
+
+        if cleared_fields and airtable is not None and record_id:
+            airtable.update_record(record_id, cleared_fields)
+            for field_name in cleared_fields:
+                emit(f"  cleanup: cleared {field_name!r} on {record_id}")
 
     if (
         canva_client is not None

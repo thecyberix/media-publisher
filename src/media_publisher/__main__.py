@@ -83,8 +83,7 @@ from media_publisher.sources.airtable import (
     STATUS_SYNC_DONE,
     STATUS_EDITING_DONE,
     STATUS_TRANSLATION_DONE,
-    fetch_missing_translation_reports,
-    fetch_pending_schedule_tasks,
+    load_pending_video_schedule,
     has_video_name_translated,
     mark_platform_scheduled,
     mark_record_done_and_published_if_complete,
@@ -1908,7 +1907,7 @@ def run_default_publish(settings, args) -> int:
     try:
         airtable = airtable_client_from_settings(settings)
         schedule = publish_schedule_settings(settings)
-        tasks = fetch_pending_schedule_tasks(
+        tasks, skipped = load_pending_video_schedule(
             airtable,
             **schedule,
             videos_only=True,
@@ -1919,11 +1918,6 @@ def run_default_publish(settings, args) -> int:
         return 1
 
     if not tasks:
-        try:
-            skipped = fetch_missing_translation_reports(airtable, **schedule)
-        except AirtableError as exc:
-            print(f"Airtable catalog lookup failed: {exc}")
-            return 1
         if skipped:
             print(f"Skipped — missing {FIELD_VIDEO_NAME_TRANSLATED!r} ({len(skipped)}):")
             for report in skipped:
@@ -1969,6 +1963,8 @@ def run_default_publish(settings, args) -> int:
             ),
             meta_client=meta_client,
             print_line=print_console,
+            pending_tasks=tasks,
+            missing_translation_reports=skipped,
         )
     except (HappyScribeError, AirtableError) as exc:
         print(f"Publish pipeline failed: {exc}")
@@ -2617,8 +2613,7 @@ def main() -> int:
         try:
             client = airtable_client_from_settings(settings)
             schedule = publish_schedule_settings(settings)
-            skipped = fetch_missing_translation_reports(client, **schedule)
-            tasks = fetch_pending_schedule_tasks(
+            tasks, skipped = load_pending_video_schedule(
                 client,
                 **schedule,
                 videos_only=True,

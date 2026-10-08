@@ -607,6 +607,50 @@ def mark_platform_scheduled(
     )
 
 
+def load_pending_video_schedule(
+    client: "AirtableClient",
+    *,
+    max_records: int | None = None,
+    platforms: tuple[PlatformName, ...] | None = None,
+    publish_timezone: str = DEFAULT_PUBLISH_TIMEZONE,
+    publish_hour: int = DEFAULT_PUBLISH_HOUR,
+    videos_only: bool = True,
+) -> tuple[list[PlatformScheduleTask], list[MissingTranslationReport]]:
+    """One list call for ready tasks and rows skipped for a missing translation."""
+    filter_formula = pending_schedule_filter_formula(
+        content_type="video" if videos_only else None
+    )
+    before = client.request_count
+    records = client.list_records(
+        filter_formula=filter_formula,
+        max_records=max_records,
+    )
+    tasks: list[PlatformScheduleTask] = []
+    reports: list[MissingTranslationReport] = []
+    for record in records:
+        tasks.extend(
+            record_schedule_tasks(
+                record,
+                platforms=platforms,
+                publish_timezone=publish_timezone,
+                publish_hour=publish_hour,
+                videos_only=videos_only,
+            )
+        )
+        report = missing_translation_report(
+            record,
+            publish_timezone=publish_timezone,
+            publish_hour=publish_hour,
+        )
+        if report is not None:
+            reports.append(report)
+    print(
+        "Airtable schedule lookup used "
+        f"{client.request_count - before} API call(s) for {len(records)} record(s)"
+    )
+    return tasks, reports
+
+
 def fetch_pending_schedule_tasks(
     client: AirtableClient,
     *,
@@ -672,6 +716,7 @@ class AirtableClient:
         self.table_name = table_name.strip()
         self.api_base = api_base.rstrip("/")
         self.view = view.strip() if view else None
+        self.request_count = 0
         if not self.token:
             raise AirtableError("AIRTABLE_TOKEN is required")
         if not self.base_id:
@@ -705,6 +750,7 @@ class AirtableClient:
         request = urllib.request.Request(url, data=data, method=method)
         request.add_header("Authorization", f"Bearer {self.token}")
         request.add_header("Content-Type", "application/json")
+        self.request_count += 1
 
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
@@ -744,7 +790,7 @@ class AirtableClient:
         max_records: int | None = None,
         filter_formula: str | None = None,
     ) -> dict[str, str | list[str]]:
-        query: dict[str, str | list[str]] = {}
+        query: dict[str, str | list[str]] = {"pageSize": "100"}
         if offset:
             query["offset"] = offset
         if self.view:

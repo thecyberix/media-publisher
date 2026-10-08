@@ -156,6 +156,65 @@ class TableCacheTests(unittest.TestCase):
         self.assertEqual(len(cache.records), 1)
         airtable.list_records.assert_called_once_with()
 
+    def test_load_incremental_when_snapshot_is_recent(self) -> None:
+        airtable = MagicMock()
+        airtable.request_count = 1
+        airtable.list_records.return_value = [
+            {"id": "rec1", "fields": {FIELD_TITLE: "Updated"}},
+            {"id": "rec2", "fields": {FIELD_TITLE: "New"}},
+        ]
+        fetched_at = datetime.now(timezone.utc).isoformat()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            backup = project_root / "output" / "backups" / "airtable-latest.json"
+            backup.parent.mkdir(parents=True)
+            backup.write_text(
+                json.dumps(
+                    {
+                        "fetched_at": fetched_at,
+                        "record_count": 1,
+                        "records": [
+                            {"id": "rec1", "fields": {FIELD_TITLE: "Old"}},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cache = TableCache.load(airtable, project_root=project_root)
+
+        airtable.list_records.assert_called_once()
+        formula = airtable.list_records.call_args.kwargs["filter_formula"]
+        self.assertIn("LAST_MODIFIED_TIME()", formula)
+        by_id = {record["id"]: record["fields"][FIELD_TITLE] for record in cache.records}
+        self.assertEqual(by_id, {"rec1": "Updated", "rec2": "New"})
+
+    def test_load_full_refresh_when_snapshot_is_old(self) -> None:
+        airtable = MagicMock()
+        airtable.list_records.return_value = [
+            {"id": "rec9", "fields": {FIELD_TITLE: "Fresh"}},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            backup = project_root / "output" / "backups" / "airtable-latest.json"
+            backup.parent.mkdir(parents=True)
+            backup.write_text(
+                json.dumps(
+                    {
+                        "fetched_at": "2020-01-01T00:00:00+00:00",
+                        "record_count": 1,
+                        "records": [
+                            {"id": "rec1", "fields": {FIELD_TITLE: "Stale"}},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cache = TableCache.load(airtable, project_root=project_root)
+
+        airtable.list_records.assert_called_once_with()
+        self.assertEqual(cache.records[0]["id"], "rec9")
+
 
 if __name__ == "__main__":
     unittest.main()

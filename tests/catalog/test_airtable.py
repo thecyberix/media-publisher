@@ -304,6 +304,53 @@ class AirtableMappingTests(unittest.TestCase):
         self.assertEqual(comments, ["Заглавие:\nOriginal Catalog Title"])
 
 
+class AirtableIdentityListTests(unittest.TestCase):
+    def test_duplicate_checks_share_one_table_list(self) -> None:
+        from catalog_parser.airtable import (
+            FIELD_ORIGINAL_VIDEO,
+            FIELD_ORIGINAL_VIDEO_NAME,
+            FIELD_TYPE,
+            FIELD_VIDEO_FOLDER,
+        )
+
+        client = AirtableClient("pat-test", "app-identity", "Catalog")
+        client._clear_ingest_identity_cache()
+        page = {
+            "records": [
+                {
+                    "id": "rec1",
+                    "fields": {
+                        FIELD_TITLE: "Hello",
+                        FIELD_TYPE: "Reel",
+                        FIELD_VIDEO_FOLDER: "folder123",
+                        FIELD_ORIGINAL_VIDEO_NAME: "Hello | Sadhguru",
+                        FIELD_ORIGINAL_VIDEO: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    },
+                }
+            ]
+        }
+        with patch.object(client, "_request", return_value=page) as request_mock:
+            titles = client.list_existing_titles()
+            folders = client.list_existing_video_folder_ids()
+            names = client.list_existing_original_video_names()
+            keys = client.list_existing_original_video_keys()
+            other = AirtableClient("pat-test", "app-identity", "Catalog")
+            with patch.object(other, "_request") as second_mock:
+                self.assertEqual(other.list_existing_titles(), titles)
+
+        self.assertEqual(request_mock.call_count, 1)
+        self.assertEqual(second_mock.call_count, 0)
+        self.assertIn("reel\thello", titles)
+        self.assertEqual(folders, {"folder123"})
+        self.assertIn("hello", names)
+        self.assertTrue(any(key.startswith("yt:") for key in keys))
+        query = request_mock.call_args.kwargs["query"]
+        self.assertEqual(query["pageSize"], "100")
+        self.assertIn(FIELD_TITLE, query["fields[]"])
+        self.assertIn(FIELD_VIDEO_FOLDER, query["fields[]"])
+        client._clear_ingest_identity_cache()
+
+
 class AirtableSyncTests(unittest.TestCase):
     def test_sync_skips_existing_titles_and_creates_new_rows(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

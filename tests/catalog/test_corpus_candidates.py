@@ -119,7 +119,14 @@ class CorpusSelectionTests(unittest.TestCase):
             base_id = "app-main"
             table_name = "Translator's Paradise"
 
-            def list_records(self, *, filter_formula=None, base_id=None, table_name=None):
+            def list_records(
+                self,
+                *,
+                filter_formula=None,
+                base_id=None,
+                table_name=None,
+                fields=None,
+            ):
                 if base_id not in (None, self.base_id):
                     return []
                 return [

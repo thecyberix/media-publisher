@@ -15,6 +15,7 @@ from catalog_parser.drive_docs import extract_drive_folder_id
 DEFAULT_API_BASE = "https://api.airtable.com/v0"
 DEFAULT_CONTENT_API_BASE = "https://content.airtable.com/v0"
 MAX_CREATE_BATCH_SIZE = 10
+PAGE_SIZE = 100
 
 FIELD_ORIGINAL_VIDEO = "Original Video"
 FIELD_DURATION = "Duration"
@@ -34,6 +35,21 @@ FIELD_TIMING_EDITOR = "Timing Editor"
 FIELD_VIDEO_DESCRIPTION_TRANSLATED = "Video description translated"
 FIELD_VIDEO_NAME_TRANSLATED = "Video name translated"
 FIELD_VIDEO_CAPTION_TRANSLATED = "Video caption translated"
+
+# One list of these fields feeds every ingest duplicate check.
+INGEST_IDENTITY_FIELDS = (
+    FIELD_TITLE,
+    FIELD_TYPE,
+    FIELD_VIDEO_FOLDER,
+    FIELD_ORIGINAL_VIDEO_NAME,
+    FIELD_ORIGINAL_VIDEO,
+)
+
+# (base id, table name) -> title keys, folder ids, original-name keys, video keys.
+_INGEST_IDENTITY_CACHE: dict[
+    tuple[str, str],
+    tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]],
+] = {}
 
 STATUS_TODO = "1. To do"
 STATUS_TRANSLATION_DONE = "2. Translation done"
@@ -301,6 +317,7 @@ class AirtableClient:
             raise AirtableError("AIRTABLE_URL is required (missing table id)")
         self._base_tables_by_id: dict[str, list[dict[str, Any]]] = {}
         self._known_url_fields: set[str] = set()
+        self.request_count = 0
 
     def _table_url(
         self,
@@ -333,6 +350,7 @@ class AirtableClient:
         request = urllib.request.Request(url, data=data, method=method)
         request.add_header("Authorization", f"Bearer {self.token}")
         request.add_header("Content-Type", "application/json")
+        self.request_count += 1
 
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
@@ -349,114 +367,64 @@ class AirtableClient:
             return {}
         return json.loads(payload.decode("utf-8"))
 
-    def list_existing_titles(self) -> set[str]:
-        """Return typed title identity keys (``{type}\\t{title}``)."""
-        keys: set[str] = set()
-        offset: str | None = None
-        while True:
-            query: dict[str, Any] = {
-                "pageSize": "100",
-                "fields[]": [FIELD_TITLE, FIELD_TYPE],
-            }
-            if offset:
-                query["offset"] = offset
-            response = self._request("GET", self._table_url(), query=query)
-            for item in response.get("records", []):
-                if not isinstance(item, dict):
-                    continue
-                fields = item.get("fields")
-                if not isinstance(fields, dict):
-                    continue
-                keys.update(
-                    title_identity_keys(
-                        fields.get(FIELD_TITLE),
-                        fields.get(FIELD_TYPE),
-                    )
-                )
-            offset = response.get("offset")
-            if not offset:
-                break
-        return keys
+    def _clear_ingest_identity_cache(self) -> None:
+        _INGEST_IDENTITY_CACHE.pop((self.base_id, self.table_name), None)
 
-    def list_existing_video_folder_ids(self) -> set[str]:
+    def _ingest_identity_sets(
+        self,
+    ) -> tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]]:
+        """Titles, folder ids, original names, and video keys from one table list."""
+        key = (self.base_id, self.table_name)
+        cached = _INGEST_IDENTITY_CACHE.get(key)
+        if cached is not None:
+            return cached
+
+        titles: set[str] = set()
         folder_ids: set[str] = set()
-        offset: str | None = None
-        while True:
-            query: dict[str, Any] = {
-                "pageSize": "100",
-                "fields[]": [FIELD_VIDEO_FOLDER],
-            }
-            if offset:
-                query["offset"] = offset
-            response = self._request("GET", self._table_url(), query=query)
-            for item in response.get("records", []):
-                if not isinstance(item, dict):
-                    continue
-                fields = item.get("fields")
-                if not isinstance(fields, dict):
-                    continue
-                link = fields.get(FIELD_VIDEO_FOLDER)
-                if not isinstance(link, str) or not link.strip():
-                    continue
+        names: set[str] = set()
+        video_keys: set[str] = set()
+        for item in self.list_records(fields=list(INGEST_IDENTITY_FIELDS)):
+            fields = item.get("fields")
+            if not isinstance(fields, dict):
+                continue
+            titles.update(
+                title_identity_keys(fields.get(FIELD_TITLE), fields.get(FIELD_TYPE))
+            )
+            link = fields.get(FIELD_VIDEO_FOLDER)
+            if isinstance(link, str) and link.strip():
                 folder_id = extract_drive_folder_id(link)
                 if folder_id:
                     folder_ids.add(folder_id)
-            offset = response.get("offset")
-            if not offset:
-                break
-        return folder_ids
+            name_key = normalize_original_video_name_key(
+                fields.get(FIELD_ORIGINAL_VIDEO_NAME)
+            )
+            if name_key:
+                names.add(name_key)
+            video_key = normalize_original_video_key(fields.get(FIELD_ORIGINAL_VIDEO))
+            if video_key:
+                video_keys.add(video_key)
+
+        packed = (
+            frozenset(titles),
+            frozenset(folder_ids),
+            frozenset(names),
+            frozenset(video_keys),
+        )
+        _INGEST_IDENTITY_CACHE[key] = packed
+        return packed
+
+    def list_existing_titles(self) -> set[str]:
+        """Return typed title identity keys (``{type}\\t{title}``)."""
+        return set(self._ingest_identity_sets()[0])
+
+    def list_existing_video_folder_ids(self) -> set[str]:
+        return set(self._ingest_identity_sets()[1])
 
     def list_existing_original_video_names(self) -> set[str]:
-        names: set[str] = set()
-        offset: str | None = None
-        while True:
-            query: dict[str, Any] = {
-                "pageSize": "100",
-                "fields[]": [FIELD_ORIGINAL_VIDEO_NAME],
-            }
-            if offset:
-                query["offset"] = offset
-            response = self._request("GET", self._table_url(), query=query)
-            for item in response.get("records", []):
-                if not isinstance(item, dict):
-                    continue
-                fields = item.get("fields")
-                if not isinstance(fields, dict):
-                    continue
-                key = normalize_original_video_name_key(
-                    fields.get(FIELD_ORIGINAL_VIDEO_NAME)
-                )
-                if key:
-                    names.add(key)
-            offset = response.get("offset")
-            if not offset:
-                break
-        return names
+        return set(self._ingest_identity_sets()[2])
 
     def list_existing_original_video_keys(self) -> set[str]:
-        keys: set[str] = set()
-        offset: str | None = None
-        while True:
-            query: dict[str, Any] = {
-                "pageSize": "100",
-                "fields[]": [FIELD_ORIGINAL_VIDEO],
-            }
-            if offset:
-                query["offset"] = offset
-            response = self._request("GET", self._table_url(), query=query)
-            for item in response.get("records", []):
-                if not isinstance(item, dict):
-                    continue
-                fields = item.get("fields")
-                if not isinstance(fields, dict):
-                    continue
-                key = normalize_original_video_key(fields.get(FIELD_ORIGINAL_VIDEO))
-                if key:
-                    keys.add(key)
-            offset = response.get("offset")
-            if not offset:
-                break
-        return keys
+        return set(self._ingest_identity_sets()[3])
 
     def list_accessible_bases(self) -> list[dict[str, Any]]:
         response = self._request("GET", f"{self.api_base}/meta/bases")
@@ -489,28 +457,16 @@ class AirtableClient:
             raise AirtableError("At least one title field is required")
 
         titles: set[str] = set()
-        offset: str | None = None
-
-        while True:
-            query: dict[str, Any] = {"fields[]": list(fields)}
-            if offset:
-                query["offset"] = offset
-
-            response = self._request(
-                "GET",
-                self._table_url(table_name=table_name, base_id=base_id),
-                query=query,
-            )
-            for record in response.get("records", []):
-                record_fields = record.get("fields", {})
-                if not isinstance(record_fields, dict):
-                    continue
-                for field_name in fields:
-                    titles.update(normalize_title_variants(record_fields.get(field_name)))
-
-            offset = response.get("offset")
-            if not offset:
-                break
+        for record in self.list_records(
+            fields=list(fields),
+            base_id=base_id,
+            table_name=table_name,
+        ):
+            record_fields = record.get("fields", {})
+            if not isinstance(record_fields, dict):
+                continue
+            for field_name in fields:
+                titles.update(normalize_title_variants(record_fields.get(field_name)))
 
         return titles
 
@@ -555,11 +511,14 @@ class AirtableClient:
         filter_formula: str | None = None,
         base_id: str | None = None,
         table_name: str | None = None,
+        fields: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
         offset: str | None = None
         while True:
-            query: dict[str, str] = {}
+            query: dict[str, Any] = {"pageSize": str(PAGE_SIZE)}
+            if fields:
+                query["fields[]"] = list(fields)
             if filter_formula:
                 query["filterByFormula"] = filter_formula
             if offset:
@@ -567,13 +526,13 @@ class AirtableClient:
             response = self._request(
                 "GET",
                 self._table_url(base_id=base_id, table_name=table_name),
-                query=query or None,
+                query=query,
             )
             batch = response.get("records", [])
             if isinstance(batch, list):
                 records.extend(item for item in batch if isinstance(item, dict))
             offset = response.get("offset")
-            if not offset:
+            if not isinstance(offset, str) or not offset:
                 break
         return records
 
@@ -612,6 +571,7 @@ class AirtableClient:
             raise AirtableError("record_id is required")
         if not isinstance(fields, dict) or not fields:
             raise AirtableError("fields must be a non-empty dict")
+        self._clear_ingest_identity_cache()
         response = self._request(
             "PATCH",
             f"{self._table_url()}/{urllib.parse.quote(record_id, safe='')}",
@@ -620,6 +580,32 @@ class AirtableClient:
         if not isinstance(response, dict):
             raise AirtableError("Unexpected Airtable response while updating record")
         return response
+
+    def update_records(
+        self,
+        updates: list[tuple[str, dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
+        """PATCH up to 10 records per request."""
+        if not updates:
+            return []
+        self._clear_ingest_identity_cache()
+        updated: list[dict[str, Any]] = []
+        for start in range(0, len(updates), MAX_CREATE_BATCH_SIZE):
+            batch = updates[start : start + MAX_CREATE_BATCH_SIZE]
+            response = self._request(
+                "PATCH",
+                self._table_url(),
+                body={
+                    "records": [
+                        {"id": record_id, "fields": fields}
+                        for record_id, fields in batch
+                    ]
+                },
+            )
+            batch_records = response.get("records", [])
+            if isinstance(batch_records, list):
+                updated.extend(item for item in batch_records if isinstance(item, dict))
+        return updated
 
     def upload_attachment(
         self,
@@ -702,6 +688,7 @@ class AirtableClient:
         record_id = record_id.strip()
         if not record_id:
             raise AirtableError("record_id is required")
+        self._clear_ingest_identity_cache()
         self._request(
             "DELETE",
             f"{self._table_url()}/{urllib.parse.quote(record_id, safe='')}",
@@ -711,6 +698,7 @@ class AirtableClient:
         if not field_sets:
             return []
 
+        self._clear_ingest_identity_cache()
         created_ids: list[str] = []
         for start in range(0, len(field_sets), MAX_CREATE_BATCH_SIZE):
             batch = field_sets[start : start + MAX_CREATE_BATCH_SIZE]
@@ -735,6 +723,7 @@ class AirtableClient:
         if not records:
             return []
 
+        self._clear_ingest_identity_cache()
         created_ids: list[str] = []
         for start in range(0, len(records), MAX_CREATE_BATCH_SIZE):
             batch = records[start : start + MAX_CREATE_BATCH_SIZE]

@@ -205,6 +205,8 @@ def run_publish_pipeline(
     *,
     meta_client: MetaClient | None = None,
     print_line: Callable[[str], None] = print,
+    pending_tasks: list[PlatformScheduleTask] | None = None,
+    missing_translation_reports: list | None = None,
 ) -> tuple[int, list[PlatformPublishResult]]:
     """Fetch pending catalog rows, download videos, publish, and update Airtable."""
     def flush_daily_playlist() -> None:
@@ -226,17 +228,21 @@ def run_publish_pipeline(
 
     flush_daily_playlist()
 
-    tasks = fetch_pending_schedule_tasks(
-        airtable,
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.publish_hour,
-        videos_only=True,
-    )
-    skipped = fetch_missing_translation_reports(
-        airtable,
-        publish_timezone=settings.publish_timezone,
-        publish_hour=settings.publish_hour,
-    )
+    if pending_tasks is None:
+        tasks = fetch_pending_schedule_tasks(
+            airtable,
+            publish_timezone=settings.publish_timezone,
+            publish_hour=settings.publish_hour,
+            videos_only=True,
+        )
+        skipped = fetch_missing_translation_reports(
+            airtable,
+            publish_timezone=settings.publish_timezone,
+            publish_hour=settings.publish_hour,
+        )
+    else:
+        tasks = pending_tasks
+        skipped = list(missing_translation_reports or [])
     if skipped:
         print_line(
             f"Skipped — missing {FIELD_VIDEO_NAME_TRANSLATED!r} ({len(skipped)}):"

@@ -126,6 +126,13 @@ def apply_status_reverts(
         return 0
 
     print(f"Status validation: reverting {len(actions)} invalid transition(s)")
+    if not dry_run:
+        airtable.update_records(
+            [
+                (action.record_id, {FIELD_STATUS: action.previous_status})
+                for action in actions
+            ]
+        )
     applied = 0
     for action in actions:
         comment_summary = "; ".join(action.comments)
@@ -137,10 +144,6 @@ def apply_status_reverts(
             applied += 1
             continue
 
-        airtable.update_record_fields(
-            action.record_id,
-            {FIELD_STATUS: action.previous_status},
-        )
         for comment in action.comments:
             airtable.create_record_comment(action.record_id, comment)
         table_cache.update_fields(

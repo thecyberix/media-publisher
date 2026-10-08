@@ -96,77 +96,60 @@ DEFAULT_CANVA_TOKEN = PROJECT_ROOT / "credentials" / "canva-token.json"
 DEFAULT_UNASSIGNED_INGEST_COUNT = 4
 
 
-def load_existing_airtable_titles() -> set[str]:
+def build_airtable_client() -> AirtableClient | None:
     airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
     airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
     airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
     if not airtable_token or not airtable_base_id or not airtable_table_name:
-        return set()
-
-    airtable_client = AirtableClient(
+        return None
+    return AirtableClient(
         token=airtable_token,
         base_id=airtable_base_id,
         table_name=airtable_table_name,
         api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
         or "https://api.airtable.com/v0",
     )
+
+
+def load_existing_airtable_titles(
+    client: AirtableClient | None = None,
+) -> set[str]:
+    airtable_client = client if client is not None else build_airtable_client()
+    if airtable_client is None:
+        return set()
     return load_existing_titles_for_ingest(airtable_client, project_root=PROJECT_ROOT)
 
 
-def load_existing_airtable_video_folder_ids() -> set[str]:
+def load_existing_airtable_video_folder_ids(
+    client: AirtableClient | None = None,
+) -> set[str]:
     from catalog_parser.airtable import load_existing_video_folder_ids_for_ingest
 
-    airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
-    airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
-    airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
-    if not airtable_token or not airtable_base_id or not airtable_table_name:
+    airtable_client = client if client is not None else build_airtable_client()
+    if airtable_client is None:
         return set()
-
-    airtable_client = AirtableClient(
-        token=airtable_token,
-        base_id=airtable_base_id,
-        table_name=airtable_table_name,
-        api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
-        or "https://api.airtable.com/v0",
-    )
     return load_existing_video_folder_ids_for_ingest(airtable_client)
 
 
-def load_existing_airtable_original_video_names() -> set[str]:
+def load_existing_airtable_original_video_names(
+    client: AirtableClient | None = None,
+) -> set[str]:
     from catalog_parser.airtable import load_existing_original_video_names_for_ingest
 
-    airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
-    airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
-    airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
-    if not airtable_token or not airtable_base_id or not airtable_table_name:
+    airtable_client = client if client is not None else build_airtable_client()
+    if airtable_client is None:
         return set()
-
-    airtable_client = AirtableClient(
-        token=airtable_token,
-        base_id=airtable_base_id,
-        table_name=airtable_table_name,
-        api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
-        or "https://api.airtable.com/v0",
-    )
     return load_existing_original_video_names_for_ingest(airtable_client)
 
 
-def load_existing_airtable_original_video_keys() -> set[str]:
+def load_existing_airtable_original_video_keys(
+    client: AirtableClient | None = None,
+) -> set[str]:
     from catalog_parser.airtable import load_existing_original_video_keys_for_ingest
 
-    airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
-    airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
-    airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
-    if not airtable_token or not airtable_base_id or not airtable_table_name:
+    airtable_client = client if client is not None else build_airtable_client()
+    if airtable_client is None:
         return set()
-
-    airtable_client = AirtableClient(
-        token=airtable_token,
-        base_id=airtable_base_id,
-        table_name=airtable_table_name,
-        api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
-        or "https://api.airtable.com/v0",
-    )
     return load_existing_original_video_keys_for_ingest(airtable_client)
 
 
@@ -957,6 +940,7 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             f"then {len(records) - marked} unmarked."
         )
 
+    airtable_client: AirtableClient | None = None
     if args.sheet_only:
         smartcat_language = (
             args.smartcat_language
@@ -1065,14 +1049,19 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
 
         canva_client = build_canva_client_from_env(project_root=PROJECT_ROOT)
 
-        existing_titles = load_existing_airtable_titles()
+        airtable_client = build_airtable_client()
+        existing_titles = load_existing_airtable_titles(airtable_client)
         if not existing_titles:
             print(
                 "Eligibility: no Airtable titles loaded; duplicate-title check skipped."
             )
-        existing_folder_ids = load_existing_airtable_video_folder_ids()
-        existing_original_video_names = load_existing_airtable_original_video_names()
-        existing_original_video_keys = load_existing_airtable_original_video_keys()
+        existing_folder_ids = load_existing_airtable_video_folder_ids(airtable_client)
+        existing_original_video_names = load_existing_airtable_original_video_names(
+            airtable_client
+        )
+        existing_original_video_keys = load_existing_airtable_original_video_keys(
+            airtable_client
+        )
 
         web_client = None
         if smartcat_enabled and not args.smartcat_api:
@@ -1109,20 +1098,10 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             )
 
     if airtable_enabled:
-        airtable_token = os.getenv("AIRTABLE_TOKEN", "").strip()
-        airtable_base_id = os.getenv("AIRTABLE_BASE_ID", "").strip()
-        airtable_table_name = os.getenv("AIRTABLE_TABLE_NAME", "").strip()
-        if not airtable_token or not airtable_base_id or not airtable_table_name:
+        if airtable_client is None:
             parser.error(
                 "Airtable sync requires AIRTABLE_TOKEN and AIRTABLE_URL in .env"
             )
-        airtable_client = AirtableClient(
-            token=airtable_token,
-            base_id=airtable_base_id,
-            table_name=airtable_table_name,
-            api_base=os.getenv("AIRTABLE_API_BASE", "https://api.airtable.com/v0").strip()
-            or "https://api.airtable.com/v0",
-        )
         created, skipped = airtable_client.sync_catalog_records(records)
         print(f"Airtable: created {created} row(s), skipped {skipped} existing or invalid.")
 
