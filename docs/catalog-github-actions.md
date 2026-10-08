@@ -1,6 +1,6 @@
 # GitHub Actions — daily workflow
 
-The [daily workflow](../.github/workflows/catalog-daily-workflow.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, and catalog ingest from Google Sheets. A parallel job also prepares quote translations (English → Bulgarian Ready/AI text) via [prepare-quote-texts.yml](../.github/workflows/prepare-quote-texts.yml). Quote prep is skipped for **ingest-only** and **dry_run** catalog runs. When that job adds or updates quote rows, it emails `NOTIFY_EMAIL` (same SMTP secrets as other catalog alerts). Humans update **Status** and translated fields in Airtable; the bot does not read or write comments. Combined media cleanup runs in the **publish** workflow after a video is successfully published. The catalog job has a **90-minute** timeout so a hung run is cancelled instead of sitting for hours.
+The [daily workflow](../.github/workflows/catalog-daily-workflow.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, and catalog ingest from Google Sheets. A parallel job prepares quote translations (English → Bulgarian Ready/AI text) for the current and next month. That job runs on **full** daily runs and when **mode** is `quotes` (quote prep only). It is skipped for **ingest-only** and **dry_run** catalog runs. When quote prep adds or updates quote rows, it emails `NOTIFY_EMAIL` (same SMTP secrets as other catalog alerts). Humans update **Status** and translated fields in Airtable; the bot does not read or write comments. Combined media cleanup runs in the **publish** workflow after a video is successfully published. The catalog job has a **90-minute** timeout so a hung run is cancelled instead of sitting for hours.
 
 ## Schedule and timezone
 
@@ -118,10 +118,11 @@ Push to the branch cron-job uses in `"ref"` (`master` for this repo).
 
 **Actions → Daily catalog workflow → Run workflow**
 
-- **mode `full`** (default) — editor assignment, mixing, ingest, and the rest of the daily orchestrator.
+- **mode `full`** (default) — editor assignment, mixing, ingest, quote translation prep, and the rest of the daily orchestrator.
   - Leave **dry_run** unchecked for a real run.
-  - Check **dry_run** to print planned actions without writing to Airtable or Drive.
-- **mode `ingest`** — ingest catalog rows without running the daily orchestrator. Skips assignment, mixing, HappyScribe watch, and workflow-state artifacts.
+  - Check **dry_run** to print planned actions without writing to Airtable or Drive. Quote prep is skipped.
+- **mode `quotes`** — prepare quote translations only (current and next month). Does not run the catalog orchestrator.
+- **mode `ingest`** — ingest catalog rows without running the daily orchestrator. Skips assignment, mixing, quote prep, HappyScribe watch, and workflow-state artifacts.
   - **video_type** — `Reel`, `Short`, or `Video`
   - **count** — how many rows to ingest (default `4`) as unassigned (`7. Not Assigned`). If this is not a positive integer, it is treated as a catalog **title**: ingest that one row of the selected type with Translator **High Priority** and Status **`1. To do`**. Duplicate, Smartcat, mix, duration, and other ingest checks still apply.
   - **dry_run** — preview eligible rows without writing to Airtable
