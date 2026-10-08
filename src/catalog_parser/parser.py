@@ -107,6 +107,44 @@ def parse_duration(value: Any) -> int | None:
     return None
 
 
+# Column H (ctType) stores a label plus a clock time, e.g. "Video\n(4:08)" or "Video\n(1:38:30)".
+_TYPE_COLUMN_DURATION_RE = re.compile(
+    r"\(\s*(\d+)\s*:\s*(\d+)\s*(?::\s*(\d+)\s*)?\)"
+)
+
+
+def parse_type_column_duration(value: Any) -> int | None:
+    """Seconds from column H (``ctType``), such as ``Video\\n(4:08)``."""
+    if not isinstance(value, str):
+        return None
+    match = _TYPE_COLUMN_DURATION_RE.search(value)
+    if match is None:
+        return None
+    first = int(match.group(1))
+    second = int(match.group(2))
+    third = match.group(3)
+    if third is None:
+        return first * 60 + second
+    return first * 3600 + second * 60 + int(third)
+
+
+def catalog_duration(record: dict[str, Any]) -> int | None:
+    """Duration in seconds. Column H wins when it contains a clock time."""
+    from_type = parse_type_column_duration(record.get("ctType"))
+    if from_type is not None:
+        return from_type
+    return parse_duration(record.get("ctDuration"))
+
+
+def apply_type_column_duration(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy a column-H clock time onto ``ctDuration`` so later steps see seconds."""
+    for record in records:
+        duration = parse_type_column_duration(record.get("ctType"))
+        if duration is not None:
+            record["ctDuration"] = duration
+    return records
+
+
 def parse_video_type(value: str) -> str:
     normalized = value.strip().casefold()
     for video_type in VIDEO_TYPES:
@@ -139,7 +177,7 @@ def filter_by_video_type(
     target_type = parse_video_type(video_type)
     filtered: list[dict[str, Any]] = []
     for record in records:
-        duration = parse_duration(record.get("ctDuration"))
+        duration = catalog_duration(record)
         if duration is None:
             continue
         if duration_to_type(duration) == target_type:
@@ -197,7 +235,7 @@ def filter_by_duration(
 ) -> list[dict[str, Any]]:
     filtered: list[dict[str, Any]] = []
     for record in records:
-        duration = parse_duration(record.get("ctDuration"))
+        duration = catalog_duration(record)
         if duration is None:
             continue
         if min_duration <= duration <= max_duration:
@@ -290,6 +328,7 @@ def parse_catalog(
     data_rows = values[1:]
     records = rows_to_records(headers, data_rows)
     records = [record for record in records if record.get("pkgSmLk") is not None]
+    records = apply_type_column_duration(records)
     records = filter_by_video_type(records, video_type)
     records = filter_by_duration(records, min_duration, max_duration)
     records = select_fields(records)

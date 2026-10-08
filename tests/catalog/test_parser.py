@@ -6,11 +6,14 @@ from catalog_parser.parser import (
     TYPE_REEL,
     TYPE_SHORT,
     TYPE_VIDEO,
+    apply_type_column_duration,
+    catalog_duration,
     duration_to_type,
     filter_by_pkg_tn,
     filter_by_video_type,
     order_pkg_tn_first,
     parse_pub_date,
+    parse_type_column_duration,
     parse_video_type,
     sort_by_pub_date_newest_first,
     tn_is_marked,
@@ -43,6 +46,37 @@ class VideoTypeTests(unittest.TestCase):
         self.assertEqual(len(filter_by_video_type(records, TYPE_REEL)), 1)
         self.assertEqual(len(filter_by_video_type(records, TYPE_SHORT)), 1)
         self.assertEqual(len(filter_by_video_type(records, TYPE_VIDEO)), 1)
+
+    def test_parse_type_column_duration(self) -> None:
+        self.assertEqual(parse_type_column_duration("Video\n(4:08)"), 248)
+        self.assertEqual(parse_type_column_duration("Reel\n(0:36)"), 36)
+        self.assertEqual(parse_type_column_duration("Video\n(1:38:30)"), 5910)
+        self.assertIsNone(parse_type_column_duration("Reel\n(:)"))
+        self.assertIsNone(parse_type_column_duration("Video"))
+        self.assertIsNone(parse_type_column_duration(None))
+
+    def test_catalog_duration_prefers_column_h(self) -> None:
+        record = {"ctType": "Video\n(4:08)", "ctDuration": ""}
+        self.assertEqual(catalog_duration(record), 248)
+        self.assertEqual(
+            catalog_duration({"ctType": "Video\n(4:08)", "ctDuration": "10"}),
+            248,
+        )
+        self.assertEqual(catalog_duration({"ctDuration": "240"}), 240)
+
+    def test_missing_duration_column_still_classifies_as_video(self) -> None:
+        records = apply_type_column_duration(
+            [
+                {
+                    "ctTitle": "Why Your Body Must Align With the Sun | Sadhguru on Surya Kriya",
+                    "ctType": "Video\n(4:08)",
+                    "ctDuration": None,
+                }
+            ]
+        )
+        self.assertEqual(records[0]["ctDuration"], 248)
+        matched = filter_by_video_type(records, TYPE_VIDEO)
+        self.assertEqual([row["ctTitle"] for row in matched], [records[0]["ctTitle"]])
 
     def test_parse_pub_date_supports_sheet_format(self) -> None:
         parsed = parse_pub_date("10/07/26")
