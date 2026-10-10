@@ -68,7 +68,7 @@ def group_notices_by_email(
 
 
 def format_assignment_email(notices: list[AssignmentNotice]) -> tuple[str, str]:
-    subject = f"Catalog assignments ({len(notices)})"
+    subject = f"Sadhguru translation assignments ({len(notices)})"
     lines = ["The daily workflow assigned you the following.", ""]
     by_person: dict[tuple[str, str], list[str]] = defaultdict(list)
     order: list[tuple[str, str]] = []

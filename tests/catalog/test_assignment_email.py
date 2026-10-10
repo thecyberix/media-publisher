@@ -88,7 +88,7 @@ class AssignmentEmailTests(unittest.TestCase):
         )
         self.assertEqual(list(grouped), ["bea@example.com"])
         subject, body = format_assignment_email(grouped["bea@example.com"])
-        self.assertEqual(subject, "Catalog assignments (3)")
+        self.assertEqual(subject, "Sadhguru translation assignments (3)")
         self.assertIn("Bea — editor", body)
         self.assertIn("- Stay Flexible", body)
         self.assertIn("- Investing Time", body)
