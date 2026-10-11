@@ -26,6 +26,7 @@ from catalog_parser.drive_mix import (
     mix_folder_media_to_drive,
     pick_dialogue_audio_path,
 )
+from catalog_parser.playlists import combined_media_airtable_fields
 from catalog_parser.workflow.config import WorkflowConfig, combined_media_output_folder_id
 from catalog_parser.workflow.ingest import ingest_batch_for_editor, ingest_batch_for_translator
 from catalog_parser.workflow.rules import (
@@ -224,17 +225,14 @@ def _combine_media(
         )
         audio_paths = list(created.local_audio_paths)
         drive_url = f"https://drive.google.com/file/d/{created.id}/view"
-        airtable.update_record_fields(
-            action.record_id,
-            {FIELD_COMBINED_MEDIA_FILE: drive_url},
-        )
+        record_fields = combined_media_airtable_fields(drive_url, created.playlists)
+        airtable.update_record_fields(action.record_id, record_fields)
         if table_cache is not None:
-            table_cache.update_fields(
-                action.record_id,
-                {FIELD_COMBINED_MEDIA_FILE: drive_url},
-            )
+            table_cache.update_fields(action.record_id, record_fields)
+        playlist_note = ", ".join(created.playlists)
         messages.append(
-            f"Combined media uploaded: {drive_url} (local: {work_dir / output_name})"
+            f"Combined media uploaded: {drive_url} (local: {work_dir / output_name}; "
+            f"playlists: {playlist_note})"
         )
     else:
         messages.append("Combined media already present")

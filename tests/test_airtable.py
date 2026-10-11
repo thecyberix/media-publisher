@@ -15,6 +15,7 @@ from media_publisher.sources.airtable import (
     AirtableRecord,
     DEFAULT_PUBLISH_HOUR,
     DEFAULT_PUBLISH_TIMEZONE,
+    FIELD_COMBINED_MEDIA_FILE,
     FIELD_SG_FB_DATE,
     FIELD_SG_FB_PUBLISHED,
     FIELD_SG_IG_DATE,
@@ -317,23 +318,51 @@ class CatalogScheduleTests(unittest.TestCase):
                 record_id="recABC",
                 record_fields=record_fields,
             )
-        self.assertIsNotNone(updated)
-        update_mock.assert_called_once_with(
-            "recABC",
-            {FIELD_STATUS: "6. Done & Published"},
-        )
+            self.assertIsNotNone(updated)
+            update_mock.assert_called_once_with(
+                "recABC",
+                {FIELD_STATUS: "6. Done & Published"},
+            )
 
-        update_mock.reset_mock()
-        not_updated = mark_record_done_and_published_if_complete(
-            client,
-            record_id="recABC",
-            record_fields={
-                FIELD_STATUS: "5. Synchronization done",
-                FIELD_SG_YT_DATE: "2026-07-05",
-                FIELD_SG_FB_DATE: "2026-07-06",
-                FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
-            },
-        )
+            update_mock.reset_mock()
+            extra_calls: list[str] = []
+
+            def extra_fields() -> dict[str, str]:
+                extra_calls.append("called")
+                return {FIELD_COMBINED_MEDIA_FILE: ""}
+
+            with_clear = mark_record_done_and_published_if_complete(
+                client,
+                record_id="recABC",
+                record_fields=record_fields,
+                extra_fields=extra_fields,
+            )
+            self.assertIsNotNone(with_clear)
+            self.assertEqual(extra_calls, ["called"])
+            update_mock.assert_called_once_with(
+                "recABC",
+                {
+                    FIELD_COMBINED_MEDIA_FILE: "",
+                    FIELD_STATUS: "6. Done & Published",
+                },
+            )
+
+            update_mock.reset_mock()
+
+            def unexpected_extra() -> dict[str, str]:
+                raise AssertionError("extra fields must wait until the status changes")
+
+            not_updated = mark_record_done_and_published_if_complete(
+                client,
+                record_id="recABC",
+                record_fields={
+                    FIELD_STATUS: "5. Synchronization done",
+                    FIELD_SG_YT_DATE: "2026-07-05",
+                    FIELD_SG_FB_DATE: "2026-07-06",
+                    FIELD_SG_YT_PUBLISHED: "https://youtube.com/watch?v=1",
+                },
+                extra_fields=unexpected_extra,
+            )
         self.assertIsNone(not_updated)
         update_mock.assert_not_called()
 

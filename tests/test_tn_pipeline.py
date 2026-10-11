@@ -203,6 +203,42 @@ class TnHelperTests(unittest.TestCase):
         consolidated = consolidate_line_styles(styles)
         self.assertEqual(len(consolidated), 4)
 
+    def test_reference_thumbnail_label_box_keeps_caption_lines(self) -> None:
+        styles = [
+            TnLineStyle(
+                "reference-line",
+                "reference-line",
+                (80, 820, 640, 860),
+                36,
+                "#1A1A1A",
+                layer_name="reference-thumbnail",
+                alignment="center",
+                faux_bold=True,
+            ),
+            TnLineStyle(
+                "reference-line",
+                "reference-line",
+                (80, 868, 640, 908),
+                36,
+                "#1A1A1A",
+                layer_name="reference-thumbnail",
+                alignment="center",
+                faux_bold=True,
+            ),
+            TnLineStyle(
+                "reference-line",
+                "reference-line",
+                (80, 916, 640, 956),
+                36,
+                "#1A1A1A",
+                layer_name="reference-thumbnail",
+                alignment="center",
+                faux_bold=True,
+            ),
+        ]
+        consolidated = consolidate_line_styles(styles)
+        self.assertEqual(len(consolidated), 3)
+
     def test_aspect_match(self) -> None:
         original = ImageSize(1280, 720, "original")
         candidate = ImageSize(1920, 1080, "artboard:YT")

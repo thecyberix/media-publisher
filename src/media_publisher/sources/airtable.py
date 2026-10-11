@@ -10,7 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from media_publisher.timezones import get_timezone
 
@@ -37,6 +37,7 @@ DEFAULT_PUBLISH_TIMEZONE = "Europe/Sofia"
 DEFAULT_PUBLISH_HOUR = 18
 FIELD_VIDEO_FOLDER = "Video Folder"
 FIELD_COMBINED_MEDIA_FILE = "Combined Media File"
+FIELD_PLAYLISTS = "Playlists"
 FIELD_TRANSLATION_RESOURCES = "Translation resources"
 FIELD_TRANSLATED_SUBTITLES = "Translated subtitles"
 FIELD_STATUS = "Status"
@@ -421,8 +422,14 @@ def mark_record_done_and_published_if_complete(
     record_id: str,
     record_fields: dict[str, Any],
     excluded_platforms: frozenset[PlatformName] | None = None,
+    extra_fields: Callable[[], dict[str, Any]] | None = None,
 ) -> AirtableRecord | None:
-    """Move catalog videos to Done & Published once all scheduled platforms are live."""
+    """Move catalog videos to Done & Published once all scheduled platforms are live.
+
+    ``extra_fields`` runs only when the status will change. Its result is sent
+    in the same update as the status, so Combined Media File and Translated
+    subtitles updates share that request.
+    """
     if is_done_published_status(record_fields.get(FIELD_STATUS)):
         return None
     if not is_catalog_publish_ready_status(record_fields.get(FIELD_STATUS)):
@@ -432,7 +439,11 @@ def mark_record_done_and_published_if_complete(
         excluded_platforms=excluded_platforms,
     ):
         return None
-    return client.update_record(record_id, {FIELD_STATUS: f"6. {STATUS_DONE_PUBLISHED}"})
+    update_fields: dict[str, Any] = {}
+    if extra_fields is not None:
+        update_fields.update(extra_fields())
+    update_fields[FIELD_STATUS] = f"6. {STATUS_DONE_PUBLISHED}"
+    return client.update_record(record_id, update_fields)
 
 
 def catalog_ready_status_filter_formula() -> str:

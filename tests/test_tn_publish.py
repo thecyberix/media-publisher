@@ -147,6 +147,58 @@ class GenerateCatalogTnThumbnailTests(unittest.TestCase):
 
 
 class ComposeOfflineTnBackgroundTests(unittest.TestCase):
+    def test_prefers_drive_psd_text_styles_when_present(self) -> None:
+        from PIL import Image
+
+        from media_publisher.sources.tn_psd import TnLineStyle, TnTextSegment
+        from media_publisher.sources.tn_publish import (
+            DriveTnTemplate,
+            compose_offline_tn_background,
+        )
+
+        original = Image.new("RGB", (100, 200), (10, 10, 10))
+        covered = Image.new("RGB", (100, 200), (20, 20, 20))
+        drive_image = Image.new("RGB", (200, 400), (30, 30, 30))
+        original_styles = [
+            TnLineStyle(
+                placeholder_text="Guess",
+                rendered_text="Guess",
+                bbox=(10, 20, 90, 50),
+                font_size_px=20.0,
+                color_hex="#FFFFFF",
+            )
+        ]
+        psd_styles = [
+            TnLineStyle(
+                placeholder_text="Are You a Lover",
+                rendered_text="Are You a Lover",
+                bbox=(30, 1265, 602, 1344),
+                font_size_px=77.0,
+                color_hex="#ffffff",
+                alignment="left",
+                font_index=3,
+                segments=(
+                    TnTextSegment("Are You a ", 77.0, "#ffffff", 3, False),
+                    TnTextSegment("Lover", 77.0, "#ebd331", 3, False),
+                ),
+            )
+        ]
+        template, result_styles, source = compose_offline_tn_background(
+            original=original,
+            covered_original=covered,
+            drive_template=DriveTnTemplate(
+                image=drive_image,
+                line_styles=psd_styles,
+                cached_path=Path("Template.psd"),
+            ),
+            cover_mode="top",
+            line_styles=original_styles,
+            caption_line_count=2,
+        )
+        self.assertEqual(source, "drive-template")
+        self.assertEqual(template.getpixel((0, 0)), (30, 30, 30))
+        self.assertEqual(result_styles, psd_styles)
+
     def test_prefers_drive_psd_pixels_and_keeps_original_styles(self) -> None:
         from PIL import Image
 
@@ -214,6 +266,24 @@ class ComposeOfflineTnBackgroundTests(unittest.TestCase):
         self.assertEqual(source, "original-thumbnail")
         self.assertEqual(template.getpixel((0, 0)), (20, 20, 20))
         self.assertEqual(result_styles[0].bbox, (10, 20, 90, 50))
+
+
+class IsPsdFileTests(unittest.TestCase):
+    def test_detects_8bps_header_without_suffix(self) -> None:
+        from media_publisher.sources.tn_psd import is_psd_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "TN_Kubera"
+            path.write_bytes(b"8BPS" + b"\x00" * 22)
+            self.assertTrue(is_psd_file(path))
+
+    def test_rejects_non_psd_bytes(self) -> None:
+        from media_publisher.sources.tn_psd import is_psd_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "TN_photo.jpg"
+            path.write_bytes(b"\xff\xd8\xff")
+            self.assertFalse(is_psd_file(path))
 
 
 if __name__ == "__main__":

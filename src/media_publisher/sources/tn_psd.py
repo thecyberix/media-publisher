@@ -145,13 +145,24 @@ def list_artboard_sizes(path: Path) -> list[ImageSize]:
     psd = PSDImage.open(path)
     artboards = [layer for layer in psd if _is_artboard(layer)]
     if artboards:
+        def _artboard_list_rank(layer) -> tuple[int, int]:
+            visible = 0 if getattr(layer, "visible", True) else 1
+            left, top, right, bottom = layer.bbox
+            on_canvas = (
+                right > 0
+                and bottom > 0
+                and left < int(psd.width)
+                and top < int(psd.height)
+            )
+            return (visible, 0 if on_canvas else 1)
+
         return [
             ImageSize(
                 width=int(layer.width),
                 height=int(layer.height),
                 source=f"artboard:{layer.name}",
             )
-            for layer in artboards
+            for layer in sorted(artboards, key=_artboard_list_rank)
             if int(layer.width) > 0 and int(layer.height) > 0
         ]
 
@@ -561,9 +572,15 @@ def resolve_psd_target(path: Path, matched: ImageSize):
     if artboards:
         target_name = _match_artboard_name(path, matched)
         if target_name is not None:
-            for layer in artboards:
-                if layer.name == target_name:
-                    return layer
+            named = [layer for layer in artboards if layer.name == target_name]
+            visible_named = [
+                layer for layer in named if getattr(layer, "visible", True)
+            ]
+            if visible_named:
+                return visible_named[0]
+            if named and not any(getattr(layer, "visible", True) for layer in artboards):
+                return named[0]
+        matching = []
         for layer in artboards:
             size = ImageSize(
                 width=int(layer.width),
@@ -571,8 +588,22 @@ def resolve_psd_target(path: Path, matched: ImageSize):
                 source=f"artboard:{layer.name}",
             )
             if aspects_match(matched, size):
-                return layer
-        raise TnPsdError(f"No artboard matches aspect ratio for {path.name}")
+                matching.append(layer)
+        if not matching:
+            raise TnPsdError(f"No artboard matches aspect ratio for {path.name}")
+
+        def _artboard_rank(layer) -> tuple[int, int]:
+            visible = 0 if getattr(layer, "visible", True) else 1
+            left, top, right, bottom = layer.bbox
+            on_canvas = (
+                right > 0
+                and bottom > 0
+                and left < int(psd.width)
+                and top < int(psd.height)
+            )
+            return (visible, 0 if on_canvas else 1)
+
+        return sorted(matching, key=_artboard_rank)[0]
     return psd
 
 

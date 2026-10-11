@@ -111,6 +111,41 @@ class TnReferenceTests(unittest.TestCase):
         self.assertLess(max(style.bbox[3] for style in styles), 500)
         self.assertGreater(min(style.bbox[1] for style in styles), 50)
 
+    def test_logo_strip_plus_white_caption_card_is_not_split_layout(self) -> None:
+        from media_publisher.sources.tn_reference import (
+            derive_reference_layout,
+            has_label_box_reference_layout,
+        )
+
+        draw = Image.new("RGB", (720, 1280), (40, 40, 80))
+        pixels = draw.load()
+        for y in range(0, 40):
+            for x in range(200, 500):
+                pixels[x, y] = (245, 245, 245)
+        for y in range(45, 70):
+            for x in range(220, 480):
+                pixels[x, y] = (245, 245, 245)
+        for y in range(720, 860):
+            for x in range(80, 640):
+                pixels[x, y] = (250, 250, 250)
+        for y in range(740, 780):
+            for x in range(140, 580):
+                pixels[x, y] = (20, 20, 20)
+        for y in range(800, 840):
+            for x in range(160, 560):
+                pixels[x, y] = (20, 20, 20)
+
+        self.assertFalse(has_split_top_bottom_reference_layout(draw, draw.size))
+        self.assertTrue(has_label_box_reference_layout(draw, draw.size))
+        layout = derive_reference_layout(
+            draw,
+            caption_line_count=2,
+            catalog_title="The Real Wealth In Your Life Is Not In What You Possess",
+        )
+        self.assertIsNotNone(layout)
+        assert layout is not None
+        self.assertEqual(layout[1], "label box")
+
     def test_enlightenment_layout_boosts_ecstasy_line_and_splits_sadhguru(self) -> None:
         draw = Image.new("RGB", (720, 1280), (40, 40, 40))
         pixels = draw.load()

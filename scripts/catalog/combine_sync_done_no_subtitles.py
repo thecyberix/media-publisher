@@ -36,6 +36,7 @@ from catalog_parser.drive_mix import (
     upload_package_video_to_drive,
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
+from catalog_parser.playlists import combined_media_airtable_fields
 
 
 def _require_env(name: str) -> str:
@@ -207,7 +208,7 @@ def main() -> int:
         drive_url = f"https://drive.google.com/file/d/{created.id}/view"
         airtable.update_record_fields(
             record_id,
-            {FIELD_COMBINED_MEDIA_FILE: drive_url},
+            combined_media_airtable_fields(drive_url, created.playlists),
         )
         print(f"  OK ({source_label}): {drive_url}", flush=True)
 

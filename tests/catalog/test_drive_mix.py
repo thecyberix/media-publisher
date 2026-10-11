@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from catalog_parser.drive_combine import DriveCombineError, DriveMediaFile
 from catalog_parser.drive_media import FOLDER_MIME_TYPE
 from catalog_parser.drive_mix import (
+    is_package_reference_name,
     _pick_merge_video,
     _sanitize_local_filename,
     check_mixable_media,
@@ -18,6 +19,17 @@ from catalog_parser.drive_mix import (
 
 
 class DriveMixStructureTests(unittest.TestCase):
+    def test_package_reference_name_includes_ref_720p(self) -> None:
+        self.assertTrue(
+            is_package_reference_name(
+                "REF 720p Sadhguru Speaks About Shambhavi.mp4"
+            )
+        )
+        self.assertTrue(is_package_reference_name("REF_original.mp4"))
+        self.assertTrue(is_package_reference_name("ref-master.mov"))
+        self.assertFalse(is_package_reference_name("All Video.mp4"))
+        self.assertFalse(is_package_reference_name("refresh.mp4"))
+
     def _media(self, name: str, *, file_id: str = "file") -> DriveMediaFile:
         return DriveMediaFile(
             id=file_id,
@@ -618,6 +630,8 @@ class DriveMixStructureTests(unittest.TestCase):
         ), patch(
             "catalog_parser.drive_mix.replace_save_soil_end_card_if_present",
         ) as replace_mock, patch(
+            "catalog_parser.drive_mix.replace_inner_engineering_end_card_if_present",
+        ) as inner_mock, patch(
             "catalog_parser.drive_mix.upload_drive_file",
             return_value=MagicMock(
                 id="uploaded-id",
@@ -626,7 +640,7 @@ class DriveMixStructureTests(unittest.TestCase):
                 parent_id="output-folder",
             ),
         ):
-            mix_folder_media_to_drive(
+            result = mix_folder_media_to_drive(
                 drive,
                 pkg_folder_id="pkg-folder",
                 output_parent_id="output-folder",
@@ -636,8 +650,16 @@ class DriveMixStructureTests(unittest.TestCase):
                 video_type="Reel",
             )
 
+        from catalog_parser.playlists import load_playlist_config
+
+        defaults = tuple(
+            rule.name for rule in load_playlist_config().rules if rule.end_card is None
+        )
+        self.assertEqual(result.playlists, defaults)
         replace_mock.assert_called_once()
         self.assertEqual(replace_mock.call_args.kwargs["video_type"], "Reel")
+        inner_mock.assert_called_once()
+        self.assertEqual(inner_mock.call_args.kwargs["video_type"], "Reel")
 
 
 class DialogueAudioPickTests(unittest.TestCase):

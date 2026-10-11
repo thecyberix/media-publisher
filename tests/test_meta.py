@@ -9,7 +9,11 @@ from zoneinfo import ZoneInfo
 
 from media_publisher.models import PublishJob
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
-from media_publisher.publishers.instagram import InstagramPublishError, publish_to_instagram
+from media_publisher.publishers.instagram import (
+    InstagramPublishError,
+    publish_instagram_playlist_comments,
+    publish_to_instagram,
+)
 from media_publisher.publishers.meta import (
     FacebookHostingAsset,
     MetaClient,
@@ -1074,6 +1078,49 @@ class PublisherWrapperTests(unittest.TestCase):
         reel_call = client_cls.return_value.schedule_instagram_reel.call_args
         self.assertEqual(reel_call.kwargs["cover_path"], Path("downloads/canva/cover.png"))
         self.assertEqual(reel_call.kwargs["page_id"], "page123")
+
+    def test_create_instagram_comment(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        message = 'Напишете "Вътрешно изграждане" в коментар, за да научите повече.'
+        with patch.object(client, "_request", return_value={"id": "comment_1"}) as request_mock:
+            comment_id = client.create_instagram_comment(
+                media_id="ig_media_1",
+                message=message,
+            )
+        self.assertEqual(comment_id, "comment_1")
+        request_mock.assert_called_once_with(
+            "POST",
+            "ig_media_1/comments",
+            body={"message": message},
+        )
+
+    def test_playlist_comment_is_posted_after_publish(self) -> None:
+        client = MagicMock()
+        client.create_instagram_comment.return_value = "comment_1"
+        logs: list[str] = []
+        publish_instagram_playlist_comments(
+            client,
+            "ig_media_1",
+            {"Playlists": ["Съзнателна Планета", "Вътрешно Изграждане"]},
+            log=logs.append,
+        )
+        client.create_instagram_comment.assert_called_once_with(
+            media_id="ig_media_1",
+            message='Напишете "Вътрешно изграждане" в коментар, за да научите повече.',
+        )
+        self.assertEqual(logs, ["Instagram comment posted: comment_1"])
+
+    def test_playlist_comment_failure_does_not_raise(self) -> None:
+        client = MagicMock()
+        client.create_instagram_comment.side_effect = MetaError("comments denied")
+        logs: list[str] = []
+        publish_instagram_playlist_comments(
+            client,
+            "ig_media_1",
+            {"Playlists": ["Вътрешно Изграждане"]},
+            log=logs.append,
+        )
+        self.assertEqual(logs, ["Instagram comment failed: comments denied"])
 
 
 if __name__ == "__main__":

@@ -1682,6 +1682,29 @@ class MetaClient:
             raise MetaError("Meta Facebook comment response is missing comment id")
         return comment_id
 
+    def create_instagram_comment(
+        self,
+        *,
+        media_id: str,
+        message: str,
+    ) -> str:
+        """Comment on a published Instagram media object."""
+        text = message.strip()
+        if not text:
+            raise MetaError("Instagram comment message is required")
+        target = media_id.strip()
+        if not target:
+            raise MetaError("Instagram comment media_id is required")
+        response = self._request(
+            "POST",
+            f"{target}/comments",
+            body={"message": text},
+        )
+        comment_id = response.get("id")
+        if not isinstance(comment_id, str) or not comment_id:
+            raise MetaError("Meta Instagram comment response is missing comment id")
+        return comment_id
+
     def create_facebook_draft_feed_post_with_photo(
         self,
         *,

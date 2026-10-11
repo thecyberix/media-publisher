@@ -32,6 +32,7 @@ from catalog_parser.drive_mix import (
     mix_folder_media_to_drive,
 )
 from catalog_parser.parser import TYPE_REEL
+from catalog_parser.playlists import combined_media_airtable_fields
 from catalog_parser.workflow.config import combined_media_output_folder_id, load_workflow_config
 
 
@@ -116,8 +117,14 @@ def main() -> int:
             continue
 
         drive_url = f"https://drive.google.com/file/d/{created.id}/view"
-        airtable.update_record_fields(record_id, {FIELD_COMBINED_MEDIA_FILE: drive_url})
-        print(f"  OK: {drive_url}", flush=True)
+        airtable.update_record_fields(
+            record_id,
+            combined_media_airtable_fields(drive_url, created.playlists),
+        )
+        print(
+            f"  OK: {drive_url} playlists={', '.join(created.playlists)}",
+            flush=True,
+        )
 
     print()
     print(f"Done: {len(targets) - failures} succeeded, {failures} failed")

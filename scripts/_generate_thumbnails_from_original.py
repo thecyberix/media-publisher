@@ -117,9 +117,18 @@ def main() -> int:
     else:
         print("Drive service account missing; using original thumbnail as background.")
 
+    if args.titles:
+        clauses = []
+        for needle in needles:
+            escaped = needle.replace("\\", "\\\\").replace('"', '\\"')
+            clauses.append(f'FIND("{escaped}", {{Title}} & "")')
+        formula = clauses[0] if len(clauses) == 1 else f"OR({', '.join(clauses)})"
+        fetched = airtable.list_records(filter_formula=formula)
+    else:
+        fetched = airtable.list_records()
     records = [
         record
-        for record in airtable.list_records()
+        for record in fetched
         if any(
             needle.casefold() in catalog_title(record.fields).casefold()
             for needle in needles

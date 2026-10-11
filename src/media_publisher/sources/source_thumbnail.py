@@ -23,7 +23,11 @@ DEFAULT_USER_AGENT = (
     "Chrome/122.0.0.0 Safari/537.36"
 )
 YOUTUBE_VIDEO_ID_RE = re.compile(
-    r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})",
+    r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|live/|v/|watch/)|youtu\.be/)([A-Za-z0-9_-]{11})",
+    re.IGNORECASE,
+)
+YOUTUBE_YT_PREFIX_ID_RE = re.compile(
+    r"(?:^|[^\w-])yt:([A-Za-z0-9_-]{11})(?:[^\w-]|$)",
     re.IGNORECASE,
 )
 INSTAGRAM_POST_RE = re.compile(
@@ -60,12 +64,22 @@ def detect_platform(url: str) -> Platform | None:
     return None
 
 
+def youtube_video_ids_in_text(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    text = value if isinstance(value, str) else str(value)
+    ids = {match.group(1) for match in YOUTUBE_VIDEO_ID_RE.finditer(text)}
+    ids.update(match.group(1) for match in YOUTUBE_YT_PREFIX_ID_RE.finditer(text))
+    return ids
+
+
 def parse_youtube_video_id(url: str) -> str | None:
     text = url.strip()
     match = YOUTUBE_VIDEO_ID_RE.search(text)
     if match:
         return match.group(1)
-    return None
+    ids = youtube_video_ids_in_text(text)
+    return next(iter(ids), None)
 
 
 def parse_instagram_shortcode(url: str) -> str | None:

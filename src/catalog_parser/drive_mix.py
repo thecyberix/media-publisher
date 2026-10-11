@@ -26,6 +26,12 @@ from catalog_parser.drive_media import (
     resolve_drive_item,
 )
 from catalog_parser.parser import TYPE_VIDEO, parse_video_type
+from catalog_parser.inner_engineering import replace_inner_engineering_end_card_if_present
+from catalog_parser.playlists import (
+    END_CARD_INNER_ENGINEERING,
+    END_CARD_SAVE_SOIL,
+    youtube_playlists,
+)
 from catalog_parser.save_soil import replace_save_soil_end_card_if_present
 
 WINDOWS_RESERVED_CHARS = '<>:"/\\|?*'
@@ -51,6 +57,7 @@ class MixMediaCheck:
 class MixToDriveResult:
     uploaded: DriveMediaFile
     local_audio_paths: tuple[Path, ...] = ()
+    playlists: tuple[str, ...] = ()
 
     @property
     def id(self) -> str:
@@ -67,6 +74,43 @@ class MixToDriveResult:
     @property
     def parent_id(self) -> str:
         return self.uploaded.parent_id
+
+
+def _end_card_detected(result: object) -> bool:
+    return getattr(result, "detected", False) is True
+
+
+def _playlists_after_end_cards(
+    drive_service: Resource,
+    video_path: Path,
+    *,
+    work_dir: Path,
+    ffmpeg_path: str | None,
+    video_type: str | None,
+    reference_path: Path | None,
+) -> tuple[str, ...]:
+    save_soil = replace_save_soil_end_card_if_present(
+        drive_service,
+        video_path,
+        work_dir=work_dir,
+        ffmpeg_path=ffmpeg_path,
+        video_type=video_type,
+        reference_path=reference_path,
+    )
+    inner_engineering = replace_inner_engineering_end_card_if_present(
+        drive_service,
+        video_path,
+        work_dir=work_dir,
+        ffmpeg_path=ffmpeg_path,
+        video_type=video_type,
+        reference_path=reference_path,
+    )
+    detected: list[str] = []
+    if _end_card_detected(save_soil):
+        detected.append(END_CARD_SAVE_SOIL)
+    if _end_card_detected(inner_engineering):
+        detected.append(END_CARD_INNER_ENGINEERING)
+    return tuple(youtube_playlists(detected))
 
 
 def pick_dialogue_audio_path(paths: list[Path]) -> Path | None:
@@ -220,6 +264,17 @@ def _pick_audio_folder(
 def _is_ref_video_name(name: str) -> bool:
     stem = Path(name).stem.casefold()
     return stem.startswith("ref_") or stem.startswith("ref-")
+
+
+def is_package_reference_name(name: str) -> bool:
+    """True for a package reference video, including ``REF 720p …``.
+
+    ``refresh`` and other words that merely start with those letters do not match.
+    """
+    stem = Path(name).stem.casefold().strip()
+    if not stem.startswith("ref"):
+        return False
+    return len(stem) == 3 or not stem[3].isalpha()
 
 
 def _is_ocd_video_name(name: str) -> bool:
@@ -421,6 +476,38 @@ def _list_videos_in_folder_tree(
                     )
                 )
     return videos
+
+
+def find_package_reference_video(
+    drive_service: Resource,
+    pkg_folder_id: str,
+) -> DriveMediaFile | None:
+    """Return the package REF video used to see end cards removed from the mix."""
+    try:
+        videos = _list_videos_in_folder_tree(drive_service, pkg_folder_id)
+    except Exception as exc:
+        print(f"Reference video lookup failed: {exc}")
+        return None
+    references = [video for video in videos if is_package_reference_name(video.name)]
+    if not references:
+        return None
+    return sorted(references, key=lambda video: video.name.casefold())[0]
+
+
+def local_package_reference(
+    drive_service: Resource,
+    pkg_folder_id: str,
+    work_dir: Path,
+) -> Path | None:
+    reference = find_package_reference_video(drive_service, pkg_folder_id)
+    if reference is None:
+        return None
+    print(f"Checking end cards on reference video {reference.name!r}")
+    return download_drive_file(
+        drive_service,
+        reference.id,
+        work_dir / _sanitize_local_filename(reference.name),
+    )
 
 
 def _find_video_file(
@@ -656,12 +743,18 @@ def mix_folder_media_to_drive(
         output_path,
         ffmpeg_path=ffmpeg_path,
     )
-    replace_save_soil_end_card_if_present(
+    reference_path = (
+        local_package_reference(drive_service, inputs.pkg_folder_id, work_dir)
+        if output_path.is_file()
+        else None
+    )
+    playlists = _playlists_after_end_cards(
         drive_service,
         output_path,
         work_dir=work_dir,
         ffmpeg_path=ffmpeg_path,
         video_type=video_type,
+        reference_path=reference_path,
     )
 
     verify_drive_output_folder_access(drive_service, output_parent_id)
@@ -675,6 +768,7 @@ def mix_folder_media_to_drive(
     return MixToDriveResult(
         uploaded=uploaded,
         local_audio_paths=tuple(audio_paths),
+        playlists=playlists,
     )
 
 
@@ -729,7 +823,7 @@ def upload_package_video_to_drive(
     dry_run: bool = False,
     video_type: str | None = None,
     ffmpeg_path: str | None = None,
-) -> DriveMediaFile:
+) -> MixToDriveResult:
     """Upload the selected package video as Combined Media (no audio mix).
 
     Used for packages that already ship a finished video and have no stem audio.
@@ -740,11 +834,13 @@ def upload_package_video_to_drive(
         video_type=video_type,
     )
     if dry_run:
-        return DriveMediaFile(
-            id="dry-run",
-            name=output_name,
-            mime_type=video.mime_type or "video/mp4",
-            parent_id=output_parent_id,
+        return MixToDriveResult(
+            uploaded=DriveMediaFile(
+                id="dry-run",
+                name=output_name,
+                mime_type=video.mime_type or "video/mp4",
+                parent_id=output_parent_id,
+            )
         )
 
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -772,20 +868,23 @@ def upload_package_video_to_drive(
     output_path = work_dir / _sanitize_local_filename(output_name)
     if output_path.resolve() != local_source.resolve():
         output_path.write_bytes(local_source.read_bytes())
-    replace_save_soil_end_card_if_present(
+    reference_path = local_package_reference(drive_service, pkg_folder_id, work_dir)
+    playlists = _playlists_after_end_cards(
         drive_service,
         output_path,
         work_dir=work_dir,
         ffmpeg_path=ffmpeg_path,
         video_type=video_type,
+        reference_path=reference_path,
     )
 
     verify_drive_output_folder_access(drive_service, output_parent_id)
-    return upload_drive_file(
+    uploaded = upload_drive_file(
         drive_service,
         output_parent_id,
         output_path,
         name=output_name,
         mime_type="video/mp4",
     )
+    return MixToDriveResult(uploaded=uploaded, playlists=playlists)
 

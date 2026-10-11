@@ -10,6 +10,7 @@ from media_publisher.models import PlatformName, PlatformScheduleTask
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import (
     InstagramPublishError,
+    publish_instagram_playlist_comments,
     publish_to_instagram,
 )
 from media_publisher.publishers.meta import MetaClient, MetaError
@@ -41,6 +42,7 @@ from media_publisher.sources.happyscribe import (
     HappyScribeError,
     HappyScribeLibraryLocation,
     ensure_catalog_video_downloaded,
+    ready_transcription_editor_url,
     ready_transcription_for_catalog,
     resolve_library_location_for_format,
 )
@@ -52,11 +54,11 @@ from media_publisher.sources.publish_media import (
     apply_publish_media_cleanup,
     merge_publish_media_cleanup,
     notify_publishing_without_translated_thumbnail,
+    published_drive_file_clears,
     resolve_combined_media_for_publish,
     resolve_combined_media_with_subtitles_for_publish,
     resolve_publish_thumbnail,
     resolve_publish_video,
-    translated_subtitles_cleanup_from_fields,
 )
 from media_publisher.scheduling import (
     PublishMode,
@@ -152,6 +154,7 @@ def publish_platform_task(
     settings: PublishPipelineSettings,
     meta_client: MetaClient,
     drive_client: GoogleDriveClient | None = None,
+    log: Callable[[str], None] = print,
 ) -> str:
     if task.platform == "youtube":
         video_id = publish_to_youtube(
@@ -191,6 +194,12 @@ def publish_platform_task(
             page_id=settings.meta_page_id,
             ffmpeg_path=settings.ffmpeg_path,
             **settings.template_urls,
+        )
+        publish_instagram_playlist_comments(
+            meta_client,
+            media_id,
+            task.record_fields,
+            log=log,
         )
         return meta_client.get_instagram_media_permalink(media_id)
 
@@ -419,9 +428,7 @@ def run_publish_pipeline(
         )
         media_download_dir.mkdir(parents=True, exist_ok=True)
 
-        publish_cleanup: PublishMediaCleanup | None = translated_subtitles_cleanup_from_fields(
-            record_fields
-        )
+        publish_cleanup: PublishMediaCleanup | None = None
         video_path: Path | None = None
         thumbnail_path: str | None = None
 
@@ -645,6 +652,7 @@ def run_publish_pipeline(
                     settings=settings,
                     meta_client=meta_client,
                     drive_client=drive_client,
+                    log=print_line,
                 )
                 updated = mark_platform_scheduled(
                     airtable,
@@ -654,11 +662,40 @@ def run_publish_pipeline(
                     permalink=permalink,
                 )
                 record_fields = {**record_fields, **updated.fields}
+
+                def combined_media_editor_url() -> str | None:
+                    try:
+                        _location, transcriptions = search_for_format(
+                            record_tasks[0].job.video_format
+                        )
+                    except HappyScribeError as exc:
+                        print_line(f"  HappyScribe editor link skipped: {exc}")
+                        return None
+                    editor_url = ready_transcription_editor_url(
+                        transcriptions,
+                        str(lookup_title),
+                        smartcat_url=smartcat_url,
+                    )
+                    if editor_url:
+                        print_line(f"  HappyScribe editor: {editor_url}")
+                    else:
+                        print_line(
+                            "  HappyScribe editor link skipped: "
+                            "no ready transcription"
+                        )
+                    return editor_url
+
                 done_record = mark_record_done_and_published_if_complete(
                     airtable,
                     record_id=record_id,
                     record_fields=record_fields,
                     excluded_platforms=excluded_platforms,
+                    extra_fields=lambda: published_drive_file_clears(
+                        record_fields,
+                        drive=drive_client,
+                        log=print_line,
+                        combined_media_url=combined_media_editor_url(),
+                    ),
                 )
                 if done_record is not None:
                     record_fields = {**record_fields, **done_record.fields}

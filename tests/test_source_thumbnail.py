@@ -31,6 +31,10 @@ class SourceThumbnailHelperTests(unittest.TestCase):
             parse_youtube_video_id("https://www.youtube.com/shorts/abc123XYZ-_"),
             "abc123XYZ-_",
         )
+        self.assertEqual(
+            parse_youtube_video_id("https://www.youtube.com/live/tO8IL9e6-ZY"),
+            "tO8IL9e6-ZY",
+        )
 
     def test_parse_instagram_shortcode(self) -> None:
         self.assertEqual(

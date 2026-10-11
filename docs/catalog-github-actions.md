@@ -197,7 +197,7 @@ These live under **Settings → Secrets and variables → Actions → Variables*
 | `TRANSLATION_MODEL` | Optional. Defaults to `claude-sonnet-4-6` (Anthropic) or `gpt-4o-mini` (OpenAI). |
 | `WORKFLOW_PROFILES_JSON` | JSON object with `translators`, `editors`, and `timing_editors` arrays (see below). |
 | `VIDEO_SCHEDULE_DAYS` | Optional. Positive integer: days from the daily run until the next catalog video. Unset or `1` schedules tomorrow (previous default). `3` publishes a video every third day: the run fills `today + 3` unless another catalog video is already dated in that gap. |
-| `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg` in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
+| `DRIVE_URL` | Parent Google Drive folder URL. Combined media, events, overrides, quotes, and thumbnail review use named subfolders (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`). SAVE SOIL end cards are `SaveSoilReel.jpeg` / `SaveSoilVideo.jpeg`, and Inner Engineering end cards are `InnerEngineeringReel.jpg` / `InnerEngineeringVideo.jpeg`, in `Overrides/Images`. Example: `https://drive.google.com/drive/folders/1hJZgKn2MwztFzzd7J3rGuh4xCg3su6cg`. |
 | `CANVA_URL` | Parent Canva folder URL. Catalog thumbnails use child folders named `Long videos` and `Short videos`. Example: `https://www.canva.com/folder/FAHSXg0enw4`. |
 | `HAPPYSCRIBE_REVIEW_URL` | Optional. Parent HappyScribe library URL. If set, leftover-folder email watches child folders `Short videos` and `Long videos`; publish also searches the child that matches the video type (Reel/Short → Short videos, Video → Long videos). Unset: skip the email check. Example: `https://www.happyscribe.com/v2/8104266/library/workspace`. |
 
@@ -463,7 +463,7 @@ Catalog ingest limits (`catalog_id`, `target_reel_to_video_ratio`, `max_video_se
 2. Enable **Google Sheets API**, **Google Drive API**, and **Google Docs API**.
 3. Create a JSON key and store the entire file contents in `GOOGLE_SERVICE_ACCOUNT_JSON`.
 4. Share the catalog Google Sheet (`config/workflow_config.json` `catalog_id`) with the service account email (`...@....iam.gserviceaccount.com`) as **Viewer**.
-5. Share the `DRIVE_URL` parent folder (and any source video folders outside it) with that email as **Editor**. Combined media writes into `Combined Media Files`. Translated SAVE SOIL stills are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in `Overrides/Images`.
+5. Share the `DRIVE_URL` parent folder (and any source video folders outside it) with that email as **Editor**. Combined media writes into `Combined Media Files`. Translated SAVE SOIL stills are `SaveSoilReel.jpeg` (Reels/Shorts) and `SaveSoilVideo.jpeg` (Videos) in `Overrides/Images`. Inner Engineering stills in that same folder are `InnerEngineeringReel.jpg` and `InnerEngineeringVideo.jpeg`. End cards are detected on the package `REF` video when one is present, then applied to the combined file.
 
 OAuth `credentials.json` / `token.json` are for local development only; CI uses the service account.
 

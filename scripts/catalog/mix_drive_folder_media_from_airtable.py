@@ -25,6 +25,7 @@ from catalog_parser.drive_mix import (
     upload_package_video_to_drive,
 )
 from catalog_parser.__main__ import load_env_file
+from catalog_parser.playlists import combined_media_airtable_fields
 
 
 def _require_env(name: str) -> str:
@@ -192,9 +193,12 @@ def main() -> int:
 
     airtable.update_record_fields(
         record_id,
-        {FIELD_COMBINED_MEDIA_FILE: drive_url},
+        combined_media_airtable_fields(drive_url, created.playlists),
     )
-    print(f"Airtable: updated {FIELD_COMBINED_MEDIA_FILE!r}")
+    print(
+        f"Airtable: updated {FIELD_COMBINED_MEDIA_FILE!r} "
+        f"and Playlists ({', '.join(created.playlists)})"
+    )
     return 0
 
 

@@ -31,9 +31,9 @@ from media_publisher.sources.publish_media import (
     apply_publish_media_cleanup,
     merge_publish_media_cleanup,
     notify_publishing_without_translated_thumbnail,
+    published_drive_file_clears,
     resolve_publish_thumbnail,
     resolve_publish_video,
-    translated_subtitles_cleanup_from_fields,
 )
 from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveError
 from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_pipeline
@@ -42,6 +42,7 @@ from media_publisher.sources.quote_pdf import QuotePdfError
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import (
     InstagramPublishError,
+    publish_instagram_playlist_comments,
     publish_to_instagram,
 )
 from media_publisher.publishers.meta import (
@@ -79,6 +80,8 @@ from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
     FIELD_TITLE,
+    FIELD_TRANSLATION_RESOURCES,
+    FIELD_TYPE,
     FIELD_VIDEO_NAME_TRANSLATED,
     STATUS_SYNC_DONE,
     STATUS_EDITING_DONE,
@@ -89,6 +92,7 @@ from media_publisher.sources.airtable import (
     mark_record_done_and_published_if_complete,
     record_schedule_tasks,
     record_to_publish_job,
+    video_format_from_type,
     STATUS_DONE_PUBLISHED,
 )
 from media_publisher.sources.canva import (
@@ -112,7 +116,9 @@ from media_publisher.sources.happyscribe import (
     find_downloaded_video,
     is_subtitled_export_name,
     parse_library_url,
+    ready_transcription_editor_url,
     resolve_library_location,
+    resolve_library_location_for_format,
     resolve_review_video_folders,
 )
 from media_publisher.sources.happyscribe_web import (
@@ -985,9 +991,7 @@ def load_schedule_task(settings, record_id: str, platform: PlatformName):
             "a publish date, and no existing permalink."
         )
     task = tasks[0]
-    cleanup: PublishMediaCleanup | None = translated_subtitles_cleanup_from_fields(
-        dict(record.fields)
-    )
+    cleanup: PublishMediaCleanup | None = None
     lookup_title = str(record.fields.get(FIELD_TITLE) or task.job.title)
     drive_client = None
     service_account = PROJECT_ROOT / settings.google_sheets_service_account
@@ -1097,6 +1101,58 @@ def finish_schedule_publish_cleanup(
     )
 
 
+def combined_media_editor_url_from_settings(settings, record_fields: dict) -> str | None:
+    library_url = (settings.happyscribe_url or "").strip()
+    if not settings.happyscribe_api_key or not library_url:
+        return None
+    try:
+        client = happyscribe_client_from_settings(settings)
+        video_format = video_format_from_type(record_fields.get(FIELD_TYPE))
+        location = resolve_library_location_for_format(
+            client,
+            library_url,
+            video_format,
+        )
+        extra_locations = []
+        review_url = (settings.happyscribe_review_url or "").strip()
+        if review_url:
+            extra_locations.append(
+                resolve_library_location_for_format(
+                    client,
+                    review_url,
+                    video_format,
+                    required=True,
+                )
+            )
+        published_folder_id = (settings.happyscribe_published_folder_id or "").strip()
+        transcriptions = client.list_search_transcriptions(
+            location,
+            extra_folder_ids=[published_folder_id] if published_folder_id else None,
+            extra_locations=extra_locations,
+        )
+        title = record_fields.get(FIELD_TITLE)
+        catalog_name = title.strip() if isinstance(title, str) else ""
+        resources = record_fields.get(FIELD_TRANSLATION_RESOURCES)
+        smartcat_url = (
+            resources.strip()
+            if isinstance(resources, str) and resources.strip()
+            else None
+        )
+        editor_url = ready_transcription_editor_url(
+            transcriptions,
+            catalog_name,
+            smartcat_url=smartcat_url,
+        )
+    except HappyScribeError as exc:
+        print(f"  HappyScribe editor link skipped: {exc}")
+        return None
+    if editor_url:
+        print(f"  HappyScribe editor: {editor_url}")
+    else:
+        print("  HappyScribe editor link skipped: no ready transcription")
+    return editor_url
+
+
 def finalize_record_after_platform_publish(
     settings,
     *,
@@ -1107,11 +1163,27 @@ def finalize_record_after_platform_publish(
     excluded_platforms: frozenset | None = None,
 ) -> dict:
     fields = dict(record_fields)
+    drive_client = None
+    service_account = PROJECT_ROOT / settings.google_sheets_service_account
+    if service_account.exists():
+        try:
+            drive_client = GoogleDriveClient.from_service_account(service_account)
+        except GoogleDriveError:
+            drive_client = None
     done_record = mark_record_done_and_published_if_complete(
         airtable,
         record_id=record_id,
         record_fields=fields,
         excluded_platforms=excluded_platforms,
+        extra_fields=lambda: published_drive_file_clears(
+            fields,
+            drive=drive_client,
+            log=print,
+            combined_media_url=combined_media_editor_url_from_settings(
+                settings,
+                fields,
+            ),
+        ),
     )
     if done_record is not None:
         fields = {**fields, **done_record.fields}
@@ -2777,6 +2849,11 @@ def main() -> int:
                 page_id=page_id,
                 ffmpeg_path=settings.happyscribe_ffmpeg,
                 **template_urls_from_settings(settings),
+            )
+            publish_instagram_playlist_comments(
+                meta_client,
+                media_id,
+                task.record_fields,
             )
             permalink = meta_client.get_instagram_media_permalink(media_id)
             updated = mark_platform_scheduled(

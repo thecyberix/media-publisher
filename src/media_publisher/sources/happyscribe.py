@@ -32,6 +32,9 @@ HAPPYSCRIBE_REVIEW_SUBFOLDER_NAMES = (
     HAPPYSCRIBE_SHORT_VIDEOS_FOLDER_NAME,
     HAPPYSCRIBE_LONG_VIDEOS_FOLDER_NAME,
 )
+TRANSCRIPTION_EDITOR_URL = (
+    "https://www.happyscribe.com/transcriptions/{transcription_id}/subtitles"
+)
 LIBRARY_URL_PATTERN = re.compile(
     r"https?://(?:www\.)?happyscribe\.com/v2/(?P<organization_id>\d+)/library/"
     r"(?P<folder_id>\d+|workspace)",
@@ -165,6 +168,27 @@ def _parse_export(payload: dict[str, Any]) -> HappyScribeExport:
 def _safe_filename(name: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*]+', "_", name).strip(" .")
     return cleaned or "video"
+
+
+def transcription_editor_url(transcription_id: str) -> str:
+    return TRANSCRIPTION_EDITOR_URL.format(transcription_id=transcription_id)
+
+
+def ready_transcription_editor_url(
+    transcriptions: list[HappyScribeTranscription],
+    catalog_name: str,
+    *,
+    smartcat_url: str | None = None,
+) -> str | None:
+    """Return the HappyScribe editor URL for a ready catalog transcription."""
+    match = ready_transcription_for_catalog(
+        transcriptions,
+        catalog_name,
+        smartcat_url=smartcat_url,
+    )
+    if match is None:
+        return None
+    return transcription_editor_url(match.id)
 
 
 def library_folder_url(organization_id: str, folder_id: str) -> str:

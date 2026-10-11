@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from media_publisher.models import PublishJob
 from media_publisher.post_templates import prepare_publish_job
@@ -13,6 +15,30 @@ from media_publisher.video_duration import (
 
 class InstagramPublishError(RuntimeError):
     pass
+
+
+def publish_instagram_playlist_comments(
+    client: MetaClient,
+    media_id: str,
+    record_fields: dict[str, Any],
+    *,
+    log: Callable[[str], None] = print,
+) -> None:
+    """Post configured playlist comments. A comment failure does not unpublish the video."""
+    from catalog_parser.playlists import instagram_comments_for_playlists
+    from media_publisher.sources.airtable import FIELD_PLAYLISTS, _field_multi_select
+
+    names = _field_multi_select(record_fields.get(FIELD_PLAYLISTS))
+    for message in instagram_comments_for_playlists(names):
+        try:
+            comment_id = client.create_instagram_comment(
+                media_id=media_id,
+                message=message,
+            )
+        except MetaError as exc:
+            log(f"Instagram comment failed: {exc}")
+            return
+        log(f"Instagram comment posted: {comment_id}")
 
 
 def _resolve_video(job: PublishJob) -> tuple[Path | None, str | None]:

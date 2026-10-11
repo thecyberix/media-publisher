@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +38,14 @@ SAVE_SOIL_VIDEO_STEM = "savesoilvideo"
 _STEM_RE = re.compile(r"[^a-z0-9]+")
 
 VideoOrientation = Literal["horizontal", "vertical"]
+
+
+@dataclass(frozen=True)
+class EndCardOverlay:
+    """English end-card check plus the video path after any translated overlay."""
+
+    video_path: Path
+    detected: bool
 
 # End cards in source packages are a few seconds; search the last 20s.
 _DETECT_WINDOW_SECONDS = 20.0
@@ -263,13 +272,15 @@ def _extract_frame(
     return destination
 
 
-def detect_save_soil_end_card(
+def detect_ending_card(
     video_path: Path,
+    looks_like,
     *,
     ffmpeg_path: str | None = None,
     work_dir: Path | None = None,
+    temp_prefix: str = "endcard-",
 ) -> float | None:
-    """Return the timestamp where a SAVE SOIL end card or animation begins, or None."""
+    """Return when a branded end card begins, if the video ends on that card."""
     duration = probe_local_video_duration_seconds(video_path)
     if duration is None or duration < _MIN_END_CARD_SECONDS:
         return None
@@ -281,7 +292,7 @@ def detect_save_soil_end_card(
         work_dir.mkdir(parents=True, exist_ok=True)
         tmp_parent = str(work_dir)
 
-    with tempfile.TemporaryDirectory(prefix="savesoil-", dir=tmp_parent) as tmp:
+    with tempfile.TemporaryDirectory(prefix=temp_prefix, dir=tmp_parent) as tmp:
         tmp_dir = Path(tmp)
 
         def looks(timestamp: float, label: str) -> bool:
@@ -291,7 +302,7 @@ def detect_save_soil_end_card(
                 tmp_dir / f"{label}.jpg",
                 ffmpeg=ffmpeg,
             )
-            return bool(frame and frame_looks_like_save_soil(frame))
+            return bool(frame and looks_like(frame))
 
         if not looks(end_t, "end"):
             return None
@@ -320,6 +331,22 @@ def detect_save_soil_end_card(
     return end_card_start_from_samples(
         [(earliest, True), (end_t, True)],
         duration=duration,
+    )
+
+
+def detect_save_soil_end_card(
+    video_path: Path,
+    *,
+    ffmpeg_path: str | None = None,
+    work_dir: Path | None = None,
+) -> float | None:
+    """Return the timestamp where a SAVE SOIL end card or animation begins, or None."""
+    return detect_ending_card(
+        video_path,
+        frame_looks_like_save_soil,
+        ffmpeg_path=ffmpeg_path,
+        work_dir=work_dir,
+        temp_prefix="savesoil-",
     )
 
 
@@ -434,42 +461,52 @@ def replace_save_soil_end_card_if_present(
     work_dir: Path,
     ffmpeg_path: str | None = None,
     video_type: str | None = None,
-) -> Path:
+    reference_path: Path | None = None,
+) -> EndCardOverlay:
     """Overlay the translated SAVE SOIL still when the video ends on that card.
 
-    Missing image / no end card leaves ``video_path`` unchanged. Overlay ffmpeg
-    failures raise so Combined Media generation does not silently keep English.
+    Detection uses ``reference_path`` when a package REF video is available,
+    because the mixed file often has that card removed. The still is placed on
+    ``video_path``. Missing image / no end card leaves ``video_path`` unchanged.
+    ``detected`` is true when the English card is found, even if the translated
+    still is missing. Overlay ffmpeg failures raise so Combined Media generation
+    does not silently keep English.
     """
     if not video_path.is_file():
-        return video_path
+        return EndCardOverlay(video_path, False)
 
+    detect_on = (
+        reference_path
+        if reference_path is not None and reference_path.is_file()
+        else video_path
+    )
     start = detect_save_soil_end_card(
-        video_path,
+        detect_on,
         ffmpeg_path=ffmpeg_path,
         work_dir=work_dir,
     )
     if start is None:
-        return video_path
+        return EndCardOverlay(video_path, False)
 
     orientation = orientation_for_video_type(video_type) or _orientation_from_video_file(
         video_path
     )
     if orientation is None:
         print("SAVE SOIL end card found, but video orientation is unknown; leaving English card")
-        return video_path
+        return EndCardOverlay(video_path, True)
 
     try:
         image = find_save_soil_image(drive_service, orientation=orientation)
     except Exception as exc:
         print(f"SAVE SOIL image lookup failed: {exc}")
-        return video_path
+        return EndCardOverlay(video_path, True)
     if image is None:
         print(
             "SAVE SOIL end card found, but no translated image "
             f"(need SaveSoilReel.jpeg or SaveSoilVideo.jpeg) in Overrides/"
             f"{FOLDER_IMAGES!r}"
         )
-        return video_path
+        return EndCardOverlay(video_path, True)
 
     image_path = download_drive_file(
         drive_service,
@@ -488,6 +525,6 @@ def replace_save_soil_end_card_if_present(
     replaced.replace(video_path)
     print(
         f"Replaced SAVE SOIL end card from {start:.2f}s using {image.name!r} "
-        f"({orientation})"
+        f"({orientation}, detected on {detect_on.name})"
     )
-    return video_path
+    return EndCardOverlay(video_path, True)

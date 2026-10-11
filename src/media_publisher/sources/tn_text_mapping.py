@@ -59,6 +59,10 @@ def consolidate_line_styles(line_styles: list[TnLineStyle]) -> list[TnLineStyle]
         return line_styles
     if _is_mahashiv_layout(line_styles):
         return line_styles
+    if line_styles and all(
+        style.layer_name == "reference-thumbnail" for style in line_styles
+    ):
+        return line_styles
     if len(line_styles) < 3:
         return line_styles
 

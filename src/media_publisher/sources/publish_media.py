@@ -140,13 +140,63 @@ def combined_media_cleanup_from_fields(
     return PublishMediaCleanup(combined_media_file_id=file_id)
 
 
-def translated_subtitles_cleanup_from_fields(
+def published_drive_file_clears(
     record_fields: dict[str, Any],
-) -> PublishMediaCleanup | None:
-    file_id = translated_subtitles_file_id_from_fields(record_fields)
-    if not file_id:
-        return None
-    return PublishMediaCleanup(translated_subtitles_file_id=file_id)
+    *,
+    drive: GoogleDriveClient | None,
+    log: Callable[[str], None] | None = None,
+    combined_media_url: str | None = None,
+) -> dict[str, str]:
+    """Remove publish Drive files and return fields for the status update.
+
+    Call this only when the record is about to become Done & Published.
+    Translated subtitles are cleared. Combined Media File is set to
+    ``combined_media_url`` when that is provided, and cleared otherwise.
+    A failed Drive remove leaves that field unchanged.
+    """
+    emit = log or (lambda _message: None)
+    editor_url = (combined_media_url or "").strip()
+    combined_id = combined_media_file_id_from_fields(record_fields)
+    subtitles_id = translated_subtitles_file_id_from_fields(record_fields)
+    if drive is None and (combined_id or subtitles_id):
+        for file_id, label in (
+            (combined_id, "Combined Media File"),
+            (subtitles_id, "Translated subtitles"),
+        ):
+            if file_id:
+                emit(
+                    f"  cleanup: {label} {file_id} left in place "
+                    "(Drive client unavailable)"
+                )
+        return {}
+
+    cleared: dict[str, str] = {}
+    if combined_id and drive is not None:
+        try:
+            action = drive.remove_file(combined_id)
+        except GoogleDriveError as exc:
+            emit(
+                f"  cleanup: failed to remove Combined Media File "
+                f"{combined_id}: {exc}"
+            )
+        else:
+            emit(f"  cleanup: {action} Combined Media File {combined_id}")
+            cleared[FIELD_COMBINED_MEDIA_FILE] = editor_url
+    elif editor_url:
+        cleared[FIELD_COMBINED_MEDIA_FILE] = editor_url
+
+    if subtitles_id and drive is not None:
+        try:
+            action = drive.remove_file(subtitles_id)
+        except GoogleDriveError as exc:
+            emit(
+                f"  cleanup: failed to remove Translated subtitles "
+                f"{subtitles_id}: {exc}"
+            )
+        else:
+            emit(f"  cleanup: {action} Translated subtitles {subtitles_id}")
+            cleared[FIELD_TRANSLATED_SUBTITLES] = ""
+    return cleared
 
 
 def resolve_combined_media_for_publish(
@@ -768,40 +818,6 @@ def apply_publish_media_cleanup(
                 emit(f"  cleanup: deleted Drive override file {file_id}")
             except GoogleDriveError as exc:
                 emit(f"  cleanup: failed to delete Drive file {file_id}: {exc}")
-
-        cleared_fields: dict[str, str] = {}
-        if cleanup.combined_media_file_id:
-            try:
-                action = drive.remove_file(cleanup.combined_media_file_id)
-                emit(
-                    "  cleanup: "
-                    f"{action} Combined Media File {cleanup.combined_media_file_id}"
-                )
-                cleared_fields[FIELD_COMBINED_MEDIA_FILE] = ""
-            except GoogleDriveError as exc:
-                emit(
-                    "  cleanup: failed to remove Combined Media File "
-                    f"{cleanup.combined_media_file_id}: {exc}"
-                )
-
-        if cleanup.translated_subtitles_file_id:
-            try:
-                action = drive.remove_file(cleanup.translated_subtitles_file_id)
-                emit(
-                    "  cleanup: "
-                    f"{action} Translated subtitles {cleanup.translated_subtitles_file_id}"
-                )
-                cleared_fields[FIELD_TRANSLATED_SUBTITLES] = ""
-            except GoogleDriveError as exc:
-                emit(
-                    "  cleanup: failed to remove Translated subtitles "
-                    f"{cleanup.translated_subtitles_file_id}: {exc}"
-                )
-
-        if cleared_fields and airtable is not None and record_id:
-            airtable.update_record(record_id, cleared_fields)
-            for field_name in cleared_fields:
-                emit(f"  cleanup: cleared {field_name!r} on {record_id}")
 
     if (
         canva_client is not None

@@ -94,7 +94,9 @@ class DriveTnTemplate:
 
     @property
     def text_layers_stripped(self) -> bool:
-        return self.cached_path.suffix.casefold() == ".psd"
+        from media_publisher.sources.tn_psd import is_psd_file
+
+        return is_psd_file(self.cached_path)
 
 
 def find_tn_template_in_folder(
@@ -235,9 +237,12 @@ def compose_offline_tn_background(
     line_styles: list[TnLineStyle],
     caption_line_count: int,
 ) -> tuple[Image.Image, list[TnLineStyle], str]:
-    """Prefer a Drive template as pixels; keep original-derived line styles."""
+    """Prefer Drive PSD pixels and PSD text styles when both are available."""
     if drive_template is None:
         return covered_original, line_styles, "original-thumbnail"
+
+    if drive_template.line_styles:
+        return drive_template.image, drive_template.line_styles, "drive-template"
 
     styles = scale_line_styles(
         line_styles,

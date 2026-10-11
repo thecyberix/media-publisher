@@ -17,6 +17,7 @@ from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
     combined_media_cleanup_from_fields,
+    published_drive_file_clears,
     drive_override_thumbnail_exists,
     has_prepared_publish_thumbnail,
     merge_publish_media_cleanup,
@@ -401,11 +402,10 @@ class PublishMediaResolutionTests(unittest.TestCase):
         assert result.path is not None
         drive.download_file.assert_called_once()
 
-    def test_apply_publish_media_cleanup_moves_thumbnail_deletes_video_and_combined_media(
+    def test_apply_publish_media_cleanup_moves_thumbnail_and_deletes_override_video(
         self,
     ) -> None:
         drive = MagicMock()
-        drive.remove_file.return_value = "deleted"
         airtable = MagicMock()
         messages: list[str] = []
         cleanup = PublishMediaCleanup(
@@ -426,23 +426,9 @@ class PublishMediaResolutionTests(unittest.TestCase):
         )
         drive.move_file.assert_called_once_with("thumb1", "published1")
         drive.delete_file.assert_called_once_with("video1")
-        self.assertEqual(
-            drive.remove_file.call_args_list,
-            [
-                unittest.mock.call("combined1"),
-                unittest.mock.call("subs1"),
-            ],
-        )
-        airtable.update_record.assert_called_once_with(
-            "recABC",
-            {
-                FIELD_COMBINED_MEDIA_FILE: "",
-                FIELD_TRANSLATED_SUBTITLES: "",
-            },
-        )
+        drive.remove_file.assert_not_called()
+        airtable.update_record.assert_not_called()
         self.assertTrue(any("moved Drive override file" in message for message in messages))
-        self.assertTrue(any("deleted Combined Media File" in message for message in messages))
-        self.assertTrue(any("deleted Translated subtitles" in message for message in messages))
 
     def test_apply_publish_media_cleanup_deletes_drive_and_moves_canva(self) -> None:
         drive = MagicMock()
@@ -467,42 +453,133 @@ class PublishMediaResolutionTests(unittest.TestCase):
         self.assertTrue(any("deleted Drive override" in message for message in messages))
         self.assertTrue(any("moved Canva design" in message for message in messages))
 
-    def test_apply_publish_media_cleanup_trashes_combined_media_when_delete_unavailable(
+    def test_published_drive_file_clears_removes_combined_media_and_subtitles(
+        self,
+    ) -> None:
+        drive = MagicMock()
+        drive.remove_file.return_value = "deleted"
+        messages: list[str] = []
+        fields = published_drive_file_clears(
+            {
+                FIELD_COMBINED_MEDIA_FILE: (
+                    "https://drive.google.com/file/d/combined1/view"
+                ),
+                FIELD_TRANSLATED_SUBTITLES: (
+                    "https://drive.google.com/file/d/subs1/view"
+                ),
+            },
+            drive=drive,
+            log=messages.append,
+        )
+        self.assertEqual(
+            drive.remove_file.call_args_list,
+            [unittest.mock.call("combined1"), unittest.mock.call("subs1")],
+        )
+        self.assertEqual(
+            fields,
+            {
+                FIELD_COMBINED_MEDIA_FILE: "",
+                FIELD_TRANSLATED_SUBTITLES: "",
+            },
+        )
+        self.assertTrue(any("deleted Combined Media File" in message for message in messages))
+        self.assertTrue(any("deleted Translated subtitles" in message for message in messages))
+
+    def test_published_drive_file_clears_stores_happyscribe_editor_link(self) -> None:
+        drive = MagicMock()
+        drive.remove_file.return_value = "deleted"
+        editor_url = "https://www.happyscribe.com/transcriptions/tx1/subtitles"
+        fields = published_drive_file_clears(
+            {
+                FIELD_COMBINED_MEDIA_FILE: (
+                    "https://drive.google.com/file/d/combined1/view"
+                ),
+                FIELD_TRANSLATED_SUBTITLES: (
+                    "https://drive.google.com/file/d/subs1/view"
+                ),
+            },
+            drive=drive,
+            combined_media_url=editor_url,
+        )
+        self.assertEqual(
+            fields,
+            {
+                FIELD_COMBINED_MEDIA_FILE: editor_url,
+                FIELD_TRANSLATED_SUBTITLES: "",
+            },
+        )
+
+    def test_published_drive_file_clears_keeps_drive_link_when_remove_fails(self) -> None:
+        from media_publisher.sources.google_drive import GoogleDriveError
+
+        drive = MagicMock()
+        drive.remove_file.side_effect = GoogleDriveError("no permission")
+        editor_url = "https://www.happyscribe.com/transcriptions/tx1/subtitles"
+        fields = published_drive_file_clears(
+            {
+                FIELD_COMBINED_MEDIA_FILE: (
+                    "https://drive.google.com/file/d/combined1/view"
+                )
+            },
+            drive=drive,
+            combined_media_url=editor_url,
+        )
+        self.assertEqual(fields, {})
+
+    def test_published_drive_file_clears_trashes_when_delete_unavailable(
         self,
     ) -> None:
         drive = MagicMock()
         drive.remove_file.return_value = "trashed"
-        airtable = MagicMock()
-        cleanup = PublishMediaCleanup(combined_media_file_id="combined1")
-        apply_publish_media_cleanup(
-            cleanup,
+        fields = published_drive_file_clears(
+            {
+                FIELD_COMBINED_MEDIA_FILE: (
+                    "https://drive.google.com/file/d/combined1/view"
+                )
+            },
             drive=drive,
-            canva_client=None,
-            airtable=airtable,
-            record_id="recABC",
         )
-        airtable.update_record.assert_called_once_with(
-            "recABC",
-            {FIELD_COMBINED_MEDIA_FILE: ""},
-        )
+        self.assertEqual(fields, {FIELD_COMBINED_MEDIA_FILE: ""})
 
-    def test_apply_publish_media_cleanup_keeps_combined_media_when_drive_remove_fails(
+    def test_published_drive_file_clears_keeps_only_the_field_whose_remove_fails(
         self,
     ) -> None:
         from media_publisher.sources.google_drive import GoogleDriveError
 
         drive = MagicMock()
-        drive.remove_file.side_effect = GoogleDriveError("no permission")
-        airtable = MagicMock()
-        cleanup = PublishMediaCleanup(combined_media_file_id="combined1")
-        apply_publish_media_cleanup(
-            cleanup,
+
+        def _remove(file_id: str) -> str:
+            if file_id == "subs1":
+                raise GoogleDriveError("no permission")
+            return "deleted"
+
+        drive.remove_file.side_effect = _remove
+        fields = published_drive_file_clears(
+            {
+                FIELD_COMBINED_MEDIA_FILE: (
+                    "https://drive.google.com/file/d/combined1/view"
+                ),
+                FIELD_TRANSLATED_SUBTITLES: (
+                    "https://drive.google.com/file/d/subs1/view"
+                ),
+            },
             drive=drive,
-            canva_client=None,
-            airtable=airtable,
-            record_id="recABC",
         )
-        airtable.update_record.assert_not_called()
+        self.assertEqual(fields, {FIELD_COMBINED_MEDIA_FILE: ""})
+
+    def test_published_drive_file_clears_leaves_fields_without_drive(self) -> None:
+        fields = published_drive_file_clears(
+            {
+                FIELD_COMBINED_MEDIA_FILE: (
+                    "https://drive.google.com/file/d/combined1/view"
+                ),
+                FIELD_TRANSLATED_SUBTITLES: (
+                    "https://drive.google.com/file/d/subs1/view"
+                ),
+            },
+            drive=None,
+        )
+        self.assertEqual(fields, {})
 
     def test_without_airtable_thumbnail_returns_no_thumbnail(self) -> None:
         job = PublishJob(title="Translated", video_format="short_form")

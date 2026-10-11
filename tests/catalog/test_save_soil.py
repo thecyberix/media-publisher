@@ -122,6 +122,27 @@ class SaveSoilImageSelectionTests(unittest.TestCase):
 
 
 class SaveSoilReplaceSkipTests(unittest.TestCase):
+    def test_detects_on_reference_when_given(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            video = root / "mixed.mp4"
+            reference = root / "REF 720p.mp4"
+            video.write_bytes(b"video")
+            reference.write_bytes(b"ref")
+            with patch(
+                "catalog_parser.save_soil.detect_save_soil_end_card",
+                return_value=None,
+            ) as detect:
+                replace_save_soil_end_card_if_present(
+                    MagicMock(),
+                    video,
+                    work_dir=root,
+                    video_type="Reel",
+                    reference_path=reference,
+                )
+        detect.assert_called_once()
+        self.assertEqual(detect.call_args.args[0], reference)
+
     def test_replace_skips_missing_video(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             missing = Path(tmpdir) / "missing.mp4"
@@ -131,7 +152,8 @@ class SaveSoilReplaceSkipTests(unittest.TestCase):
                 work_dir=Path(tmpdir),
                 video_type="Reel",
             )
-        self.assertEqual(result, missing)
+        self.assertEqual(result.video_path, missing)
+        self.assertFalse(result.detected)
 
 
 class SaveSoilDetectionTests(unittest.TestCase):

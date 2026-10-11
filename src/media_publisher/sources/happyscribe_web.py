@@ -12,6 +12,7 @@ from typing import Any
 from media_publisher.sources.happyscribe import (
     DEFAULT_API_BASE,
     DEFAULT_USER_AGENT,
+    TRANSCRIPTION_EDITOR_URL,
     HappyScribeError,
     HappyScribeExport,
     _parse_export,
@@ -23,7 +24,7 @@ HARD_CODED_WEB_EXPORT_PATH = "hardcode_subtitles"
 WEB_EXPORT_POLL_INTERVAL_SECONDS = 5.0
 WEB_EXPORT_POLL_MAX_ATTEMPTS = 360
 SIGN_IN_URL = "https://www.happyscribe.com/users/sign_in"
-EDITOR_URL = "https://www.happyscribe.com/transcriptions/{transcription_id}/subtitles"
+EDITOR_URL = TRANSCRIPTION_EDITOR_URL
 EDITOR_READY_TIMEOUT_MS = 180_000
 UI_ACTION_TIMEOUT_MS = 60_000
 DOWNLOAD_TIMEOUT_MS = 900_000
