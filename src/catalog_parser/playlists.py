@@ -2,7 +2,7 @@
 
 Names and when they apply live in ``config/playlists.json``. A rule with no
 ``end_card`` is added to every video. A rule with ``end_card`` is added when
-that English end card is found on the reference video.
+that ending is found on the reference video.
 """
 
 from __future__ import annotations
@@ -18,7 +18,14 @@ from catalog_parser.airtable import FIELD_COMBINED_MEDIA_FILE, FIELD_PLAYLISTS
 DEFAULT_PLAYLISTS_PATH = Path("config") / "playlists.json"
 END_CARD_INNER_ENGINEERING = "inner_engineering"
 END_CARD_SAVE_SOIL = "save_soil"
-KNOWN_END_CARDS = frozenset({END_CARD_INNER_ENGINEERING, END_CARD_SAVE_SOIL})
+END_CARD_MIRACLE_OF_MIND = "miracle_of_mind"
+KNOWN_END_CARDS = frozenset(
+    {
+        END_CARD_INNER_ENGINEERING,
+        END_CARD_SAVE_SOIL,
+        END_CARD_MIRACLE_OF_MIND,
+    }
+)
 
 
 @dataclass(frozen=True)

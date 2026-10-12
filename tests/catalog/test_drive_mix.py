@@ -632,6 +632,8 @@ class DriveMixStructureTests(unittest.TestCase):
         ) as replace_mock, patch(
             "catalog_parser.drive_mix.replace_inner_engineering_end_card_if_present",
         ) as inner_mock, patch(
+            "catalog_parser.drive_mix.miracle_of_mind_end_card_if_present",
+        ) as miracle_mock, patch(
             "catalog_parser.drive_mix.upload_drive_file",
             return_value=MagicMock(
                 id="uploaded-id",
@@ -660,6 +662,8 @@ class DriveMixStructureTests(unittest.TestCase):
         self.assertEqual(replace_mock.call_args.kwargs["video_type"], "Reel")
         inner_mock.assert_called_once()
         self.assertEqual(inner_mock.call_args.kwargs["video_type"], "Reel")
+        miracle_mock.assert_called_once()
+        self.assertEqual(miracle_mock.call_args.kwargs["video_type"], "Reel")
 
 
 class DialogueAudioPickTests(unittest.TestCase):

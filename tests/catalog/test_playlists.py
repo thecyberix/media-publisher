@@ -17,6 +17,7 @@ from catalog_parser.drive_combine import DriveMediaFile
 from catalog_parser.drive_mix import MixToDriveResult, _playlists_after_end_cards
 from catalog_parser.playlists import (
     END_CARD_INNER_ENGINEERING,
+    END_CARD_MIRACLE_OF_MIND,
     END_CARD_SAVE_SOIL,
     PlaylistConfig,
     PlaylistRule,
@@ -82,17 +83,50 @@ class YoutubePlaylistTests(unittest.TestCase):
                 (
                     "Вътрешно Изграждане",
                     END_CARD_INNER_ENGINEERING,
-                    'Напишете "Вътрешно изграждане" в коментар, за да научите повече.',
+                    '"Вътрешно изграждане" е онлайн програма на Садгуру от 7 стъпки, '
+                    "която предлага практически инструменти за благосъстояние и "
+                    "предаването на Шамбави Махамудра Крия – мощна 21-минутна "
+                    'йогистка практика. Напишете "Вътрешно изграждане" в коментар, '
+                    "за да научите повече.",
                 ),
                 ("Спасете Почвата", END_CARD_SAVE_SOIL, None),
+                (
+                    "Чудото на Ума",
+                    END_CARD_MIRACLE_OF_MIND,
+                    'Приложението "Чудото на ума" предлага мощна водена медитация, '
+                    "проектирана от Садгуру, която ви помага да овладеете умственото "
+                    "си благосъстояние. Отнема само 7 минути на ден. Напишете "
+                    '"Чудото на ума" в коментар, за да започнете.',
+                ),
             ],
+        )
+
+    def test_miracle_of_mind_animation_adds_its_playlist(self) -> None:
+        self.assertEqual(
+            youtube_playlists([END_CARD_MIRACLE_OF_MIND], config=load_playlist_config()),
+            ["Съзнателна Планета", "Чудото на Ума"],
         )
 
     def test_comment_is_posted_only_for_the_matching_playlist(self) -> None:
         config = load_playlist_config()
         self.assertEqual(
             instagram_comments_for_playlists(["Вътрешно Изграждане"], config=config),
-            ['Напишете "Вътрешно изграждане" в коментар, за да научите повече.'],
+            [
+                '"Вътрешно изграждане" е онлайн програма на Садгуру от 7 стъпки, '
+                "която предлага практически инструменти за благосъстояние и "
+                "предаването на Шамбави Махамудра Крия – мощна 21-минутна "
+                'йогистка практика. Напишете "Вътрешно изграждане" в коментар, '
+                "за да научите повече."
+            ],
+        )
+        self.assertEqual(
+            instagram_comments_for_playlists(["Чудото на Ума"], config=config),
+            [
+                'Приложението "Чудото на ума" предлага мощна водена медитация, '
+                "проектирана от Садгуру, която ви помага да овладеете умственото "
+                "си благосъстояние. Отнема само 7 минути на ден. Напишете "
+                '"Чудото на ума" в коментар, за да започнете.'
+            ],
         )
         self.assertEqual(
             instagram_comments_for_playlists(
@@ -134,6 +168,9 @@ class EndCardPlaylistTests(unittest.TestCase):
             return_value=EndCardOverlay(video, True),
         ), patch(
             "catalog_parser.drive_mix.replace_inner_engineering_end_card_if_present",
+            return_value=EndCardOverlay(video, False),
+        ), patch(
+            "catalog_parser.drive_mix.miracle_of_mind_end_card_if_present",
             return_value=EndCardOverlay(video, False),
         ):
             playlists = _playlists_after_end_cards(

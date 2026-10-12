@@ -1106,7 +1106,13 @@ class PublisherWrapperTests(unittest.TestCase):
         )
         client.create_instagram_comment.assert_called_once_with(
             media_id="ig_media_1",
-            message='Напишете "Вътрешно изграждане" в коментар, за да научите повече.',
+            message=(
+                '"Вътрешно изграждане" е онлайн програма на Садгуру от 7 стъпки, '
+                "която предлага практически инструменти за благосъстояние и "
+                "предаването на Шамбави Махамудра Крия – мощна 21-минутна "
+                'йогистка практика. Напишете "Вътрешно изграждане" в коментар, '
+                "за да научите повече."
+            ),
         )
         self.assertEqual(logs, ["Instagram comment posted: comment_1"])
 

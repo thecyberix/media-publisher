@@ -27,8 +27,10 @@ from catalog_parser.drive_media import (
 )
 from catalog_parser.parser import TYPE_VIDEO, parse_video_type
 from catalog_parser.inner_engineering import replace_inner_engineering_end_card_if_present
+from catalog_parser.miracle_of_mind import miracle_of_mind_end_card_if_present
 from catalog_parser.playlists import (
     END_CARD_INNER_ENGINEERING,
+    END_CARD_MIRACLE_OF_MIND,
     END_CARD_SAVE_SOIL,
     youtube_playlists,
 )
@@ -105,11 +107,21 @@ def _playlists_after_end_cards(
         video_type=video_type,
         reference_path=reference_path,
     )
+    miracle_of_mind = miracle_of_mind_end_card_if_present(
+        drive_service,
+        video_path,
+        work_dir=work_dir,
+        ffmpeg_path=ffmpeg_path,
+        video_type=video_type,
+        reference_path=reference_path,
+    )
     detected: list[str] = []
     if _end_card_detected(save_soil):
         detected.append(END_CARD_SAVE_SOIL)
     if _end_card_detected(inner_engineering):
         detected.append(END_CARD_INNER_ENGINEERING)
+    if _end_card_detected(miracle_of_mind):
+        detected.append(END_CARD_MIRACLE_OF_MIND)
     return tuple(youtube_playlists(detected))
 
 
