@@ -22,6 +22,10 @@ DEFAULT_GRAPH_BASE = "https://graph.facebook.com"
 DEFAULT_GRAPH_VIDEO_BASE = "https://graph-video.facebook.com"
 CONTAINER_POLL_INTERVAL_SECONDS = 5.0
 CONTAINER_POLL_MAX_ATTEMPTS = 240
+# media_publish can return 9007/2207027 after status_code is already FINISHED.
+INSTAGRAM_PUBLISH_NOT_READY_CODE = 9007
+INSTAGRAM_PUBLISH_NOT_READY_SUBCODE = 2207027
+INSTAGRAM_PUBLISH_RETRY_DELAYS_SECONDS = (5.0, 10.0, 20.0)
 MIN_SCHEDULE_LEAD_SECONDS = 600
 MAX_SCHEDULE_LEAD_SECONDS = 60 * 60 * 24 * 75
 UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
@@ -67,6 +71,21 @@ def is_meta_transient_unknown_error(exc: MetaError) -> bool:
     code = payload.get("code")
     message = str(payload.get("message") or "").casefold()
     return code == 1 and "unknown error" in message
+
+
+def is_instagram_media_not_ready(exc: MetaError) -> bool:
+    """True when media_publish runs before Instagram finishes the container.
+
+    Graph returns HTTP 400 / code 9007 / subcode 2207027 with is_transient false,
+    and the user message says to wait and retry.
+    """
+    if exc.http_status != 400:
+        return False
+    payload = exc.payload or {}
+    return (
+        payload.get("code") == INSTAGRAM_PUBLISH_NOT_READY_CODE
+        and payload.get("error_subcode") == INSTAGRAM_PUBLISH_NOT_READY_SUBCODE
+    )
 
 
 def _parse_meta_upload_backoff(response_text: str) -> float | None:
@@ -1085,11 +1104,28 @@ class MetaClient:
         instagram_account_id: str,
         container_id: str,
     ) -> str:
-        response = self._request(
-            "POST",
-            f"{instagram_account_id}/media_publish",
-            body={"creation_id": container_id},
-        )
+        delays = INSTAGRAM_PUBLISH_RETRY_DELAYS_SECONDS
+        max_attempts = len(delays) + 1
+        response: Any = None
+        for attempt in range(max_attempts):
+            try:
+                response = self._request(
+                    "POST",
+                    f"{instagram_account_id}/media_publish",
+                    body={"creation_id": container_id},
+                )
+                break
+            except MetaError as exc:
+                if not is_instagram_media_not_ready(exc) or attempt >= max_attempts - 1:
+                    raise
+                delay = delays[attempt]
+                print(
+                    "Instagram media is not ready yet "
+                    f"(attempt {attempt + 1}/{max_attempts}); retrying in {delay:.0f}s"
+                )
+                time.sleep(delay)
+        if not isinstance(response, dict):
+            raise MetaError("Meta Instagram publish response is invalid")
         media_id = response.get("id")
         if not isinstance(media_id, str) or not media_id:
             raise MetaError("Meta Instagram publish response is missing media id")

@@ -801,6 +801,61 @@ class PublisherWrapperTests(unittest.TestCase):
             )
         )
 
+    def test_publish_instagram_container_retries_when_media_is_not_ready(self) -> None:
+        from media_publisher.publishers.meta import is_instagram_media_not_ready
+
+        not_ready = MetaError(
+            "not ready",
+            http_status=400,
+            payload={
+                "code": 9007,
+                "error_subcode": 2207027,
+                "message": "Media ID is not available",
+                "is_transient": False,
+            },
+        )
+        self.assertTrue(is_instagram_media_not_ready(not_ready))
+        self.assertFalse(
+            is_instagram_media_not_ready(
+                MetaError("other", http_status=400, payload={"code": 100})
+            )
+        )
+
+        client = MetaClient("token-test")
+        with (
+            patch.object(
+                client,
+                "_request",
+                side_effect=[not_ready, not_ready, {"id": "ig_media_1"}],
+            ) as request_mock,
+            patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+        ):
+            media_id = client.publish_instagram_container(
+                instagram_account_id="ig123",
+                container_id="container_1",
+            )
+
+        self.assertEqual(media_id, "ig_media_1")
+        self.assertEqual(request_mock.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep_mock.call_args_list], [5.0, 10.0])
+
+    def test_publish_instagram_container_stops_retrying_other_errors(self) -> None:
+        client = MetaClient("token-test")
+        other = MetaError("bad request", http_status=400, payload={"code": 100})
+        with (
+            patch.object(client, "_request", side_effect=other) as request_mock,
+            patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+            self.assertRaises(MetaError) as raised,
+        ):
+            client.publish_instagram_container(
+                instagram_account_id="ig123",
+                container_id="container_1",
+            )
+
+        self.assertIs(raised.exception, other)
+        request_mock.assert_called_once()
+        sleep_mock.assert_not_called()
+
     def test_publish_to_instagram_uploads_long_form_video_with_url(self) -> None:
         job = PublishJob(
             title="Launch",
