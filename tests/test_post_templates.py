@@ -15,6 +15,7 @@ from media_publisher.post_templates import (
     build_short_form_youtube_description,
     build_short_form_youtube_title,
     inject_published_video_url,
+    is_published_youtube_quote,
     prepare_publish_job,
     smartlink_cta,
     youtube_tags,
@@ -80,6 +81,28 @@ class PostTemplateTests(unittest.TestCase):
         title = build_quote_youtube_title(long_sentence)
         self.assertLessEqual(len(title), 100)
         self.assertTrue(title.endswith("... #Садгуру"))
+
+    def test_published_quote_is_not_a_short_or_a_long_video(self) -> None:
+        title = build_quote_youtube_title("Само физическото ви тяло се нуждае от граници.")
+        description = build_quote_youtube_description(
+            "Само физическото ви тяло се нуждае от граници."
+        )
+        self.assertTrue(is_published_youtube_quote(title, description))
+        short = PublishJob(
+            title="Кратък разговор",
+            description="За ума.",
+            video_format="short_form",
+        )
+        prepared = prepare_publish_job(short, "youtube")
+        self.assertFalse(
+            is_published_youtube_quote(prepared.title, prepared.description)
+        )
+        self.assertFalse(
+            is_published_youtube_quote(
+                "Да избереш духовен път | Садгуру",
+                "Садгуру разказва за един увлекателен случай.",
+            )
+        )
 
     def test_build_quote_post_caption_matches_facebook_template(self) -> None:
         quote = (

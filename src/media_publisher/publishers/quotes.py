@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from catalog_parser.playlists import load_playlist_config
 from media_publisher.models import PlatformName, PublishJob
 from media_publisher.post_templates import (
     build_quote_post_caption,
@@ -113,6 +114,7 @@ def publish_local_quote_to_youtube(
         playlist_id=playlist_id,
         daily_playlist_id=daily_playlist_id,
         daily_playlist_slots_path=daily_playlist_slots_path,
+        quote_playlist_title=load_playlist_config().quote_playlist,
         **(template_urls or {}),
     )
     return youtube_video_url(video_id)

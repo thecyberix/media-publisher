@@ -116,9 +116,19 @@ def list_uploads(client: YouTubeClient, playlist_id: str) -> list[dict[str, str]
         if not video_id:
             continue
         title = ""
-        if isinstance(snippet, dict) and isinstance(snippet.get("title"), str):
-            title = snippet["title"].strip()
-        uploads.append({"video_id": video_id, "title": title or video_id})
+        description = ""
+        if isinstance(snippet, dict):
+            if isinstance(snippet.get("title"), str):
+                title = snippet["title"].strip()
+            if isinstance(snippet.get("description"), str):
+                description = snippet["description"].strip()
+        uploads.append(
+            {
+                "video_id": video_id,
+                "title": title or video_id,
+                "description": description,
+            }
+        )
     return uploads
 
 

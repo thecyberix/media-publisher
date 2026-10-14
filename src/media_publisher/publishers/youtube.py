@@ -868,6 +868,44 @@ class YouTubeClient:
                 )
             position += 1
 
+    def owned_playlists(self) -> list[tuple[str, str]]:
+        """Playlists on the authorized channel as ``(playlist_id, title)``."""
+        playlists: list[tuple[str, str]] = []
+        page_token: str | None = None
+        while True:
+            query_items = {"part": "snippet", "mine": "true", "maxResults": "50"}
+            if page_token:
+                query_items["pageToken"] = page_token
+            query = urllib.parse.urlencode(query_items)
+            status, _, payload = self._request("GET", f"{API_BASE}/playlists?{query}")
+            if status != 200:
+                detail = payload.decode("utf-8", errors="replace").strip()
+                raise YouTubePublishError(
+                    f"YouTube playlist lookup failed with HTTP {status}: {detail}"
+                )
+            data = json.loads(payload.decode("utf-8"))
+            if not isinstance(data, dict):
+                raise YouTubePublishError("YouTube playlist response is not a JSON object")
+            items = data.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    playlist_id = item.get("id")
+                    snippet = item.get("snippet")
+                    title = snippet.get("title") if isinstance(snippet, dict) else None
+                    if (
+                        isinstance(playlist_id, str)
+                        and playlist_id.strip()
+                        and isinstance(title, str)
+                        and title.strip()
+                    ):
+                        playlists.append((playlist_id.strip(), title.strip()))
+            next_token = data.get("nextPageToken")
+            if not isinstance(next_token, str) or not next_token.strip():
+                return playlists
+            page_token = next_token.strip()
+
     def list_playlist_items(self, playlist_id: str) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         page_token: str | None = None
@@ -1252,6 +1290,20 @@ def youtube_video_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def playlist_id_for_exact_title(
+    playlists: list[tuple[str, str]],
+    title: str,
+) -> str:
+    """Return the id whose title matches exactly. A missing title raises."""
+    for playlist_id, playlist_title in playlists:
+        if playlist_title == title:
+            return playlist_id
+    known = ", ".join(sorted(item[1] for item in playlists)) or "(none)"
+    raise YouTubePublishError(
+        f"YouTube playlist title not found for {title}. Channel playlists: {known}"
+    )
+
+
 def daily_playlist_slot_for_job(job: PublishJob) -> DailyPlaylistSlot:
     if job.content_kind == "image":
         return "quote"
@@ -1477,6 +1529,7 @@ def publish_to_youtube(
     playlist_id: str | None = None,
     daily_playlist_id: str | None = None,
     daily_playlist_slots_path: Path | None = None,
+    quote_playlist_title: str | None = None,
 ) -> str:
     """Upload a video to YouTube and return the published video ID."""
     from media_publisher.post_templates import (
@@ -1555,8 +1608,18 @@ def publish_to_youtube(
                 raise
             # Shorts often reject API thumbnails; upload still succeeds.
 
-    if playlist_id:
-        client.add_video_to_playlist(video_id, playlist_id.strip())
+    archive_playlist_id = playlist_id.strip() if playlist_id else ""
+    if archive_playlist_id:
+        client.add_video_to_playlist(video_id, archive_playlist_id)
+
+    quote_title = quote_playlist_title.strip() if quote_playlist_title else ""
+    if quote_title:
+        quote_playlist_id = playlist_id_for_exact_title(
+            client.owned_playlists(),
+            quote_title,
+        )
+        if quote_playlist_id != archive_playlist_id:
+            client.add_video_to_playlist(video_id, quote_playlist_id)
 
     if daily_playlist_id and daily_playlist_slots_path is not None:
         resolved_daily_id = daily_playlist_id.strip()

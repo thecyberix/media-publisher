@@ -840,6 +840,35 @@ class QuotePublishTests(unittest.TestCase):
                 publish_at=None,
             )
 
+    def test_youtube_quote_is_added_to_the_configured_quote_playlist(self) -> None:
+        from media_publisher.publishers.quotes import publish_local_quote_to_youtube
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            image = root / "quote.png"
+            video = root / "quote.mp4"
+            image.write_bytes(b"png")
+            video.write_bytes(b"mp4")
+            with patch(
+                "media_publisher.publishers.quotes.ensure_quote_video",
+                return_value=video,
+            ):
+                with patch(
+                    "media_publisher.publishers.quotes.publish_to_youtube",
+                    return_value="vid123",
+                ) as publish:
+                    publish_local_quote_to_youtube(
+                        image_path=image,
+                        caption="Само физическото ви тяло се нуждае от граници.",
+                        publish_at=None,
+                        client_secrets_path=root / "client.json",
+                        token_path=root / "token.json",
+                        expected_channel_handle=None,
+                        work_dir=root,
+                    )
+
+        self.assertEqual(publish.call_args.kwargs["quote_playlist_title"], "Цитати")
+
 
 if __name__ == "__main__":
     unittest.main()

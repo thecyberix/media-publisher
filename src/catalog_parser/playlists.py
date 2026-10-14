@@ -2,7 +2,8 @@
 
 Names and when they apply live in ``config/playlists.json``. A rule with no
 ``end_card`` is added to every video. A rule with ``end_card`` is added when
-that ending is found on the reference video.
+that ending is found on the reference video. ``quote_playlist`` is the title
+of the playlist that receives quote videos only.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ class PlaylistRule:
 @dataclass(frozen=True)
 class PlaylistConfig:
     rules: tuple[PlaylistRule, ...]
+    quote_playlist: str | None = None
 
 
 def playlists_config_path(project_root: Path | None = None) -> Path:
@@ -70,7 +72,10 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
             f"{config_path.as_posix()} needs a playlist with no end_card "
             "so every video is assigned one"
         )
-    return PlaylistConfig(rules=tuple(rules))
+    return PlaylistConfig(
+        rules=tuple(rules),
+        quote_playlist=_parse_quote_playlist(payload, source=config_path.as_posix()),
+    )
 
 
 def youtube_playlist_ids_for_end_cards(
@@ -152,6 +157,20 @@ def combined_media_airtable_fields(
     if playlists:
         fields[FIELD_PLAYLISTS] = list(playlists)
     return fields
+
+
+def _parse_quote_playlist(payload: dict[str, Any], *, source: str) -> str | None:
+    """Title of the playlist that receives quote videos only.
+
+    Omitted means quotes are not added to a quote playlist. A present value
+    must be a non-empty title. It is not one of the video rules above.
+    """
+    if "quote_playlist" not in payload:
+        return None
+    value = payload.get("quote_playlist")
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f"{source} quote_playlist must be a non-empty string")
+    return value.strip()
 
 
 def _parse_rule(item: object, *, index: int, source: str) -> PlaylistRule:

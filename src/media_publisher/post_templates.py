@@ -237,6 +237,30 @@ def build_quote_youtube_description(caption: str) -> str:
     return f"{header}\n{body}"
 
 
+def is_published_youtube_quote(title: str, description: str) -> bool:
+    """True for a quote upload, not a talk short or a long video.
+
+    Quotes use the quote hashtag at the end of the title and that hashtag
+    alone on the first description line. Talk shorts end with ``#shorts``.
+    """
+    publish = _publish()
+    hashtag = publish.hashtag.strip()
+    header = publish.quote_youtube_description_hashtag.strip()
+    clean_title = title.strip()
+    if not hashtag or not header or not clean_title:
+        return False
+    if "#shorts" in clean_title.casefold():
+        return False
+    if not clean_title.casefold().endswith(hashtag.casefold()):
+        return False
+    first_line = ""
+    for line in description.splitlines():
+        if line.strip():
+            first_line = line.strip()
+            break
+    return first_line.casefold() == header.casefold()
+
+
 def build_quote_social_caption(caption: str) -> str:
     return build_quote_post_caption(caption)
 

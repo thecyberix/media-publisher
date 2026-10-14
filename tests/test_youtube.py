@@ -24,6 +24,7 @@ from media_publisher.publishers.youtube import (
     load_daily_playlist_pending,
     load_daily_playlist_slots,
     parse_channel_handle,
+    playlist_id_for_exact_title,
     prepare_youtube_thumbnail,
     publish_to_youtube,
     queue_pending_daily_playlist_slot,
@@ -567,6 +568,69 @@ class YouTubeClientTests(unittest.TestCase):
             "vid123",
             "PLtest123",
         )
+
+    def test_publish_to_youtube_adds_a_quote_to_its_named_playlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            video_path.write_bytes(b"video")
+            job = PublishJob(
+                title="Quote",
+                video_path=str(video_path),
+                video_format="short_form",
+                content_kind="image",
+            )
+            with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                client = client_cls.return_value
+                client.upload_video.return_value = "vid123"
+                client.owned_playlists.return_value = [
+                    ("PL-archive", "Съзнателна Планета"),
+                    ("PL-quotes", "Цитати"),
+                ]
+                video_id = publish_to_youtube(
+                    job,
+                    client_secrets_path=secrets_path,
+                    token_path=token_path,
+                    playlist_id="PL-archive",
+                    quote_playlist_title="Цитати",
+                )
+
+        self.assertEqual(video_id, "vid123")
+        self.assertEqual(
+            client.add_video_to_playlist.call_args_list,
+            [
+                unittest.mock.call("vid123", "PL-archive"),
+                unittest.mock.call("vid123", "PL-quotes"),
+            ],
+        )
+
+    def test_publish_to_youtube_skips_a_duplicate_quote_playlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            video_path.write_bytes(b"video")
+            job = PublishJob(title="Quote", video_path=str(video_path))
+            with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                client = client_cls.return_value
+                client.upload_video.return_value = "vid123"
+                client.owned_playlists.return_value = [("PL-quotes", "Цитати")]
+                publish_to_youtube(
+                    job,
+                    client_secrets_path=secrets_path,
+                    token_path=token_path,
+                    playlist_id="PL-quotes",
+                    quote_playlist_title="Цитати",
+                )
+
+        client.add_video_to_playlist.assert_called_once_with("vid123", "PL-quotes")
+
+    def test_missing_quote_playlist_title_raises(self) -> None:
+        with self.assertRaises(YouTubePublishError):
+            playlist_id_for_exact_title([("PL-other", "Друга")], "Цитати")
 
     def test_publish_to_youtube_syncs_daily_playlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

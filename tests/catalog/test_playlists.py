@@ -101,6 +101,8 @@ class YoutubePlaylistTests(unittest.TestCase):
                 ),
             ],
         )
+        self.assertEqual(config.quote_playlist, "Цитати")
+        self.assertNotIn("Цитати", youtube_playlists(config=config))
 
     def test_end_card_rules_resolve_youtube_playlist_ids_by_title(self) -> None:
         ids = youtube_playlist_ids_for_end_cards(
