@@ -181,7 +181,7 @@ def publish_platform_task(
             app_id=settings.meta_app_id,
             **settings.template_urls,
         )
-        return meta_client.get_facebook_video_permalink(post_id)
+        return meta_client.permalink_for_uploaded_facebook_video(post_id, log=log)
 
     if task.platform == "instagram":
         if meta_client is None:

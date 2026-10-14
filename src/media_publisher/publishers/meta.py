@@ -13,7 +13,7 @@ import requests
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from media_publisher.video_duration import INSTAGRAM_SINGLE_UPLOAD_MAX_BYTES
 
@@ -25,6 +25,10 @@ CONTAINER_POLL_MAX_ATTEMPTS = 240
 # media_publish can return 9007/2207027 after status_code is already FINISHED.
 INSTAGRAM_PUBLISH_NOT_READY_CODE = 9007
 INSTAGRAM_PUBLISH_NOT_READY_SUBCODE = 2207027
+# Graph GET of a scheduled or unpublished video: the id exists, but this token
+# cannot read it yet (often until the video goes live).
+FACEBOOK_OBJECT_NOT_VISIBLE_CODE = 100
+FACEBOOK_OBJECT_NOT_VISIBLE_SUBCODE = 33
 INSTAGRAM_PUBLISH_RETRY_DELAYS_SECONDS = (5.0, 10.0, 20.0)
 MIN_SCHEDULE_LEAD_SECONDS = 600
 MAX_SCHEDULE_LEAD_SECONDS = 60 * 60 * 24 * 75
@@ -71,6 +75,21 @@ def is_meta_transient_unknown_error(exc: MetaError) -> bool:
     code = payload.get("code")
     message = str(payload.get("message") or "").casefold()
     return code == 1 and "unknown error" in message
+
+
+def is_facebook_object_not_visible(exc: MetaError) -> bool:
+    """True for Graph code 100 / subcode 33 on a video that cannot be loaded.
+
+    A successful schedule still returns a video id. The following permalink GET
+    often fails with this error until the video is public.
+    """
+    if exc.http_status != 400:
+        return False
+    payload = exc.payload or {}
+    return (
+        payload.get("code") == FACEBOOK_OBJECT_NOT_VISIBLE_CODE
+        and payload.get("error_subcode") == FACEBOOK_OBJECT_NOT_VISIBLE_SUBCODE
+    )
 
 
 def is_instagram_media_not_ready(exc: MetaError) -> bool:
@@ -173,6 +192,14 @@ _FACEBOOK_VIDEO_ID_RE = re.compile(
     re.IGNORECASE,
 )
 _FACEBOOK_NUMERIC_ID_RE = re.compile(r"^\d{5,}$")
+
+
+def facebook_video_watch_url(video_id: str) -> str:
+    """Public watch URL for a Facebook video id returned by an upload."""
+    video_id = video_id.strip()
+    if not _FACEBOOK_NUMERIC_ID_RE.fullmatch(video_id):
+        raise MetaError(f"Facebook video id is not numeric: {video_id!r}")
+    return f"https://www.facebook.com/watch/?v={video_id}"
 
 
 def extract_facebook_video_id(value: str) -> str | None:
@@ -1193,6 +1220,31 @@ class MetaClient:
                 f"Meta Facebook video {video_id!r} response is missing permalink_url"
             )
         return normalize_facebook_permalink(permalink)
+
+    def permalink_for_uploaded_facebook_video(
+        self,
+        video_id: str,
+        *,
+        log: Callable[[str], None] = print,
+    ) -> str:
+        """Permalink to store after a Facebook video upload has succeeded.
+
+        Scheduled videos often cannot be read back immediately. When Graph
+        returns code 100 / subcode 33, keep the publish and store the watch URL
+        for the id the upload already returned.
+        """
+        try:
+            return self.get_facebook_video_permalink(video_id)
+        except MetaError as exc:
+            if not is_facebook_object_not_visible(exc):
+                raise
+            permalink = facebook_video_watch_url(video_id)
+            log(
+                "  Facebook video "
+                f"{video_id.strip()} is scheduled, but Graph could not read "
+                f"its permalink yet; storing {permalink}"
+            )
+            return permalink
 
     def get_instagram_media_permalink(self, media_id: str) -> str:
         response = self._request(

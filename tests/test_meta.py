@@ -244,6 +244,71 @@ class MetaClientTests(unittest.TestCase):
             "https://www.facebook.com/reel/4025341661101246/",
         )
 
+    def test_permalink_for_uploaded_video_uses_watch_url_when_graph_cannot_read_it(
+        self,
+    ) -> None:
+        from media_publisher.publishers.meta import is_facebook_object_not_visible
+
+        client = MetaClient("token-test")
+        hidden = MetaError(
+            "Meta GET 1780183936550548 failed with HTTP 400",
+            http_status=400,
+            payload={
+                "message": (
+                    "Unsupported get request. Object with ID '1780183936550548' "
+                    "does not exist, cannot be loaded due to missing permissions, "
+                    "or does not support this operation."
+                ),
+                "type": "GraphMethodException",
+                "code": 100,
+                "error_subcode": 33,
+            },
+        )
+        self.assertTrue(is_facebook_object_not_visible(hidden))
+        notes: list[str] = []
+        with patch.object(client, "_request", side_effect=hidden):
+            permalink = client.permalink_for_uploaded_facebook_video(
+                "1780183936550548",
+                log=notes.append,
+            )
+
+        self.assertEqual(
+            permalink,
+            "https://www.facebook.com/watch/?v=1780183936550548",
+        )
+        self.assertEqual(
+            extract_facebook_video_id(permalink),
+            "1780183936550548",
+        )
+        self.assertIn("1780183936550548", notes[0])
+        self.assertIn(permalink, notes[0])
+
+    def test_permalink_for_uploaded_video_reraises_other_graph_errors(self) -> None:
+        client = MetaClient("token-test")
+        auth_error = MetaError(
+            "Meta GET 1780183936550548 failed with HTTP 400",
+            http_status=400,
+            payload={"code": 190, "message": "Invalid OAuth access token."},
+        )
+        with patch.object(client, "_request", side_effect=auth_error):
+            with self.assertRaises(MetaError) as raised:
+                client.permalink_for_uploaded_facebook_video("1780183936550548")
+        self.assertIs(raised.exception, auth_error)
+
+    def test_get_facebook_video_permalink_still_raises_when_object_is_not_visible(
+        self,
+    ) -> None:
+        client = MetaClient("token-test")
+        hidden = MetaError(
+            "not visible",
+            http_status=400,
+            payload={"code": 100, "error_subcode": 33},
+        )
+        with patch.object(client, "_request", side_effect=hidden):
+            with self.assertRaises(MetaError) as raised:
+                client.get_facebook_video_permalink("1780183936550548")
+        self.assertIs(raised.exception, hidden)
+
     def test_schedule_facebook_video_with_url(self) -> None:
         client = MetaClient("token-test", app_id="app123")
         now = datetime(2026, 7, 3, 12, 0, tzinfo=timezone.utc)

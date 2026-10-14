@@ -2790,7 +2790,7 @@ def main() -> int:
                 app_id=settings.meta_app_id,
                 **template_urls_from_settings(settings),
             )
-            permalink = meta_client.get_facebook_video_permalink(post_id)
+            permalink = meta_client.permalink_for_uploaded_facebook_video(post_id)
             updated = mark_platform_scheduled(
                 airtable,
                 record_id=task.record_id,
