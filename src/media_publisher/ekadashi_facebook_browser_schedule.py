@@ -1,8 +1,8 @@
-"""Local Playwright scheduling for Ekadashi Facebook + Instagram photo posts.
+"""Local Playwright scheduling for Ekadashi Facebook photo posts.
 
 Exports pages from the Canva ``Ekadashi {year}`` design, pairs each with the
 hard-coded 2025 caption for that chronological slot, and schedules via Business
-Suite with Instagram left selected (cross-post).
+Suite with Instagram unchecked. Instagram is published by the Ekadashi workflow.
 """
 from __future__ import annotations
 
@@ -222,7 +222,7 @@ def ekadashi_schedule_at(
     hour: int = DEFAULT_SCHEDULE_HOUR,
     minute: int = DEFAULT_SCHEDULE_MINUTE,
 ) -> datetime:
-    """Local datetime when the FB+IG post should be published (day before @ 12:30)."""
+    """Local datetime when the post should go live (day before at 12:30)."""
     tz = get_timezone(publish_timezone)
     publish_day = event_date - timedelta(days=days_before)
     return datetime(
@@ -256,7 +256,8 @@ def discover_ekadashi_for_month(
 
     Dates come from the public Isha Google Calendar ICS feed (all-day events).
     ``publish_at`` is ``days_before`` the Ekadashi date at ``publish_hour``:``publish_minute``
-    in ``publish_timezone`` (typically Europe/Sofia), applied to Facebook + Instagram.
+    in ``publish_timezone`` (typically Europe/Sofia). The local scheduler posts
+    Facebook only.
     """
     warnings: list[str] = []
     try:
@@ -283,7 +284,7 @@ def discover_ekadashi_for_month(
         f"Dates from Isha calendar ICS"
         + (f" ({ics_path})" if ics_path is not None else "")
         + f"; schedule {days_before} day(s) before at "
-        f"{publish_hour:02d}:{publish_minute:02d} {publish_timezone} (FB+IG)"
+        f"{publish_hour:02d}:{publish_minute:02d} {publish_timezone} (Facebook)"
     )
 
     resolved = find_ekadashi_design(
@@ -385,7 +386,7 @@ def schedule_ekadashi_via_browser(
     dry_run: bool = False,
     print_line: Callable[[str], None] | None = None,
 ) -> tuple[int, int, list[str]]:
-    """Schedule posts to Facebook + Instagram. Returns (ok, failed, errors)."""
+    """Schedule posts to Facebook. Returns (ok, failed, errors)."""
     log = print_line or print
     ok = 0
     failed = 0
@@ -394,7 +395,7 @@ def schedule_ekadashi_via_browser(
         stem = item.entry.stem
         log(
             f"{stem}: {item.entry.name} (Ekadashi {stem}) → "
-            f"FB+IG {item.publish_at.isoformat()} "
+            f"Facebook {item.publish_at.isoformat()} "
             f"(page {item.entry.page_number}, {item.image_path.name})"
         )
         if dry_run:
@@ -424,7 +425,6 @@ def schedule_ekadashi_via_browser(
                 browser_channel=resolve_facebook_browser_channel(),
                 headless=False,
                 proxy=None,
-                include_instagram=True,
                 failure_screenshot=screenshot,
             )
         except FacebookWebError as exc:
@@ -442,6 +442,6 @@ def schedule_ekadashi_via_browser(
             canva_design_id=item.canva_design_id,
         )
         save_schedule_history(history_path, history)
-        log(f"  scheduled FB+IG ({permalink})")
+        log(f"  scheduled Facebook ({permalink})")
         ok += 1
     return ok, failed, errors

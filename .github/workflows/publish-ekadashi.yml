@@ -1,0 +1,62 @@
+name: Publish Ekadashi
+
+# Primary schedule: external cron (cron-job.org) → workflow_dispatch at 12:30 Europe/Sofia.
+# The day before an Ekadashi, this publishes the photo to Facebook and Instagram
+# and a 10-second video to YouTube. Other days it exits without posting.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
+  CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+  CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
+  CONFIG_SYNC_PAT: ${{ secrets.CONFIG_SYNC_PAT }}
+  META_APP_ID: ${{ secrets.META_APP_ID }}
+  META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+  META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+  META_PAGE_USERNAME: ${{ vars.META_PAGE_USERNAME }}
+  META_INSTAGRAM_USERNAME: ${{ vars.META_INSTAGRAM_USERNAME }}
+  YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
+  YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+  YOUTUBE_CHANNEL_HANDLE: ${{ vars.YOUTUBE_CHANNEL_HANDLE }}
+  PUBLISH_JSON: ${{ vars.PUBLISH_JSON }}
+  TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          install-ffmpeg: "true"
+
+      - name: Publish today's Ekadashi post
+        id: publish
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -m media_publisher --ekadashi
+
+      - name: Commit Ekadashi publish state
+        if: steps.publish.outcome == 'success' || steps.publish.outcome == 'failure'
+        run: |
+          if [ ! -f data/ekadashi_publish_state.json ]; then
+            echo "No Ekadashi publish state file."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ekadashi_publish_state.json
+          if git diff --staged --quiet; then
+            echo "No Ekadashi publish state changes to commit."
+          else
+            git commit -m "Record published Ekadashi posts"
+            git push
+          fi

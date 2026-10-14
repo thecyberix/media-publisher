@@ -473,6 +473,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--ekadashi",
+        action="store_true",
+        help=(
+            "Publish today's Ekadashi photo to Facebook and Instagram, "
+            "and a 10-second YouTube video. A run with nothing due exits without posting."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --ekadashi, list the post that would be published and do not post it.",
+    )
+    parser.add_argument(
         "--prepare-quote-texts",
         action="store_true",
         help=(
@@ -1307,6 +1320,7 @@ def cli_requested_action(args) -> bool:
             args.schedule_facebook,
             args.schedule_instagram,
             args.quotes,
+            args.ekadashi,
             args.prepare_quote_texts,
             args.watch is not None,
             args.inspect_channel_report,
@@ -1735,6 +1749,65 @@ def run_prepare_quote_texts(settings, _args) -> int:
         f"{result.reused_count} reused, {result.translated_count} AI-translated."
     )
     return 0
+
+
+def run_ekadashi_cli(settings, args) -> int:
+    selected = resolve_selected_platforms(args)
+    platforms = ("facebook", "instagram", "youtube")
+    if selected is not None:
+        platforms = tuple(platform for platform in selected if platform in platforms)
+        if not platforms:
+            print("Ekadashi posts publish to Facebook, Instagram, and YouTube.")
+            return 1
+
+    missing = canva_settings_missing(settings)
+    if not settings.publish_timezone:
+        missing.append("PUBLISH_JSON timezone")
+    needs_meta = any(platform in platforms for platform in ("facebook", "instagram"))
+    if needs_meta:
+        missing.extend(meta_settings_missing(settings))
+    if "youtube" in platforms:
+        missing.extend(youtube_settings_missing(settings))
+    if missing:
+        print("Missing required settings:", ", ".join(dict.fromkeys(missing)))
+        return 1
+
+    canva_exit = ensure_canva_ready_for_run(settings, log=print_console)
+    if canva_exit is not None:
+        return canva_exit
+
+    page_id = ""
+    instagram_account_id = ""
+    if needs_meta:
+        try:
+            page_id, instagram_account_id, _page = resolve_meta_targets(settings)
+        except MetaError as exc:
+            print(f"Ekadashi publish failed: {exc}")
+            return 1
+
+    from media_publisher.ekadashi_pipeline import run_ekadashi_publish
+
+    try:
+        return run_ekadashi_publish(
+            project_root=PROJECT_ROOT,
+            publish_timezone=require_publish_timezone(settings),
+            canva_client=canva_client_from_settings(settings),
+            page_id=page_id,
+            instagram_account_id=instagram_account_id,
+            access_token=settings.meta_access_token or "",
+            meta_app_id=settings.meta_app_id,
+            youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
+            youtube_token=PROJECT_ROOT / settings.youtube_token,
+            youtube_channel_handle=settings.youtube_channel_handle,
+            ffmpeg_path=settings.happyscribe_ffmpeg,
+            template_urls=template_urls_from_settings(settings),
+            platforms=platforms,
+            dry_run=bool(args.dry_run),
+            print_line=print_console,
+        )
+    except (MetaError, RuntimeError) as exc:
+        print(f"Ekadashi publish failed: {exc}")
+        return 1
 
 
 def resolve_selected_platforms(args) -> tuple[PlatformName, ...] | None:
@@ -2915,6 +2988,12 @@ def main() -> int:
     if args.prepare_quote_texts:
         return run_prepare_quote_texts(settings, args)
 
+    if args.dry_run and not args.ekadashi:
+        parser.error("--dry-run is only valid with --ekadashi")
+
+    if args.ekadashi:
+        return run_ekadashi_cli(settings, args)
+
     if args.quotes:
         return run_quotes_publish(settings, args)
 
@@ -2931,7 +3010,7 @@ def main() -> int:
         "--test-meta, --check-event-meta, --publish-event, --prune-past-events, "
         "--resolve-meta, "
         "--meta-setup-token, --schedule-youtube, "
-        "--schedule-facebook, --schedule-instagram, --prepare-quote-texts, --quotes, "
+        "--schedule-facebook, --schedule-instagram, --prepare-quote-texts, --quotes, --ekadashi, "
         "--schedule, --watch, "
         "--inspect-channel-report, or --update-channel-report"
     )

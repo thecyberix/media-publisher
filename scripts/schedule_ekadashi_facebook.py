@@ -1,8 +1,8 @@
-"""Schedule Ekadashi photo posts to Facebook + Instagram via Playwright (local).
+"""Schedule Ekadashi photo posts to Facebook via Playwright (local).
 
 Exports pages from Canva folder ``FAHWrBd1fUE`` / design ``Ekadashi {year}``,
 pairs each with the hard-coded 2025 caption for that slot, and schedules through
-Business Suite with Instagram left selected.
+Business Suite with Instagram unchecked.
 
 Prerequisites:
   python -m media_publisher --facebook-browser-login
@@ -16,8 +16,9 @@ Examples:
   python scripts/schedule_ekadashi_facebook.py --year 2026 --month 10 --force
 
 Dates are read from the public Isha Google Calendar ICS
-(ishacalendar@gmail.com). Each post is scheduled for Facebook + Instagram
+(ishacalendar@gmail.com). Each post is scheduled for Facebook
 one day before the Ekadashi date at 12:30 Europe/Sofia.
+Instagram is published by the Ekadashi workflow.
 """
 from __future__ import annotations
 
@@ -61,7 +62,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Schedule Ekadashi Canva pages to Facebook + Instagram via Playwright; "
+            "Schedule Ekadashi Canva pages to Facebook via Playwright; "
             "skip days already recorded in local history."
         )
     )
@@ -197,7 +198,7 @@ def main() -> int:
         return 0
 
     print(f"History: {history_path}")
-    print(f"Scheduling {len(pending)} post(s) to Facebook + Instagram…")
+    print(f"Scheduling {len(pending)} post(s) to Facebook…")
     ok, failed, errors = schedule_ekadashi_via_browser(
         pending,
         page_username=settings.meta_page_username,

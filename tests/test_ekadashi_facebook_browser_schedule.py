@@ -5,14 +5,16 @@ import tempfile
 import unittest
 from datetime import date, datetime
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from media_publisher.ekadashi import (
     CAPTIONS_FROM_2025,
     CalendarEkadashi,
     EkadashiCalendarError,
+    EkadashiEntry,
     build_ekadashi_entries,
+    ekadashi_entries_due_on,
     ekadashi_entries_for_month,
     ekadashi_entries_for_year,
     parse_ekadashi_design_year,
@@ -26,6 +28,7 @@ from media_publisher.ekadashi_facebook_browser_schedule import (
     load_schedule_history,
     mark_scheduled_in_history,
     save_schedule_history,
+    schedule_ekadashi_via_browser,
     select_pending_schedule_items,
 )
 from media_publisher.sources.canva import CanvaDesignSummary
@@ -119,6 +122,35 @@ class EkadashiCalendarParseTests(unittest.TestCase):
         self.assertEqual([e.day for e in october], [6, 22])
         self.assertEqual([e.page_number for e in october], [3, 4])
 
+    def test_post_is_due_the_day_before(self) -> None:
+        entries = (
+            EkadashiEntry(
+                year=2026,
+                month=1,
+                day=1,
+                name="Ekadashi",
+                caption="caption",
+                page_number=1,
+            ),
+            EkadashiEntry(
+                year=2026,
+                month=10,
+                day=22,
+                name="Ekadashi",
+                caption="caption",
+                page_number=2,
+            ),
+        )
+        self.assertEqual(
+            [entry.stem for entry in ekadashi_entries_due_on(date(2026, 10, 21), entries)],
+            ["2026-10-22"],
+        )
+        self.assertEqual(ekadashi_entries_due_on(date(2026, 10, 22), entries), ())
+        self.assertEqual(
+            [entry.stem for entry in ekadashi_entries_due_on(date(2025, 12, 31), entries)],
+            ["2026-01-01"],
+        )
+
     def test_caption_count_mismatch(self) -> None:
         events = parse_ekadashi_events_from_ics(_SAMPLE_ICS, year=2026)
         with self.assertRaises(EkadashiCalendarError):
@@ -204,6 +236,44 @@ class EkadashiScheduleHistoryTests(unittest.TestCase):
             )
             self.assertEqual(pending, [])
             self.assertEqual(skips[0].reason, "already in history")
+
+    def test_local_schedule_does_not_cross_post_to_instagram(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "2026-10-06.jpg"
+            image.write_bytes(b"ekadashi-bytes")
+            entry = EkadashiEntry(
+                year=2026,
+                month=10,
+                day=6,
+                name="Ekadashi",
+                caption="caption",
+                page_number=1,
+            )
+            item = PreparedEkadashiScheduleItem(
+                entry=entry,
+                caption=entry.caption,
+                publish_at=datetime(2026, 10, 5, 12, 30, tzinfo=ZoneInfo("Europe/Sofia")),
+                image_path=image,
+                content_fingerprint="fp",
+                canva_design_id="design1",
+            )
+            history_path = root / "history.json"
+            with patch(
+                "media_publisher.ekadashi_facebook_browser_schedule.publish_facebook_photo_via_browser",
+                return_value=("post", "https://facebook.com/p/1"),
+            ) as publish:
+                ok, failed, errors = schedule_ekadashi_via_browser(
+                    [item],
+                    page_username="sadhguru.bulgarian",
+                    project_root=root,
+                    history={},
+                    history_path=history_path,
+                    display_timezone="Europe/Sofia",
+                    print_line=lambda _message: None,
+                )
+        self.assertEqual((ok, failed, errors), (1, 0, []))
+        self.assertFalse(publish.call_args.kwargs.get("include_instagram", False))
 
 
 if __name__ == "__main__":

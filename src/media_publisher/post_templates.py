@@ -207,14 +207,14 @@ def _quote_body(caption: str) -> str:
     return clean
 
 
-def build_quote_youtube_title(caption: str) -> str:
+def build_quote_youtube_title(caption: str, *, hashtag: str | None = None) -> str:
     """Build a YouTube title from quote text with the configured hashtag."""
-    hashtag = quote_hashtag()
+    resolved = (hashtag if hashtag is not None else quote_hashtag()).strip()
     body = _quote_body(caption)
-    suffix = f" {hashtag}"
+    suffix = f" {resolved}" if resolved else ""
     max_body_len = YOUTUBE_TITLE_MAX_LENGTH - len(suffix)
     if not body:
-        return hashtag
+        return resolved
 
     if len(body) <= max_body_len:
         return f"{body}{suffix}"
@@ -225,8 +225,20 @@ def build_quote_youtube_title(caption: str) -> str:
         return f"{first_sentence}{suffix}"
 
     ellipsis = "..."
-    max_len = max_body_len - len(ellipsis)
+    max_len = max(max_body_len - len(ellipsis), 0)
     return f"{first_sentence[:max_len].rstrip()}{ellipsis}{suffix}"
+
+
+EKADASHI_YOUTUBE_HASHTAG = "#Екадаши"
+
+
+def build_ekadashi_youtube_title(caption: str) -> str:
+    """YouTube title for an Ekadashi still, using the same length rules as quotes."""
+    hashtag = EKADASHI_YOUTUBE_HASHTAG
+    body = caption.strip()
+    if body.casefold().endswith(hashtag.casefold()):
+        body = body[: -len(hashtag)].strip()
+    return build_quote_youtube_title(body, hashtag=hashtag)
 
 
 def build_quote_youtube_description(caption: str) -> str:

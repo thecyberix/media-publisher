@@ -11,7 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Sequence
 
@@ -239,6 +239,19 @@ def build_ekadashi_entries(
             )
         )
     return tuple(entries)
+
+
+def ekadashi_entries_due_on(
+    today: date,
+    entries: Sequence[EkadashiEntry],
+    *,
+    days_before: int = 1,
+) -> tuple[EkadashiEntry, ...]:
+    """Entries whose post goes live on ``today`` (the day before the observance)."""
+    if days_before < 0:
+        raise ValueError(f"days_before must be >= 0 (got {days_before})")
+    event_day = today + timedelta(days=days_before)
+    return tuple(entry for entry in entries if entry.event_date == event_day)
 
 
 def ekadashi_entries_for_year(

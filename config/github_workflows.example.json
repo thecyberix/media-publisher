@@ -43,6 +43,11 @@
         "timing": "standard"
       }
     },
+    "publish-ekadashi": {
+      "description": "Publish today's Ekadashi photo, and a YouTube video, if one is due",
+      "workflow": "publish-ekadashi.yml",
+      "inputs": {}
+    },
     "catalog-daily-dry-run": {
       "description": "Catalog orchestrator dry run (no Airtable/Drive writes)",
       "workflow": "catalog-daily-workflow.yml",
@@ -121,6 +126,12 @@
       "schedule": "0 8 * * *",
       "timezone": "Europe/Sofia",
       "preset": "publish-production-quotes"
+    },
+    "publish-ekadashi-1230-sofia": {
+      "description": "cron-job.org mirror — Ekadashi photo at 12:30 Europe/Sofia",
+      "schedule": "30 12 * * *",
+      "timezone": "Europe/Sofia",
+      "preset": "publish-ekadashi"
     }
   }
 }
