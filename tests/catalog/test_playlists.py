@@ -24,6 +24,7 @@ from catalog_parser.playlists import (
     combined_media_airtable_fields,
     instagram_comments_for_playlists,
     load_playlist_config,
+    youtube_playlist_ids_for_end_cards,
     youtube_playlists,
 )
 from catalog_parser.save_soil import EndCardOverlay
@@ -100,6 +101,32 @@ class YoutubePlaylistTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_end_card_rules_resolve_youtube_playlist_ids_by_title(self) -> None:
+        ids = youtube_playlist_ids_for_end_cards(
+            load_playlist_config().rules,
+            [
+                ("PL-default", "Съзнателна Планета"),
+                ("PL-ie", "Вътрешно Изграждане"),
+                ("PL-soil", "Спасете Почвата"),
+                ("PL-mom", "Чудото на Ума"),
+            ],
+        )
+        self.assertEqual(
+            ids,
+            {
+                END_CARD_INNER_ENGINEERING: "PL-ie",
+                END_CARD_SAVE_SOIL: "PL-soil",
+                END_CARD_MIRACLE_OF_MIND: "PL-mom",
+            },
+        )
+
+    def test_missing_youtube_playlist_title_raises(self) -> None:
+        with self.assertRaises(RuntimeError):
+            youtube_playlist_ids_for_end_cards(
+                (PlaylistRule("Спасете Почвата", END_CARD_SAVE_SOIL),),
+                [("PL-other", "Other")],
+            )
 
     def test_miracle_of_mind_animation_adds_its_playlist(self) -> None:
         self.assertEqual(

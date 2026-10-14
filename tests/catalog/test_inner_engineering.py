@@ -49,6 +49,24 @@ def _write_save_soil_still(path: Path) -> None:
     image.save(path)
 
 
+def _write_blue_sky_scene(path: Path) -> None:
+    image = Image.new("RGB", (180, 320), (48, 58, 120))
+    pixels = image.load()
+    for y in range(150, 320):
+        for x in range(0, 180):
+            pixels[x, y] = (176, 154, 132)
+    image.save(path)
+
+
+def _write_blue_stage(path: Path) -> None:
+    image = Image.new("RGB", (180, 320), (24, 28, 70))
+    pixels = image.load()
+    for y in range(120, 300):
+        for x in range(40, 150):
+            pixels[x, y] = (150, 120, 90)
+    image.save(path)
+
+
 def _write_content_still(path: Path) -> None:
     image = Image.new("RGB", (180, 320), (118, 112, 118))
     pixels = image.load()
@@ -131,6 +149,16 @@ class InnerEngineeringDetectionTests(unittest.TestCase):
             _write_content_still(content)
             self.assertFalse(frame_looks_like_inner_engineering(soil))
             self.assertFalse(frame_looks_like_inner_engineering(content))
+
+    def test_frame_fingerprint_rejects_blue_scenes_with_a_warm_subject(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sky = root / "sky.jpg"
+            stage = root / "stage.jpg"
+            _write_blue_sky_scene(sky)
+            _write_blue_stage(stage)
+            self.assertFalse(frame_looks_like_inner_engineering(sky))
+            self.assertFalse(frame_looks_like_inner_engineering(stage))
 
     def test_frame_fingerprint_on_example_end_card(self) -> None:
         card = Path("_tmp_ie/last.png")

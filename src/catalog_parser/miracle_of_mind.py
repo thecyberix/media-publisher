@@ -42,7 +42,20 @@ def frame_looks_like_miracle_of_mind(image_path: Path) -> bool:
         return red / count, green / count, blue / count
 
     field_r, field_g, field_b = patch_mean(0, 0, width, height)
-    if (field_r + field_g + field_b) / 3 > 42:
+    # The app icon is small. A large red subject (food, clothing, a backdrop)
+    # lifts the frame's average red well above the real slate.
+    if field_r > 28 or (field_r + field_g + field_b) / 3 > 24:
+        return False
+    near_black = sampled = 0
+    step_x = max(1, width // 48)
+    step_y = max(1, height // 48)
+    for y in range(0, height, step_y):
+        for x in range(0, width, step_x):
+            red, green, blue = pixels[x, y]
+            sampled += 1
+            if red < 28 and green < 28 and blue < 36:
+                near_black += 1
+    if sampled == 0 or near_black / sampled < 0.76:
         return False
 
     inset = max(1, min(width, height) // 12)

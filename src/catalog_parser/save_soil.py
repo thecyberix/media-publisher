@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from googleapiclient.discovery import Resource
 from PIL import Image
@@ -239,6 +239,148 @@ def end_card_start_from_samples(
     if duration - start < _MIN_END_CARD_SECONDS:
         return None
     return round(start, 2)
+
+
+def end_card_start_from_window_samples(
+    samples: list[tuple[float, bool]],
+    *,
+    min_seconds: float = _MIN_END_CARD_SECONDS,
+    sample_step: float = 0.5,
+) -> float | None:
+    """Return the start of the latest long enough match, even if the video ends later.
+
+    A thumbnail appended after the card leaves non-matching samples at the end.
+    Those do not hide an earlier run. A single sample is not long enough.
+    """
+    ordered = sorted(samples, key=lambda item: item[0])
+    runs: list[list[float]] = []
+    current: list[float] = []
+    for timestamp, is_card in ordered:
+        if is_card:
+            current.append(timestamp)
+            continue
+        if current:
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    for run in reversed(runs):
+        if run[-1] - run[0] + sample_step >= min_seconds:
+            return round(run[0], 2)
+    return None
+
+
+def detect_card_in_ending_window(
+    video_path: Path,
+    looks_like,
+    *,
+    ffmpeg_path: str | None = None,
+    work_dir: Path | None = None,
+    temp_prefix: str = "endwindow-",
+    window_seconds: float = _DETECT_WINDOW_SECONDS,
+) -> float | None:
+    """Return when a branded card appears near the end, if it stays up long enough.
+
+    Unlike ``detect_ending_card``, the card does not have to be the final frames.
+    """
+    duration = probe_local_video_duration_seconds(video_path)
+    if duration is None or duration < _MIN_END_CARD_SECONDS:
+        return None
+    ffmpeg = resolve_ffmpeg_path(ffmpeg_path)
+    end_t = max(0.0, duration - 0.12)
+    window_start = max(0.0, duration - window_seconds)
+    step = 0.5
+    tmp_parent: str | None = None
+    if work_dir is not None:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        tmp_parent = str(work_dir)
+
+    with tempfile.TemporaryDirectory(prefix=temp_prefix, dir=tmp_parent) as tmp:
+        tmp_dir = Path(tmp)
+        samples: list[tuple[float, bool]] = []
+        timestamp = window_start
+        index = 0
+        while timestamp < end_t - 0.05:
+            frame = _extract_frame(
+                video_path,
+                timestamp,
+                tmp_dir / f"w{index}.jpg",
+                ffmpeg=ffmpeg,
+            )
+            samples.append((timestamp, bool(frame and looks_like(frame))))
+            timestamp += step
+            index += 1
+        end_frame = _extract_frame(
+            video_path,
+            end_t,
+            tmp_dir / "end.jpg",
+            ffmpeg=ffmpeg,
+        )
+        samples.append((end_t, bool(end_frame and looks_like(end_frame))))
+    return end_card_start_from_window_samples(samples, sample_step=step)
+
+
+def detect_cards_in_ending_window(
+    video_path: Path,
+    looks_like_by_key: dict[str, Any],
+    *,
+    ffmpeg_path: str | None = None,
+    work_dir: Path | None = None,
+    temp_prefix: str = "endwindow-",
+    window_seconds: float = _DETECT_WINDOW_SECONDS,
+) -> dict[str, float]:
+    """Return each card key that appears near the end, mapped to its start time.
+
+    Frames are extracted once and checked against every fingerprint. A card can
+    match even when later frames, such as an appended thumbnail, do not.
+    """
+    if not looks_like_by_key:
+        return {}
+    duration = probe_local_video_duration_seconds(video_path)
+    if duration is None or duration < _MIN_END_CARD_SECONDS:
+        return {}
+    ffmpeg = resolve_ffmpeg_path(ffmpeg_path)
+    end_t = max(0.0, duration - 0.12)
+    window_start = max(0.0, duration - window_seconds)
+    step = 0.5
+    tmp_parent: str | None = None
+    if work_dir is not None:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        tmp_parent = str(work_dir)
+
+    grouped: dict[str, list[tuple[float, bool]]] = {
+        key: [] for key in looks_like_by_key
+    }
+    with tempfile.TemporaryDirectory(prefix=temp_prefix, dir=tmp_parent) as tmp:
+        tmp_dir = Path(tmp)
+
+        def record(timestamp: float, frame: Path | None) -> None:
+            for key, looks_like in looks_like_by_key.items():
+                grouped[key].append((timestamp, bool(frame and looks_like(frame))))
+
+        timestamp = window_start
+        index = 0
+        while timestamp < end_t - 0.05:
+            frame = _extract_frame(
+                video_path,
+                timestamp,
+                tmp_dir / f"w{index}.jpg",
+                ffmpeg=ffmpeg,
+            )
+            record(timestamp, frame)
+            timestamp += step
+            index += 1
+        record(
+            end_t,
+            _extract_frame(video_path, end_t, tmp_dir / "end.jpg", ffmpeg=ffmpeg),
+        )
+
+    found: dict[str, float] = {}
+    for key, samples in grouped.items():
+        start = end_card_start_from_window_samples(samples, sample_step=step)
+        if start is not None:
+            found[key] = start
+    return found
 
 
 def _extract_frame(

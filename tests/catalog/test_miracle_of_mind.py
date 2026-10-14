@@ -25,6 +25,15 @@ def _write_app_icon(path: Path, *, size: tuple[int, int], box: tuple[int, int, i
     image.save(path)
 
 
+def _write_letterboxed_red_scene(path: Path) -> None:
+    image = Image.new("RGB", (180, 320), (0, 0, 0))
+    pixels = image.load()
+    for y in range(70, 230):
+        for x in range(24, 156):
+            pixels[x, y] = (168, 42, 36)
+    image.save(path)
+
+
 def _write_talking_head(path: Path) -> None:
     image = Image.new("RGB", (180, 320), (20, 36, 78))
     pixels = image.load()
@@ -50,6 +59,9 @@ def _write_inner_engineering(path: Path) -> None:
     for y in range(190, 310):
         for x in range(20, 160):
             pixels[x, y] = (160, 120, 100)
+    for y in range(0, 28):
+        for x in range(140, 180):
+            pixels[x, y] = (220, 110, 20)
     image.save(path)
 
 
@@ -80,6 +92,12 @@ class MiracleOfMindFingerprintTests(unittest.TestCase):
             self.assertFalse(frame_looks_like_miracle_of_mind(inner))
             self.assertTrue(frame_looks_like_save_soil(soil))
             self.assertTrue(frame_looks_like_inner_engineering(inner))
+
+    def test_large_red_subject_on_black_is_not_the_app_icon(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scene = Path(tmpdir) / "scene.jpg"
+            _write_letterboxed_red_scene(scene)
+            self.assertFalse(frame_looks_like_miracle_of_mind(scene))
 
     def test_detection_does_not_replace_the_video(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

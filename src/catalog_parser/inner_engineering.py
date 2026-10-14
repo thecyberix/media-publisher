@@ -175,10 +175,29 @@ def frame_looks_like_inner_engineering(image_path: Path) -> bool:
     top_left = patch_mean(0, 0, max(1, width // 5), max(1, height // 8))
     upper = patch_mean(width // 4, height // 10, 3 * width // 4, height // 3)
     lower = patch_mean(width // 5, 3 * height // 5, 4 * width // 5, 9 * height // 10)
+    top_right = patch_mean(
+        int(width * 0.94),
+        0,
+        width,
+        max(1, int(height * 0.04)),
+    )
+    side_top = int(height * 0.55)
+    side_bottom = max(side_top + 1, int(height * 0.78))
+    side_width = max(1, int(width * 0.08))
+    side_left = patch_mean(0, side_top, side_width, side_bottom)
+    side_right = patch_mean(width - side_width, side_top, width, side_bottom)
+    orange_corner = (
+        top_right[0] >= 100
+        and top_right[0] >= top_right[1] + 40
+        and top_right[0] >= top_right[2] + 30
+    )
     return (
         _is_navy(*top_left)
         and _is_navy_field(*upper)
         and _is_warm_portrait(*lower)
+        and orange_corner
+        and _is_navy(*side_left)
+        and _is_navy(*side_right)
     )
 
 

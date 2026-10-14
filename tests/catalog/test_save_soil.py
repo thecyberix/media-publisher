@@ -10,6 +10,7 @@ from PIL import Image
 from catalog_parser.drive_combine import DriveMediaFile
 from catalog_parser.save_soil import (
     end_card_start_from_samples,
+    end_card_start_from_window_samples,
     find_save_soil_image,
     frame_looks_like_save_soil,
     orientation_for_video_type,
@@ -209,6 +210,41 @@ class SaveSoilDetectionTests(unittest.TestCase):
                 duration=18.4,
             )
         )
+
+    def test_window_finds_card_before_a_trailing_thumbnail(self) -> None:
+        start = end_card_start_from_window_samples(
+            [
+                (40.0, False),
+                (40.5, True),
+                (41.0, True),
+                (41.5, True),
+                (42.0, False),
+                (42.5, False),
+            ]
+        )
+        self.assertEqual(start, 40.5)
+
+    def test_window_ignores_a_single_matching_frame(self) -> None:
+        self.assertIsNone(
+            end_card_start_from_window_samples(
+                [(40.0, False), (40.5, True), (41.0, False), (41.5, False)]
+            )
+        )
+
+    def test_window_uses_the_latest_long_run(self) -> None:
+        start = end_card_start_from_window_samples(
+            [
+                (30.0, True),
+                (30.5, True),
+                (31.0, True),
+                (31.5, False),
+                (38.0, True),
+                (38.5, True),
+                (39.0, True),
+                (39.5, False),
+            ]
+        )
+        self.assertEqual(start, 38.0)
 
     def test_end_card_start_none_when_card_too_short(self) -> None:
         self.assertIsNone(

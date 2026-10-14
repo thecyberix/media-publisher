@@ -73,6 +73,38 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
     return PlaylistConfig(rules=tuple(rules))
 
 
+def youtube_playlist_ids_for_end_cards(
+    rules: Sequence[PlaylistRule],
+    titled_playlists: Sequence[tuple[str, str]],
+) -> dict[str, str]:
+    """Map an end-card key to a YouTube playlist id by exact playlist title.
+
+    ``titled_playlists`` is ``(playlist_id, title)``. Rules with no end card are
+    skipped. A missing title raises so a video is not added to the wrong list.
+    """
+    by_title: dict[str, str] = {}
+    for playlist_id, title in titled_playlists:
+        by_title.setdefault(title, playlist_id)
+    found: dict[str, str] = {}
+    missing: list[str] = []
+    for rule in rules:
+        if not rule.end_card:
+            continue
+        playlist_id = by_title.get(rule.name)
+        if not playlist_id:
+            missing.append(rule.name)
+            continue
+        found[rule.end_card] = playlist_id
+    if missing:
+        known = ", ".join(sorted(by_title)) or "(none)"
+        raise RuntimeError(
+            "YouTube playlist title not found for "
+            + ", ".join(missing)
+            + f". Channel playlists: {known}"
+        )
+    return found
+
+
 def youtube_playlists(
     detected_end_cards: Collection[str] = (),
     *,
