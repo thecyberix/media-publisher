@@ -31,6 +31,7 @@ from media_publisher.sources.drive_layout import (
 from media_publisher.video_duration import (
     probe_local_video_duration_seconds,
     probe_local_video_size,
+    probe_video_stream_duration_seconds,
 )
 
 SAVE_SOIL_REEL_STEM = "savesoilreel"
@@ -414,6 +415,21 @@ def _extract_frame(
     return destination
 
 
+def _picture_duration_seconds(video_path: Path) -> float | None:
+    """Duration used to sample the last picture.
+
+    The container duration follows the longer audio track. Seeking that far
+    can land past the last video frame.
+    """
+    duration = probe_local_video_duration_seconds(video_path)
+    stream = probe_video_stream_duration_seconds(video_path)
+    if stream is None:
+        return duration
+    if duration is None or stream < duration:
+        return stream
+    return duration
+
+
 def detect_ending_card(
     video_path: Path,
     looks_like,
@@ -423,7 +439,7 @@ def detect_ending_card(
     temp_prefix: str = "endcard-",
 ) -> float | None:
     """Return when a branded end card begins, if the video ends on that card."""
-    duration = probe_local_video_duration_seconds(video_path)
+    duration = _picture_duration_seconds(video_path)
     if duration is None or duration < _MIN_END_CARD_SECONDS:
         return None
     ffmpeg = resolve_ffmpeg_path(ffmpeg_path)

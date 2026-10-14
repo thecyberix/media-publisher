@@ -1,21 +1,113 @@
-"""Detect the Miracle of Mind end animation during Combined Media generation.
-
-The animation stays in the video. A match only marks the video for the
-configured playlist.
-"""
+"""Replace English Miracle of Mind end cards during Combined Media generation."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from googleapiclient.discovery import Resource
 from PIL import Image
 
-from catalog_parser.save_soil import EndCardOverlay, detect_ending_card
+from catalog_parser.drive_combine import DriveMediaFile, download_drive_file
+from catalog_parser.drive_media import (
+    FOLDER_MIME_TYPE,
+    list_folder_children,
+    resolve_drive_item,
+)
+from catalog_parser.save_soil import (
+    EndCardOverlay,
+    VideoOrientation,
+    detect_ending_card,
+    orientation_for_video_type,
+    overlay_save_soil_end_card,
+)
+from media_publisher.sources.drive_layout import FOLDER_IMAGES, resolve_save_soil_folder_id
+from media_publisher.video_duration import probe_local_video_size
+
+MIRACLE_OF_MIND_REEL_STEM = "miracleofmindreel"
+MIRACLE_OF_MIND_VIDEO_STEM = "miracleofmindvideo"
+_STEM_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_stem(name: str) -> str:
+    return _STEM_RE.sub("", Path(name).stem.casefold())
+
+
+def miracle_of_mind_image_kind(name: str) -> VideoOrientation | None:
+    """Return orientation encoded by MiracleOfMindReel / MiracleOfMindVideo."""
+    stem = _normalize_stem(name)
+    if stem == MIRACLE_OF_MIND_REEL_STEM or stem.startswith(MIRACLE_OF_MIND_REEL_STEM):
+        return "vertical"
+    if stem == MIRACLE_OF_MIND_VIDEO_STEM or stem.startswith(MIRACLE_OF_MIND_VIDEO_STEM):
+        return "horizontal"
+    return None
+
+
+def pick_miracle_of_mind_image(
+    images: list[DriveMediaFile],
+    *,
+    orientation: VideoOrientation,
+) -> DriveMediaFile | None:
+    matching = [
+        image for image in images if miracle_of_mind_image_kind(image.name) == orientation
+    ]
+    if not matching:
+        return None
+    return sorted(matching, key=lambda item: item.name.casefold())[0]
+
+
+def _centered_starfield_icon(pixels, width: int, height: int) -> bool:
+    """True for the dark star-field card with one centered app icon.
+
+    The icon is a small solid red square. A corner watermark is smaller and
+    sits at the edge. A red subject (food, clothing, a backdrop) is much larger.
+    """
+    hot_x: list[int] = []
+    hot_y: list[int] = []
+    dark = 0
+    for y in range(height):
+        for x in range(width):
+            red, green, blue = pixels[x, y]
+            if (red + green + blue) / 3 < 50:
+                dark += 1
+            if red >= 160 and green <= 80 and red >= green + 70 and red >= blue + 50:
+                hot_x.append(x)
+                hot_y.append(y)
+    sampled = width * height
+    if dark / sampled < 0.90:
+        return False
+    count = len(hot_x)
+    fraction = count / sampled
+    if fraction < 0.010 or fraction > 0.030:
+        return False
+    left, right = min(hot_x), max(hot_x)
+    top, bottom = min(hot_y), max(hot_y)
+    box_w = right - left + 1
+    box_h = bottom - top + 1
+    if box_w < 8 or box_h < 8:
+        return False
+    aspect = box_w / box_h
+    if aspect < 0.75 or aspect > 1.35:
+        return False
+    if box_w / width > 0.34 or box_h / height > 0.22:
+        return False
+    if count / (box_w * box_h) < 0.55:
+        return False
+    center_x = (left + right) / 2 / width
+    center_y = (top + bottom) / 2 / height
+    if center_x < 0.38 or center_x > 0.62 or left / width < 0.28 or right / width > 0.72:
+        return False
+    if center_y < 0.18 or center_y > 0.50:
+        return False
+    return True
 
 
 def frame_looks_like_miracle_of_mind(image_path: Path) -> bool:
-    """True for the near-black end slate with the red Miracle of Mind app icon."""
+    """True for a Miracle of Mind end card.
+
+    Matches the near-black slate and the dark star-field card. Both carry the
+    red app icon. A large red subject does not match.
+    """
     try:
         with Image.open(image_path) as image:
             rgb = image.convert("RGB")
@@ -25,6 +117,9 @@ def frame_looks_like_miracle_of_mind(image_path: Path) -> bool:
             pixels = rgb.load()
     except OSError:
         return False
+
+    if _centered_starfield_icon(pixels, width, height):
+        return True
 
     def patch_mean(left: int, top: int, right: int, bottom: int) -> tuple[float, float, float]:
         red = green = blue = count = 0
@@ -88,6 +183,65 @@ def frame_looks_like_miracle_of_mind(image_path: Path) -> bool:
     return False
 
 
+def _drive_image(item: dict, *, parent_id: str) -> DriveMediaFile | None:
+    file_id = item.get("id")
+    name = item.get("name")
+    mime_type = item.get("mimeType")
+    if not isinstance(file_id, str) or not file_id:
+        return None
+    if not isinstance(name, str) or not name.strip():
+        return None
+    if not isinstance(mime_type, str) or not mime_type.startswith("image/"):
+        return None
+    return DriveMediaFile(
+        id=file_id,
+        name=name,
+        mime_type=mime_type,
+        parent_id=parent_id,
+    )
+
+
+def _orientation_from_video_file(video_path: Path) -> VideoOrientation | None:
+    size = probe_local_video_size(video_path)
+    if size is None:
+        return None
+    width, height = size
+    if width > height:
+        return "horizontal"
+    if height > width:
+        return "vertical"
+    return None
+
+
+def list_miracle_of_mind_images(
+    drive_service: Resource,
+    folder_id: str,
+) -> list[DriveMediaFile]:
+    images: list[DriveMediaFile] = []
+    for item in list_folder_children(drive_service, folder_id):
+        resolved = resolve_drive_item(drive_service, item)
+        mime_type = resolved.get("mimeType")
+        if not isinstance(mime_type, str) or mime_type == FOLDER_MIME_TYPE:
+            continue
+        if not mime_type.startswith("image/"):
+            continue
+        media = _drive_image(resolved, parent_id=folder_id)
+        if media is not None and miracle_of_mind_image_kind(media.name) is not None:
+            images.append(media)
+    return images
+
+
+def find_miracle_of_mind_image(
+    drive_service: Resource,
+    *,
+    orientation: VideoOrientation,
+    folder_id: str | None = None,
+) -> DriveMediaFile | None:
+    target_folder = folder_id or resolve_save_soil_folder_id(drive_service)
+    images = list_miracle_of_mind_images(drive_service, target_folder)
+    return pick_miracle_of_mind_image(images, orientation=orientation)
+
+
 def miracle_of_mind_end_card_if_present(
     drive_service: Resource,
     video_path: Path,
@@ -97,12 +251,15 @@ def miracle_of_mind_end_card_if_present(
     video_type: str | None = None,
     reference_path: Path | None = None,
 ) -> EndCardOverlay:
-    """Return whether the reference video ends on the Miracle of Mind animation.
+    """Overlay the translated Miracle of Mind still when the video ends on that card.
 
-    Detection uses ``reference_path`` when a package REF video is available.
-    The video file is left unchanged.
+    Detection uses ``reference_path`` when a package REF video is available,
+    because the mixed file often has that card removed. The still is placed on
+    ``video_path``. Missing image / no end card leaves ``video_path`` unchanged.
+    ``detected`` is true when the English card is found, even if the translated
+    still is missing. Overlay ffmpeg failures raise so Combined Media generation
+    does not silently keep English.
     """
-    del drive_service, video_type
     if not video_path.is_file():
         return EndCardOverlay(video_path, False)
 
@@ -118,4 +275,53 @@ def miracle_of_mind_end_card_if_present(
         work_dir=work_dir,
         temp_prefix="miracle-",
     )
-    return EndCardOverlay(video_path, start is not None)
+    if start is None:
+        return EndCardOverlay(video_path, False)
+
+    orientation = orientation_for_video_type(video_type) or _orientation_from_video_file(
+        video_path
+    )
+    if orientation is None:
+        print(
+            "Miracle of Mind end card found, but video orientation is unknown; "
+            "leaving English card"
+        )
+        return EndCardOverlay(video_path, True)
+
+    try:
+        image = find_miracle_of_mind_image(drive_service, orientation=orientation)
+    except Exception as exc:
+        print(f"Miracle of Mind image lookup failed: {exc}")
+        return EndCardOverlay(video_path, True)
+    if image is None:
+        needed = (
+            "MiracleOfMindVideo.jpeg"
+            if orientation == "horizontal"
+            else "MiracleOfMindReel.jpg"
+        )
+        print(
+            "Miracle of Mind end card found, but no translated image "
+            f"(need {needed}) in Overrides/{FOLDER_IMAGES!r}"
+        )
+        return EndCardOverlay(video_path, True)
+
+    image_path = download_drive_file(
+        drive_service,
+        image.id,
+        work_dir / image.name,
+    )
+    replaced = work_dir / f"{video_path.stem}.miracle{video_path.suffix}"
+    overlay_save_soil_end_card(
+        video_path,
+        image_path,
+        start,
+        replaced,
+        ffmpeg_path=ffmpeg_path,
+    )
+    video_path.unlink()
+    replaced.replace(video_path)
+    print(
+        f"Replaced Miracle of Mind end card from {start:.2f}s using {image.name!r} "
+        f"({orientation}, detected on {detect_on.name})"
+    )
+    return EndCardOverlay(video_path, True)

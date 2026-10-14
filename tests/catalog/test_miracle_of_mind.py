@@ -8,9 +8,12 @@ from unittest.mock import patch
 from PIL import Image
 
 from catalog_parser.inner_engineering import frame_looks_like_inner_engineering
+from catalog_parser.drive_combine import DriveMediaFile
 from catalog_parser.miracle_of_mind import (
     frame_looks_like_miracle_of_mind,
     miracle_of_mind_end_card_if_present,
+    miracle_of_mind_image_kind,
+    pick_miracle_of_mind_image,
 )
 from catalog_parser.save_soil import EndCardOverlay, frame_looks_like_save_soil
 
@@ -22,6 +25,23 @@ def _write_app_icon(path: Path, *, size: tuple[int, int], box: tuple[int, int, i
     for y in range(top, bottom):
         for x in range(left, right):
             pixels[x, y] = (150, 40, 70)
+    image.save(path)
+
+
+def _write_starfield_card(path: Path, *, icon: tuple[int, int, int, int]) -> None:
+    image = Image.new("RGB", (180, 320), (18, 22, 40))
+    pixels = image.load()
+    for index in range(40):
+        x = (index * 37) % 180
+        y = (index * 53) % 320
+        pixels[x, y] = (190, 200, 220)
+    left, top, right, bottom = icon
+    for y in range(top, bottom):
+        for x in range(left, right):
+            pixels[x, y] = (200, 28, 42)
+    for y in range(150, 168):
+        for x in range(36, 144):
+            pixels[x, y] = (230, 230, 230)
     image.save(path)
 
 
@@ -93,23 +113,63 @@ class MiracleOfMindFingerprintTests(unittest.TestCase):
             self.assertTrue(frame_looks_like_save_soil(soil))
             self.assertTrue(frame_looks_like_inner_engineering(inner))
 
+    def test_starfield_card_matches_and_corner_logo_does_not(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            card = root / "star.jpg"
+            corner = root / "corner.jpg"
+            _write_starfield_card(card, icon=(70, 84, 108, 122))
+            _write_starfield_card(corner, icon=(148, 8, 172, 32))
+            self.assertTrue(frame_looks_like_miracle_of_mind(card))
+            self.assertFalse(frame_looks_like_miracle_of_mind(corner))
+
     def test_large_red_subject_on_black_is_not_the_app_icon(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             scene = Path(tmpdir) / "scene.jpg"
             _write_letterboxed_red_scene(scene)
             self.assertFalse(frame_looks_like_miracle_of_mind(scene))
 
-    def test_detection_does_not_replace_the_video(self) -> None:
+    def test_detection_uses_the_reference_and_overlays_the_still(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             video = root / "clip.mp4"
             video.write_bytes(b"original")
             reference = root / "REF.mp4"
             reference.write_bytes(b"reference")
-            with patch(
-                "catalog_parser.miracle_of_mind.detect_ending_card",
-                return_value=40.5,
-            ) as detect_mock:
+            image = DriveMediaFile(
+                id="img",
+                name="MiracleOfMindReel.jpg",
+                mime_type="image/jpeg",
+                parent_id="folder",
+            )
+
+            def download(_drive, _file_id, dest: Path) -> Path:
+                dest.write_bytes(b"jpeg")
+                return dest
+
+            def overlay(_video, _image, _start, replaced: Path, ffmpeg_path=None) -> Path:
+                del ffmpeg_path
+                replaced.write_bytes(b"replaced")
+                return replaced
+
+            with (
+                patch(
+                    "catalog_parser.miracle_of_mind.detect_ending_card",
+                    return_value=40.5,
+                ) as detect_mock,
+                patch(
+                    "catalog_parser.miracle_of_mind.find_miracle_of_mind_image",
+                    return_value=image,
+                ),
+                patch(
+                    "catalog_parser.miracle_of_mind.download_drive_file",
+                    side_effect=download,
+                ),
+                patch(
+                    "catalog_parser.miracle_of_mind.overlay_save_soil_end_card",
+                    side_effect=overlay,
+                ) as overlay_mock,
+            ):
                 result = miracle_of_mind_end_card_if_present(
                     object(),
                     video,
@@ -118,9 +178,52 @@ class MiracleOfMindFingerprintTests(unittest.TestCase):
                     reference_path=reference,
                 )
             self.assertEqual(result, EndCardOverlay(video, True))
-            self.assertEqual(video.read_bytes(), b"original")
+            self.assertEqual(video.read_bytes(), b"replaced")
             detect_mock.assert_called_once()
             self.assertEqual(detect_mock.call_args.args[0], reference)
+            overlay_mock.assert_called_once()
+            self.assertEqual(overlay_mock.call_args.args[2], 40.5)
+
+    def test_missing_translated_still_leaves_the_video(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            video = root / "clip.mp4"
+            video.write_bytes(b"original")
+            with (
+                patch(
+                    "catalog_parser.miracle_of_mind.detect_ending_card",
+                    return_value=12.0,
+                ),
+                patch(
+                    "catalog_parser.miracle_of_mind.find_miracle_of_mind_image",
+                    return_value=None,
+                ),
+            ):
+                result = miracle_of_mind_end_card_if_present(
+                    object(),
+                    video,
+                    work_dir=root,
+                    video_type="Reel",
+                )
+            self.assertEqual(result, EndCardOverlay(video, True))
+            self.assertEqual(video.read_bytes(), b"original")
+
+    def test_image_kind_follows_the_filename(self) -> None:
+        self.assertEqual(miracle_of_mind_image_kind("MiracleOfMindReel.jpg"), "vertical")
+        self.assertEqual(
+            miracle_of_mind_image_kind("MiracleOfMindVideo.jpeg"),
+            "horizontal",
+        )
+        self.assertIsNone(miracle_of_mind_image_kind("SaveSoilReel.jpeg"))
+        reel = DriveMediaFile("reel", "MiracleOfMindReel.jpg", "image/jpeg", "folder")
+        video = DriveMediaFile("video", "MiracleOfMindVideo.jpeg", "image/jpeg", "folder")
+        self.assertEqual(
+            pick_miracle_of_mind_image([video, reel], orientation="vertical"),
+            reel,
+        )
+        self.assertIsNone(
+            pick_miracle_of_mind_image([reel], orientation="horizontal"),
+        )
 
     def test_missing_video_is_not_detected(self) -> None:
         result = miracle_of_mind_end_card_if_present(

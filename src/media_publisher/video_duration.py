@@ -86,6 +86,45 @@ def probe_local_video_duration_seconds(video_path: Path) -> float | None:
     return seconds if seconds > 0 else None
 
 
+def probe_video_stream_duration_seconds(video_path: Path) -> float | None:
+    """Duration of the video stream, which can be shorter than the container."""
+    path = video_path.resolve()
+    if not path.is_file():
+        return None
+
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        return None
+
+    result = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+
+    try:
+        seconds = float(result.stdout.strip())
+    except ValueError:
+        return None
+    return seconds if seconds > 0 else None
+
+
 def probe_local_video_size(video_path: Path) -> tuple[int, int] | None:
     path = video_path.resolve()
     if not path.is_file():
