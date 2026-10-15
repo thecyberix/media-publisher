@@ -2,7 +2,9 @@
 
 Names and when they apply live in ``config/playlists.json``. A rule with no
 ``end_card`` is added to every video. A rule with ``end_card`` is added when
-that ending is found on the reference video. ``quote_playlist`` is the title
+that ending is found on the reference video. ``comment`` is the Instagram
+comment posted on that video. ``keyword``, ``reply``, and ``dm`` answer a
+later comment that contains the keyword. ``quote_playlist`` is the title
 of the playlist that receives quote videos only. ``ekadashi_playlist`` is the
 title of the playlist that receives Ekadashi videos only.
 """
@@ -35,6 +37,9 @@ class PlaylistRule:
     name: str
     end_card: str | None = None
     comment: str | None = None
+    keyword: str | None = None
+    reply: str | None = None
+    dm: str | None = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +160,18 @@ def instagram_comments_for_playlists(
     return comments
 
 
+def comment_response_rules(
+    config: PlaylistConfig | None = None,
+) -> list[PlaylistRule]:
+    """Playlists that reply to a keyword comment and/or send a DM."""
+    selected = config or load_playlist_config()
+    return [
+        rule
+        for rule in selected.rules
+        if rule.keyword and (rule.reply or rule.dm)
+    ]
+
+
 def combined_media_airtable_fields(
     drive_url: str,
     playlists: Sequence[str],
@@ -189,8 +206,28 @@ def _parse_rule(item: object, *, index: int, source: str) -> PlaylistRule:
     if not isinstance(name, str) or not name.strip():
         raise RuntimeError(f"{label} name is required")
     end_card = _parse_end_card(item.get("end_card"), label=label)
-    comment = _parse_comment(item.get("comment"), label=label, provided="comment" in item)
-    return PlaylistRule(name=name.strip(), end_card=end_card, comment=comment)
+    comment = _parse_optional_text(
+        item.get("comment"), label=label, field="comment", provided="comment" in item
+    )
+    keyword = _parse_optional_text(
+        item.get("keyword"), label=label, field="keyword", provided="keyword" in item
+    )
+    reply = _parse_optional_text(
+        item.get("reply"), label=label, field="reply", provided="reply" in item
+    )
+    dm = _parse_optional_text(item.get("dm"), label=label, field="dm", provided="dm" in item)
+    if (reply or dm) and not keyword:
+        raise RuntimeError(f"{label} keyword is required when reply or dm is set")
+    if keyword and not (reply or dm):
+        raise RuntimeError(f"{label} reply or dm is required when keyword is set")
+    return PlaylistRule(
+        name=name.strip(),
+        end_card=end_card,
+        comment=comment,
+        keyword=keyword,
+        reply=reply,
+        dm=dm,
+    )
 
 
 def _parse_end_card(value: object, *, label: str) -> str | None:
@@ -206,9 +243,11 @@ def _parse_end_card(value: object, *, label: str) -> str | None:
     return end_card
 
 
-def _parse_comment(value: object, *, label: str, provided: bool) -> str | None:
+def _parse_optional_text(
+    value: object, *, label: str, field: str, provided: bool
+) -> str | None:
     if not provided or value is None:
         return None
     if not isinstance(value, str) or not value.strip():
-        raise RuntimeError(f"{label} comment must be a non-empty string")
+        raise RuntimeError(f"{label} {field} must be a non-empty string")
     return value.strip()

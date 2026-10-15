@@ -199,6 +199,7 @@ def publish_platform_task(
             meta_client,
             media_id,
             task.record_fields,
+            state_path=Path("data") / "instagram_comment_responses.json",
             log=log,
         )
         return meta_client.get_instagram_media_permalink(media_id)

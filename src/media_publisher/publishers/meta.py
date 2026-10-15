@@ -510,6 +510,7 @@ class MetaClient:
         *,
         query: dict[str, str | int | bool] | None = None,
         body: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
         timeout: int = 120,
     ) -> Any:
         params = dict(query or {})
@@ -517,11 +518,15 @@ class MetaClient:
         url = f"{self._graph_url(path)}?{urllib.parse.urlencode(params, doseq=True)}"
 
         data = None
-        if body is not None:
+        if json_body is not None:
+            data = json.dumps(json_body).encode("utf-8")
+        elif body is not None:
             data = urllib.parse.urlencode(body).encode("utf-8")
 
         request = urllib.request.Request(url, data=data, method=method)
-        if body is not None:
+        if json_body is not None:
+            request.add_header("Content-Type", "application/json")
+        elif body is not None:
             request.add_header("Content-Type", "application/x-www-form-urlencoded")
 
         try:
@@ -1792,6 +1797,118 @@ class MetaClient:
         if not isinstance(comment_id, str) or not comment_id:
             raise MetaError("Meta Instagram comment response is missing comment id")
         return comment_id
+
+    def list_instagram_media(self, instagram_account_id: str) -> list[dict[str, Any]]:
+        """Videos and reels on the account, newest first."""
+        account_id = instagram_account_id.strip()
+        if not account_id:
+            raise MetaError("Instagram account id is required")
+        videos: list[dict[str, Any]] = []
+        query: dict[str, str] = {
+            "fields": "id,media_type,media_product_type,permalink,timestamp",
+            "limit": "50",
+        }
+        while True:
+            payload = self._request("GET", f"{account_id}/media", query=query)
+            if not isinstance(payload, dict):
+                return videos
+            for item in payload.get("data") or []:
+                if not isinstance(item, dict):
+                    continue
+                media_type = item.get("media_type")
+                product = item.get("media_product_type")
+                if media_type != "VIDEO" and product != "REELS":
+                    continue
+                media_id = item.get("id")
+                if isinstance(media_id, str) and media_id.strip():
+                    videos.append(item)
+            after = ((payload.get("paging") or {}).get("cursors") or {}).get("after")
+            if not isinstance(after, str) or not after:
+                return videos
+            query = {**query, "after": after}
+
+    def list_instagram_comments(self, media_id: str) -> list[dict[str, Any]]:
+        """Top-level comments on one Instagram media object, plus replies to them."""
+        target = media_id.strip()
+        if not target:
+            raise MetaError("Instagram comment media_id is required")
+        comments: list[dict[str, Any]] = []
+        for item in self._list_instagram_comment_edge(f"{target}/comments"):
+            comments.append(item)
+            comment_id = item.get("id")
+            if isinstance(comment_id, str) and comment_id.strip():
+                comments.extend(
+                    self._list_instagram_comment_edge(f"{comment_id.strip()}/replies")
+                )
+        return comments
+
+    def _list_instagram_comment_edge(self, path: str) -> list[dict[str, Any]]:
+        comments: list[dict[str, Any]] = []
+        query: dict[str, str] = {
+            "fields": "id,text,username,timestamp",
+            "limit": "50",
+        }
+        while True:
+            payload = self._request("GET", path, query=query)
+            if not isinstance(payload, dict):
+                return comments
+            for item in payload.get("data") or []:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    comments.append(item)
+            after = ((payload.get("paging") or {}).get("cursors") or {}).get("after")
+            if not isinstance(after, str) or not after:
+                return comments
+            query = {**query, "after": after}
+
+    def reply_to_instagram_comment(self, *, comment_id: str, message: str) -> str:
+        """Public reply to an Instagram comment."""
+        text = message.strip()
+        if not text:
+            raise MetaError("Instagram reply message is required")
+        target = comment_id.strip()
+        if not target:
+            raise MetaError("Instagram reply comment_id is required")
+        response = self._request(
+            "POST",
+            f"{target}/replies",
+            body={"message": text},
+        )
+        reply_id = response.get("id")
+        if not isinstance(reply_id, str) or not reply_id:
+            raise MetaError("Meta Instagram reply response is missing comment id")
+        return reply_id
+
+    def send_instagram_comment_dm(
+        self,
+        *,
+        page_id: str,
+        comment_id: str,
+        message: str,
+    ) -> str:
+        """Private reply (DM) to the person who wrote an Instagram comment.
+
+        The linked Facebook Page accepts this call. The Instagram account id
+        rejects it with Meta error 3.
+        """
+        text = message.strip()
+        if not text:
+            raise MetaError("Instagram DM message is required")
+        page = page_id.strip()
+        target = comment_id.strip()
+        if not page or not target:
+            raise MetaError("Facebook page id and comment id are required")
+        response = self._request(
+            "POST",
+            f"{page}/messages",
+            json_body={
+                "recipient": {"comment_id": target},
+                "message": {"text": text},
+            },
+        )
+        message_id = response.get("message_id")
+        if not isinstance(message_id, str) or not message_id:
+            raise MetaError("Meta Instagram DM response is missing message id")
+        return message_id
 
     def create_facebook_draft_feed_post_with_photo(
         self,

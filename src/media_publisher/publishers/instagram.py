@@ -22,14 +22,25 @@ def publish_instagram_playlist_comments(
     media_id: str,
     record_fields: dict[str, Any],
     *,
+    state_path: Path | None = None,
+    permalink: str = "",
     log: Callable[[str], None] = print,
 ) -> None:
-    """Post configured playlist comments. A comment failure does not unpublish the video."""
-    from catalog_parser.playlists import instagram_comments_for_playlists
+    """Post configured playlist comments. A comment failure does not unpublish the video.
+
+    A successful Inner Engineering or Miracle of Mind comment is added to the
+    comment-response watch list at ``state_path``.
+    """
+    from catalog_parser.playlists import (
+        instagram_comments_for_playlists,
+        load_playlist_config,
+    )
+    from media_publisher.instagram_comment_responses import remember_commented_video
     from media_publisher.sources.airtable import FIELD_PLAYLISTS, _field_multi_select
 
     names = _field_multi_select(record_fields.get(FIELD_PLAYLISTS))
-    for message in instagram_comments_for_playlists(names):
+    config = load_playlist_config()
+    for message in instagram_comments_for_playlists(names, config=config):
         try:
             comment_id = client.create_instagram_comment(
                 media_id=media_id,
@@ -39,6 +50,21 @@ def publish_instagram_playlist_comments(
             log(f"Instagram comment failed: {exc}")
             return
         log(f"Instagram comment posted: {comment_id}")
+        if state_path is None:
+            continue
+        end_cards = [
+            rule.end_card
+            for rule in config.rules
+            if rule.end_card
+            and rule.comment == message
+            and rule.name in names
+        ]
+        remember_commented_video(
+            state_path,
+            media_id=media_id,
+            end_cards=end_cards,
+            permalink=permalink,
+        )
 
 
 def _resolve_video(job: PublishJob) -> tuple[Path | None, str | None]:

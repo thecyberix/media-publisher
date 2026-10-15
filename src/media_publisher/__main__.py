@@ -2926,6 +2926,7 @@ def main() -> int:
                 meta_client,
                 media_id,
                 task.record_fields,
+                state_path=PROJECT_ROOT / "data" / "instagram_comment_responses.json",
             )
             permalink = meta_client.get_instagram_media_permalink(media_id)
             updated = mark_platform_scheduled(

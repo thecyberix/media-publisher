@@ -59,6 +59,20 @@ def _rate_limited(exc: BaseException) -> bool:
     return False
 
 
+def _remember_commented_video(media_id: str, end_card: str, permalink: object) -> None:
+    from media_publisher.instagram_comment_responses import (
+        DEFAULT_STATE_RELATIVE_PATH,
+        remember_commented_video,
+    )
+
+    remember_commented_video(
+        ROOT / DEFAULT_STATE_RELATIVE_PATH,
+        media_id=media_id,
+        end_cards=[end_card],
+        permalink=permalink if isinstance(permalink, str) else "",
+    )
+
+
 def _shortcode(value: str) -> str | None:
     match = _IG_SHORTCODE.search(value.strip())
     return match.group(1) if match else None
@@ -291,6 +305,7 @@ def main() -> int:
                         client.create_instagram_comment(media_id=media_id, message=message)
                         cached.setdefault("posted", []).append(key)
                         cached["pending"].remove(key)
+                        _remember_commented_video(media_id, key, cached.get("permalink"))
                         posted += 1
                 except Exception as exc:
                     if not _rate_limited(exc):
@@ -337,12 +352,14 @@ def main() -> int:
             for key, message in comments:
                 if message in existing:
                     row["already"].append(key)
+                    _remember_commented_video(media_id, key, row.get("permalink"))
                     continue
                 row["pending"].append(key)
                 if args.apply:
                     client.create_instagram_comment(media_id=media_id, message=message)
                     row["posted"].append(key)
                     row["pending"].remove(key)
+                    _remember_commented_video(media_id, key, row.get("permalink"))
                     posted += 1
             if found:
                 matched += 1
