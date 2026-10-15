@@ -385,7 +385,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preview actions without writing the page or posting to Facebook.",
+        help=(
+            "Preview without posting. With --publish-event or --prune-past-events, "
+            "do not write the page or post to Facebook. With --ekadashi, list the "
+            "post that would be published and do not post it."
+        ),
     )
     parser.add_argument(
         "--resolve-meta",
@@ -479,11 +483,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Publish today's Ekadashi photo to Facebook and Instagram, "
             "and a 10-second YouTube video. A run with nothing due exits without posting."
         ),
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="With --ekadashi, list the post that would be published and do not post it.",
     )
     parser.add_argument(
         "--prepare-quote-texts",

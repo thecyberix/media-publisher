@@ -1536,5 +1536,19 @@ class SelectedPlatformTests(unittest.TestCase):
         self.assertIsNone(resolve_selected_platforms(Namespace(platform=None)))
 
 
+class CliParserTests(unittest.TestCase):
+    def test_dry_run_is_registered_once(self) -> None:
+        from media_publisher.__main__ import build_parser
+
+        parser = build_parser()
+        self.assertTrue(parser.parse_args(["--check-config"]).check_config)
+        ekadashi = parser.parse_args(["--ekadashi", "--dry-run"])
+        self.assertTrue(ekadashi.ekadashi)
+        self.assertTrue(ekadashi.dry_run)
+        event = parser.parse_args(["--prune-past-events", "--dry-run"])
+        self.assertTrue(event.prune_past_events)
+        self.assertTrue(event.dry_run)
+
+
 if __name__ == "__main__":
     unittest.main()
