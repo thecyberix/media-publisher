@@ -895,6 +895,82 @@ class YouTubeClientTests(unittest.TestCase):
             client.add_video_to_playlist.assert_not_called()
             client.reorder_daily_playlist_slots.assert_called_once()
 
+    def test_sync_daily_playlist_removes_videos_outside_the_slots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text(
+                '{"quote":"quote1","reel":"reel1","lau":"lau1"}\n',
+                encoding="utf-8",
+            )
+            client = YouTubeClient.__new__(YouTubeClient)
+            client.list_playlist_items = MagicMock(
+                side_effect=[
+                    [
+                        {"id": "item-quote", "snippet": {"resourceId": {"videoId": "quote1"}}},
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                        {"id": "item-extra", "snippet": {"resourceId": {"videoId": "extra"}}},
+                    ],
+                    [
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                        {"id": "item-extra", "snippet": {"resourceId": {"videoId": "extra"}}},
+                    ],
+                    [
+                        {"id": "item-reel", "snippet": {"resourceId": {"videoId": "reel1"}}},
+                        {"id": "item-lau", "snippet": {"resourceId": {"videoId": "lau1"}}},
+                        {"id": "item-extra", "snippet": {"resourceId": {"videoId": "extra"}}},
+                        {"id": "item-quote2", "snippet": {"resourceId": {"videoId": "quote2"}}},
+                    ],
+                ]
+            )
+            client.remove_playlist_item = MagicMock()
+            client.add_video_to_playlist = MagicMock()
+            client.reorder_daily_playlist_slots = MagicMock()
+
+            client.sync_daily_playlist_slot(
+                "PLdaily",
+                "quote2",
+                slot="quote",
+                state_path=slots_path,
+            )
+
+            client.remove_playlist_item.assert_any_call("item-quote")
+            client.remove_playlist_item.assert_any_call("item-extra")
+            self.assertEqual(client.remove_playlist_item.call_count, 2)
+
+    def test_flush_pending_drops_missing_video(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slots_path = Path(tmpdir) / "slots.json"
+            slots_path.write_text(
+                json.dumps(
+                    {
+                        "reel": "current",
+                        "pending": {
+                            "reel": {
+                                "video_id": "gone",
+                                "publish_at": "2026-10-09T15:00:00Z",
+                            }
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            client = YouTubeClient.__new__(YouTubeClient)
+            client.get_video_status_item = MagicMock(return_value=None)
+            client.sync_daily_playlist_slot = MagicMock()
+
+            synced = client.flush_pending_daily_playlist_slots(
+                "PLdaily",
+                state_path=slots_path,
+                now=datetime(2026, 10, 15, 2, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(synced, [])
+            client.sync_daily_playlist_slot.assert_not_called()
+            self.assertEqual(load_daily_playlist_pending(slots_path), {})
+
     def test_flush_pending_daily_playlist_promotes_public_videos(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             slots_path = Path(tmpdir) / "slots.json"

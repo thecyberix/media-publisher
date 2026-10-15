@@ -965,9 +965,10 @@ class YouTubeClient:
     ) -> dict[str, str]:
         """Keep one video each for quote / reel / lau slots in the daily playlist.
 
-        Updates ``slot`` to ``video_id``, removes only the previous video for that
-        slot (when known), ensures ``video_id`` is present, and reorders to
-        quote → reel → lau (packed positions). Persists slots to ``state_path``.
+        Updates ``slot`` to ``video_id``, ensures that video is present, removes
+        every other identified video, and reorders to quote → reel → lau.
+        Playlist rows with no video id are left in place. Persists slots to
+        ``state_path``.
         """
         if slot not in DAILY_PLAYLIST_SLOTS:
             raise YouTubePublishError(
@@ -1007,21 +1008,16 @@ class YouTubeClient:
                 position=target_position,
             )
 
-        # Prune only when we can identify a stale video id (never delete unknown rows).
-        stale_ids = set()
-        if previous_video_id and previous_video_id != video_id:
-            stale_ids.add(previous_video_id)
+        # Drop every identified video that is not one of the current slots.
+        # Rows with no video id stay; those cannot be matched to a slot.
         for item in self.list_playlist_items(playlist_id):
             item_id = item.get("id")
             if not isinstance(item_id, str) or not item_id:
                 continue
             item_video_id = _playlist_item_video_id(item)
-            if item_video_id is None:
+            if item_video_id is None or item_video_id in desired:
                 continue
-            if item_video_id in desired:
-                continue
-            if item_video_id in stale_ids:
-                self.remove_playlist_item(item_id)
+            self.remove_playlist_item(item_id)
 
         self.reorder_daily_playlist_slots(playlist_id, slots)
         pending = load_daily_playlist_pending(state_path)
@@ -1065,7 +1061,12 @@ class YouTubeClient:
                 if not _pending_entry_is_due(entry, now=now):
                     continue
                 item = self.get_video_status_item(video_id)
-                if item is None or not _video_is_listable_on_playlist(item):
+                if item is None:
+                    _drop_pending_daily_playlist_entry(
+                        state_path, slot=slot, video_id=video_id
+                    )
+                    continue
+                if not _video_is_listable_on_playlist(item):
                     continue
                 self.sync_daily_playlist_slot(
                     playlist_id,
@@ -1474,6 +1475,24 @@ def _pending_entries_from_raw(raw: object) -> list[dict[str, str]]:
         seen.add(item["video_id"])
         items.append(item)
     return items
+
+
+def _drop_pending_daily_playlist_entry(
+    state_path: Path, *, slot: str, video_id: str
+) -> None:
+    """Remove one queued video. Used when YouTube no longer has that id."""
+    slots = load_daily_playlist_slots(state_path)
+    pending = load_daily_playlist_pending(state_path)
+    remaining = [
+        entry
+        for entry in pending.get(slot, [])
+        if entry.get("video_id") != video_id
+    ]
+    if remaining:
+        pending[slot] = remaining
+    else:
+        pending.pop(slot, None)
+    save_daily_playlist_state(state_path, slots, pending)
 
 
 def _pending_entry_is_due(
