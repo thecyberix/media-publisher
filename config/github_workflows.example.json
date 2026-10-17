@@ -139,8 +139,8 @@
       "preset": "publish-ekadashi"
     },
     "instagram-comment-responses-hourly-sofia": {
-      "description": "cron-job.org mirror — Instagram keyword replies and DMs, hourly",
-      "schedule": "0 * * * *",
+      "description": "cron-job.org mirror — Instagram keyword replies and DMs, hourly at :45 Europe/Sofia",
+      "schedule": "45 * * * *",
       "timezone": "Europe/Sofia",
       "preset": "instagram-comment-responses"
     }

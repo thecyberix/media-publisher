@@ -132,7 +132,7 @@ The workflow publishes the Facebook and Instagram photo, plus a 10-second YouTub
 
 ### Instagram comment replies
 
-Suggested schedule: `0 * * * *`, time zone **Europe/Sofia**.
+Suggested schedule: `45 * * * *`, time zone **Europe/Sofia**. That is 09:45, 10:45, and every other hour at minute 45, clear of the jobs that start on the hour and the 12:30 Ekadashi run.
 
 **URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/instagram-comment-responses.yml/dispatches`
 
@@ -196,7 +196,7 @@ python scripts/respond_instagram_playlist_comments.py --apply
 
 The first command only lists matches. `--apply` sends the reply and the DM. The token needs `instagram_manage_comments` and `instagram_manage_messages`. DMs use Instagram private replies and only go out within 7 days of the comment; older comments still get the public reply.
 
-Dispatch `instagram-comment-responses.yml` the same way as the other publish workflows. A cron-job.org job can call it on a schedule, for example hourly. The workflow commits `data/instagram_comment_responses.json` so a comment is not answered twice.
+Dispatch `instagram-comment-responses.yml` the same way as the other publish workflows. A cron-job.org job can call it hourly at minute 45 (`45 * * * *`, Europe/Sofia). The workflow commits `data/instagram_comment_responses.json` so a comment is not answered twice.
 
 Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run.
 
