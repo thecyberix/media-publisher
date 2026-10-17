@@ -11,11 +11,12 @@ from catalog_parser.drive_combine import DriveMediaFile
 from catalog_parser.inner_engineering import (
     find_inner_engineering_image,
     frame_looks_like_inner_engineering,
+    frame_looks_like_inner_engineering_lead_in,
     inner_engineering_image_kind,
     pick_inner_engineering_image,
     replace_inner_engineering_end_card_if_present,
 )
-from catalog_parser.save_soil import frame_looks_like_save_soil
+from catalog_parser.save_soil import detect_ending_card, frame_looks_like_save_soil
 
 
 def _media(name: str, file_id: str = "id") -> DriveMediaFile:
@@ -64,6 +65,16 @@ def _write_blue_stage(path: Path) -> None:
     for y in range(120, 300):
         for x in range(40, 150):
             pixels[x, y] = (150, 120, 90)
+    image.save(path)
+
+
+def _write_inner_engineering_lead_in(path: Path) -> None:
+    """Navy plate and a light title, before the portrait and orange corner settle."""
+    image = Image.new("RGB", (180, 320), (40, 40, 109))
+    pixels = image.load()
+    for y in range(140, 170):
+        for x in range(40, 140):
+            pixels[x, y] = (180, 180, 190)
     image.save(path)
 
 
@@ -159,6 +170,61 @@ class InnerEngineeringDetectionTests(unittest.TestCase):
             _write_blue_stage(stage)
             self.assertFalse(frame_looks_like_inner_engineering(sky))
             self.assertFalse(frame_looks_like_inner_engineering(stage))
+            self.assertFalse(frame_looks_like_inner_engineering_lead_in(sky))
+            self.assertFalse(frame_looks_like_inner_engineering_lead_in(stage))
+
+    def test_lead_in_accepts_the_navy_intro(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            intro = root / "intro.jpg"
+            content = root / "talk.jpg"
+            _write_inner_engineering_lead_in(intro)
+            _write_content_still(content)
+            self.assertTrue(frame_looks_like_inner_engineering_lead_in(intro))
+            self.assertFalse(frame_looks_like_inner_engineering(intro))
+            self.assertFalse(frame_looks_like_inner_engineering_lead_in(content))
+
+    def test_detection_starts_at_the_intro_animation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video = Path(tmpdir) / "clip.mp4"
+            video.write_bytes(b"video")
+
+            def fake_extract(video_path, timestamp, destination, *, ffmpeg):
+                del video_path, ffmpeg
+                if timestamp >= 8.0:
+                    _write_inner_engineering_still(destination)
+                elif timestamp >= 6.0:
+                    _write_inner_engineering_lead_in(destination)
+                else:
+                    _write_content_still(destination)
+                return destination
+
+            with patch(
+                "catalog_parser.save_soil._picture_duration_seconds",
+                return_value=10.0,
+            ), patch(
+                "catalog_parser.save_soil._extract_frame",
+                side_effect=fake_extract,
+            ), patch(
+                "catalog_parser.save_soil.resolve_ffmpeg_path",
+                return_value="ffmpeg",
+            ):
+                start = detect_ending_card(
+                    video,
+                    frame_looks_like_inner_engineering,
+                    looks_like_lead_in=frame_looks_like_inner_engineering_lead_in,
+                )
+                settled = detect_ending_card(
+                    video,
+                    frame_looks_like_inner_engineering,
+                )
+        self.assertIsNotNone(start)
+        self.assertIsNotNone(settled)
+        assert start is not None and settled is not None
+        self.assertGreaterEqual(start, 5.95)
+        self.assertLess(start, 6.2)
+        self.assertGreaterEqual(settled, 7.95)
+        self.assertLess(settled, 8.2)
 
     def test_frame_fingerprint_on_example_end_card(self) -> None:
         card = Path("_tmp_ie/last.png")
@@ -195,6 +261,10 @@ class InnerEngineeringReplaceSkipTests(unittest.TestCase):
                 )
         detect.assert_called_once()
         self.assertEqual(detect.call_args.args[0], reference)
+        self.assertIs(
+            detect.call_args.kwargs["looks_like_lead_in"],
+            frame_looks_like_inner_engineering_lead_in,
+        )
 
     def test_replace_skips_missing_video(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

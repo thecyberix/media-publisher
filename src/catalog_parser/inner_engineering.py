@@ -201,6 +201,45 @@ def frame_looks_like_inner_engineering(image_path: Path) -> bool:
     )
 
 
+def frame_looks_like_inner_engineering_lead_in(image_path: Path) -> bool:
+    """True for the navy intro that plays before the finished card.
+
+    The intro is the same navy plate, before the orange corner and portrait
+    have settled. A talking head fails because its upper and center areas
+    are not that plate.
+    """
+    try:
+        with Image.open(image_path) as image:
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            if width < 8 or height < 8:
+                return False
+            pixels = rgb.load()
+    except OSError:
+        return False
+
+    def patch_mean(left: int, top: int, right: int, bottom: int) -> tuple[float, float, float]:
+        red = green = blue = count = 0
+        step_x = max(1, (right - left) // 16)
+        step_y = max(1, (bottom - top) // 16)
+        for y in range(top, bottom, step_y):
+            for x in range(left, right, step_x):
+                pixel = pixels[x, y]
+                red += pixel[0]
+                green += pixel[1]
+                blue += pixel[2]
+                count += 1
+        if count == 0:
+            return 0.0, 0.0, 0.0
+        return red / count, green / count, blue / count
+
+    upper = patch_mean(width // 4, height // 10, 3 * width // 4, height // 3)
+    center_top = int(height * 0.32)
+    center_bottom = max(center_top + 1, int(height * 0.55))
+    center = patch_mean(width // 5, center_top, 4 * width // 5, center_bottom)
+    return _is_navy_field(*upper) and _is_navy(*center)
+
+
 def replace_inner_engineering_end_card_if_present(
     drive_service: Resource,
     video_path: Path,
@@ -233,6 +272,7 @@ def replace_inner_engineering_end_card_if_present(
         ffmpeg_path=ffmpeg_path,
         work_dir=work_dir,
         temp_prefix="innereng-",
+        looks_like_lead_in=frame_looks_like_inner_engineering_lead_in,
     )
     if start is None:
         return EndCardOverlay(video_path, False)

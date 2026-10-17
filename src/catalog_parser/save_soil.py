@@ -51,6 +51,7 @@ class EndCardOverlay:
 # End cards in source packages are a few seconds; search the last 20s.
 _DETECT_WINDOW_SECONDS = 20.0
 _MIN_END_CARD_SECONDS = 1.0
+_LEAD_IN_SECONDS = 3.0
 _FRAME_SCALE = 180
 
 
@@ -430,6 +431,58 @@ def _picture_duration_seconds(video_path: Path) -> float | None:
     return duration
 
 
+def _frame_matches(
+    video_path: Path,
+    timestamp: float,
+    destination: Path,
+    ffmpeg: str,
+    looks_like,
+) -> bool:
+    frame = _extract_frame(
+        video_path,
+        timestamp,
+        destination,
+        ffmpeg=ffmpeg,
+    )
+    return bool(frame and looks_like(frame))
+
+
+def _extend_through_lead_in(
+    matches_card,
+    matches_lead_in,
+    *,
+    earliest: float,
+    floor: float,
+) -> float:
+    """Move the overlay start back through the intro animation."""
+
+    def part_of_card(timestamp: float, label: str) -> bool:
+        return matches_card(timestamp, label) or matches_lead_in(
+            timestamp, f"lead-{label}"
+        )
+
+    probe = earliest
+    found_content = False
+    while probe - 0.5 >= floor:
+        probe -= 0.5
+        if part_of_card(probe, f"t{probe:.2f}".replace(".", "_")):
+            earliest = probe
+            continue
+        found_content = True
+        low, high = probe, earliest
+        for index in range(6):
+            mid = (low + high) / 2
+            if part_of_card(mid, f"m{index}"):
+                high = mid
+            else:
+                low = mid
+        earliest = high
+        break
+    if not found_content and part_of_card(floor, "floor"):
+        earliest = floor
+    return earliest
+
+
 def detect_ending_card(
     video_path: Path,
     looks_like,
@@ -437,8 +490,13 @@ def detect_ending_card(
     ffmpeg_path: str | None = None,
     work_dir: Path | None = None,
     temp_prefix: str = "endcard-",
+    looks_like_lead_in=None,
 ) -> float | None:
-    """Return when a branded end card begins, if the video ends on that card."""
+    """Return when a branded end card begins, if the video ends on that card.
+
+    ``looks_like`` matches the finished card. ``looks_like_lead_in``, when
+    given, also covers the intro animation immediately before that card.
+    """
     duration = _picture_duration_seconds(video_path)
     if duration is None or duration < _MIN_END_CARD_SECONDS:
         return None
@@ -485,6 +543,20 @@ def detect_ending_card(
             break
         if not found_content and looks(window_start, "window"):
             earliest = window_start
+
+        if looks_like_lead_in is not None:
+            earliest = _extend_through_lead_in(
+                looks,
+                lambda timestamp, label: _frame_matches(
+                    video_path,
+                    timestamp,
+                    tmp_dir / f"{label}.jpg",
+                    ffmpeg,
+                    looks_like_lead_in,
+                ),
+                earliest=earliest,
+                floor=max(window_start, earliest - _LEAD_IN_SECONDS),
+            )
 
     return end_card_start_from_samples(
         [(earliest, True), (end_t, True)],
