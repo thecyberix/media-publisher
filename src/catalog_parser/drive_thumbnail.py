@@ -473,11 +473,11 @@ def download_canva_thumbnail(
 ) -> str:
     """Write a Canva design export to ``destination``; return source label.
 
-    Tries the Canva Connect API first. When that design is not accessible to
-    the integration, downloads the public publish-share ``/screen`` preview
-    (the flattened image the share link shows, no login). Playwright is kept
-    in ``canva_web`` for manual use and is not part of ingest. Blank first
-    pages are skipped when the export returns later pages with content.
+    Tries the Canva Connect API first. When that export fails, downloads the
+    public publish-share ``/screen`` image, opening it in Chromium when a plain
+    download is not an image. A missing ``/screen`` image raises so ingest can
+    stage the manual-review placeholder. Blank first pages are skipped when
+    the export returns later pages with content.
     """
     del canva_web_client
     try:

@@ -338,30 +338,46 @@ def _browser_screen_enabled() -> bool:
     }
 
 
-def _download_screen_with_browser(url: str, destination: Path) -> bool:
-    """Fetch the flattened /screen image with a real browser stack.
+def download_screen_with_chromium(
+    screen_url: str,
+    destination: Path,
+    *,
+    headed: bool = False,
+) -> str:
+    """Open ``/screen`` in Chromium and save the image response.
 
-    Datacenter HTTP clients often get 403 for /screen. A headless browser
-    request still receives the composed preview the share link shows.
+    Returns the response content type. A plain HTTP GET of this URL often
+    receives an HTML wall from datacenter addresses; loading the page does not.
     """
+    from playwright.sync_api import sync_playwright
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=not headed)
+        try:
+            context = browser.new_context(user_agent=DEFAULT_USER_AGENT)
+            page = context.new_page()
+            response = page.goto(screen_url, wait_until="load", timeout=60_000)
+            if response is None:
+                raise RuntimeError(f"Chromium received no response for {screen_url}")
+            content_type = str(response.headers.get("content-type", "")).casefold()
+            if response.status >= 400 or not content_type.startswith("image/"):
+                raise RuntimeError(
+                    f"Chromium /screen returned HTTP {response.status} "
+                    f"content-type {content_type or '(none)'!r} at {page.url}"
+                )
+            destination.write_bytes(response.body())
+            return content_type
+        finally:
+            browser.close()
+
+
+def _download_screen_with_browser(url: str, destination: Path) -> bool:
+    """Load ``/screen`` in Chromium when ``CANVA_SHARE_PREVIEW_BROWSER`` is set."""
     if not _browser_screen_enabled():
         return False
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return False
-    try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            try:
-                context = browser.new_context(user_agent=DEFAULT_USER_AGENT)
-                response = context.request.get(url, timeout=60_000)
-                content_type = str(response.headers.get("content-type", "")).casefold()
-                if response.status >= 400 or not content_type.startswith("image/"):
-                    return False
-                destination.write_bytes(response.body())
-            finally:
-                browser.close()
+        download_screen_with_chromium(url, destination)
     except Exception:
         return False
     return _preview_looks_valid(destination)
@@ -383,21 +399,11 @@ def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
             pass
         if _download_screen_with_browser(screen, destination):
             return destination
+        raise RuntimeError(f"Canva /screen image was not available for {canva_url!r}")
 
-    normalized = normalize_canva_share_url(resolved)
-    html = _fetch_page_html(normalized)
-    preview_url = _pick_best_media_url(html)
-    if "media.canva.com" not in preview_url.casefold():
-        raise RuntimeError(f"No usable Canva preview image for {canva_url!r}")
-    try:
-        _download_url(preview_url, destination)
-    except urllib.error.URLError as exc:
-        raise RuntimeError(
-            f"Could not download Canva preview for {canva_url!r}"
-        ) from exc
-    if not _preview_looks_valid(destination):
-        raise RuntimeError(f"Canva share preview was empty for {canva_url!r}")
-    return destination
+    raise RuntimeError(
+        f"Could not derive a Canva /screen URL from {canva_url!r}"
+    )
 
 
 def resolve_canva_share_preview_url(canva_url: str) -> str:
