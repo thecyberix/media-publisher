@@ -51,7 +51,8 @@ class CanvaSharePreviewTests(unittest.TestCase):
     def test_download_uses_screen_url_without_dom_scrape(self) -> None:
         destination = Path(tempfile.mkdtemp()) / "preview.jpg"
 
-        def _fake_download(_url: str, dest: Path) -> None:
+        def _fake_download(_url: str, dest: Path, timeout: int = 120) -> None:
+            del timeout
             _write_test_jpeg(dest)
 
         with patch(
@@ -76,11 +77,61 @@ class CanvaSharePreviewTests(unittest.TestCase):
         )
         self.assertTrue(_preview_looks_valid(destination))
 
-    def test_download_opens_screen_in_chromium_when_http_is_not_an_image(self) -> None:
+    def test_download_uses_embedded_document_image_when_screen_is_blocked(self) -> None:
+        destination = Path(tempfile.mkdtemp()) / "preview.jpg"
+        document_url = (
+            "https://media.canva.com/v2/document-image/hash:1/height:596/"
+            "id:DAG_-usKEHQ/type:B/width:335?page=1"
+        )
+        cover_url = (
+            "https://media.canva.com/v2/image-resize/format:PNG/height:1920/"
+            "quality:100/width:1080"
+        )
+        html = (
+            '"page":1,"height":596,"width":335,"url":"' + document_url + '" '
+            + cover_url
+        )
+        downloaded: list[str] = []
+
+        def _download(url: str, dest: Path, timeout: int = 120) -> None:
+            del timeout
+            downloaded.append(url)
+            if url.endswith("/screen"):
+                raise URLError("Expected image Content-Type")
+            self.assertEqual(url, document_url)
+            _write_test_jpeg(dest)
+
+        with patch(
+            "media_publisher.sources.canva_share_preview.resolve_canva_url",
+            return_value=SHARE_URL,
+        ):
+            with patch(
+                "media_publisher.sources.canva_share_preview._fetch_page_html",
+                return_value=html,
+            ):
+                with patch(
+                    "media_publisher.sources.canva_share_preview._download_url",
+                    side_effect=_download,
+                ):
+                    with patch(
+                        "media_publisher.sources.canva_share_preview._download_screen_with_browser",
+                    ) as browser:
+                        result = download_canva_share_preview(SHARE_URL, destination)
+
+        self.assertEqual(result, destination)
+        browser.assert_not_called()
+        self.assertEqual(downloaded, [
+            "https://www.canva.com/design/DAG_-usKEHQ/Gf7htm9P2120Plv54YiiNw/screen",
+            document_url,
+        ])
+        self.assertNotIn(cover_url, downloaded)
+        self.assertTrue(_preview_looks_valid(destination))
+
+    def test_download_opens_screen_in_chromium_when_no_document_image(self) -> None:
         destination = Path(tempfile.mkdtemp()) / "preview.jpg"
 
-        def _http_fails(url: str, dest: Path) -> None:
-            del dest
+        def _http_fails(url: str, dest: Path, timeout: int = 120) -> None:
+            del dest, timeout
             self.assertTrue(url.endswith("/screen"))
             raise URLError("Expected image Content-Type")
 
@@ -95,7 +146,8 @@ class CanvaSharePreviewTests(unittest.TestCase):
         ):
             with patch(
                 "media_publisher.sources.canva_share_preview._fetch_page_html",
-            ) as fetch_html:
+                return_value="<html>no composed image</html>",
+            ):
                 with patch(
                     "media_publisher.sources.canva_share_preview._download_url",
                     side_effect=_http_fails,
@@ -107,14 +159,13 @@ class CanvaSharePreviewTests(unittest.TestCase):
                         result = download_canva_share_preview(SHARE_URL, destination)
 
         self.assertEqual(result, destination)
-        fetch_html.assert_not_called()
         self.assertTrue(_preview_looks_valid(destination))
 
-    def test_download_raises_when_chromium_screen_is_missing(self) -> None:
+    def test_download_raises_when_screen_and_document_image_are_missing(self) -> None:
         destination = Path(tempfile.mkdtemp()) / "preview.jpg"
 
-        def _http_fails(url: str, dest: Path) -> None:
-            del url, dest
+        def _http_fails(url: str, dest: Path, timeout: int = 120) -> None:
+            del url, dest, timeout
             raise URLError("Expected image Content-Type")
 
         with patch(
@@ -123,7 +174,8 @@ class CanvaSharePreviewTests(unittest.TestCase):
         ):
             with patch(
                 "media_publisher.sources.canva_share_preview._fetch_page_html",
-            ) as fetch_html:
+                return_value="<html>login wall</html>",
+            ):
                 with patch(
                     "media_publisher.sources.canva_share_preview._download_url",
                     side_effect=_http_fails,
@@ -135,7 +187,6 @@ class CanvaSharePreviewTests(unittest.TestCase):
                         with self.assertRaises(RuntimeError) as ctx:
                             download_canva_share_preview(SHARE_URL, destination)
 
-        fetch_html.assert_not_called()
         self.assertIn("/screen image was not available", str(ctx.exception))
 
 

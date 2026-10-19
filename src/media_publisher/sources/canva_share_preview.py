@@ -9,11 +9,18 @@ import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from media_publisher.sources.canva import resolve_canva_url
 
 CANVA_MEDIA_RE = re.compile(r"https://media\.canva\.com/v2/image-resize/[^\"'\s<>]+")
+DOCUMENT_IMAGE_RE = re.compile(
+    r"https://media\.canva\.com/v2/document-image/[^\"'\s<>]+"
+)
+PAGE_DOCUMENT_IMAGE_RE = re.compile(
+    r'"page":(\d+).{0,240}?"url":"(https://media\.canva\.com/v2/document-image/[^"]+)"'
+)
 BOOTSTRAP_FILE_RE = re.compile(
     r'"url":"(https://media\.canva\.com/v2/image-resize/[^"]+)"'
     r'[^}]*?"width":(\d+)'
@@ -31,6 +38,7 @@ QUALITY_RANK = {
 }
 MIN_PREVIEW_BYTES = 1000
 MIN_PREVIEW_EDGE = 32
+_SCREEN_DOWNLOAD_TIMEOUT_SECONDS = 45
 _SHARE_PATH_STOP = {"view", "edit", "screen"}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -275,12 +283,50 @@ def _pick_best_media_url(html: str) -> str:
     raise RuntimeError("No preview image URLs found in Canva page")
 
 
-def _download_url(url: str, destination: Path) -> None:
+def _unescape_canva_url(url: str) -> str:
+    return (
+        url.replace("\\/", "/")
+        .replace("\\u0026", "&")
+        .replace("\\u003d", "=")
+        .replace("\\u003f", "?")
+        .replace("&amp;", "&")
+    )
+
+
+def document_image_urls_from_html(html: str) -> list[str]:
+    """Return composed preview URLs embedded in a Canva share page.
+
+    These ``document-image`` files are the titled design. Element
+    ``image-resize`` URLs in the same page are the untitled cover plate, so
+    they are ignored.
+    """
+    normalized = _unescape_canva_url(html)
+    ranked: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for page, raw_url in PAGE_DOCUMENT_IMAGE_RE.findall(normalized):
+        url = _unescape_canva_url(raw_url)
+        if url in seen:
+            continue
+        seen.add(url)
+        area, _width = _media_url_score(url)
+        ranked.append((int(page), area, url))
+    for raw_url in DOCUMENT_IMAGE_RE.findall(normalized):
+        url = _unescape_canva_url(raw_url)
+        if url in seen:
+            continue
+        seen.add(url)
+        area, _width = _media_url_score(url)
+        ranked.append((99, area, url))
+    ranked.sort(key=lambda item: (item[0] != 1, -item[1]))
+    return [url for _page, _area, url in ranked]
+
+
+def _download_url(url: str, destination: Path, *, timeout: int = 120) -> None:
     request = urllib.request.Request(
         url,
         headers={"User-Agent": DEFAULT_USER_AGENT},
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         content_type = str(response.headers.get("Content-Type", "")).casefold()
         payload = response.read()
         if content_type and not content_type.startswith("image/"):
@@ -338,16 +384,34 @@ def _browser_screen_enabled() -> bool:
     }
 
 
+def _response_is_image(response: Any) -> bool:
+    content_type = str(response.headers.get("content-type", "")).casefold()
+    return response.status < 400 and content_type.startswith("image/")
+
+
+def _composed_image_responses(responses: list[Any]) -> list[Any]:
+    chosen = []
+    for response in responses:
+        if not _response_is_image(response):
+            continue
+        if "document-image" in response.url or response.url.rstrip("/").endswith(
+            "/screen"
+        ):
+            chosen.append(response)
+    return chosen
+
+
 def download_screen_with_chromium(
     screen_url: str,
     destination: Path,
     *,
     headed: bool = False,
 ) -> str:
-    """Open ``/screen`` in Chromium and save the image response.
+    """Open ``/screen`` in Chromium and save the composed image.
 
-    Returns the response content type. A plain HTTP GET of this URL often
-    receives an HTML wall from datacenter addresses; loading the page does not.
+    Returns the response content type. The navigation itself is saved when it
+    is an image. When Canva returns an HTML page, a composed ``document-image``
+    loaded by that page is saved instead.
     """
     from playwright.sync_api import sync_playwright
 
@@ -357,17 +421,24 @@ def download_screen_with_chromium(
         try:
             context = browser.new_context(user_agent=DEFAULT_USER_AGENT)
             page = context.new_page()
+            seen: list[Any] = []
+            page.on("response", seen.append)
             response = page.goto(screen_url, wait_until="load", timeout=60_000)
+            if response is not None and _response_is_image(response):
+                destination.write_bytes(response.body())
+                return str(response.headers.get("content-type", "")).casefold()
+            composed = _composed_image_responses(seen)
+            if composed:
+                best = max(composed, key=lambda item: _media_url_score(item.url))
+                destination.write_bytes(best.body())
+                return str(best.headers.get("content-type", "")).casefold()
             if response is None:
                 raise RuntimeError(f"Chromium received no response for {screen_url}")
             content_type = str(response.headers.get("content-type", "")).casefold()
-            if response.status >= 400 or not content_type.startswith("image/"):
-                raise RuntimeError(
-                    f"Chromium /screen returned HTTP {response.status} "
-                    f"content-type {content_type or '(none)'!r} at {page.url}"
-                )
-            destination.write_bytes(response.body())
-            return content_type
+            raise RuntimeError(
+                f"Chromium /screen returned HTTP {response.status} "
+                f"content-type {content_type or '(none)'!r} at {page.url}"
+            )
         finally:
             browser.close()
 
@@ -378,9 +449,43 @@ def _download_screen_with_browser(url: str, destination: Path) -> bool:
         return False
     try:
         download_screen_with_chromium(url, destination)
-    except Exception:
+    except Exception as exc:
+        print(f"  -> Chromium /screen download failed: {exc}")
         return False
     return _preview_looks_valid(destination)
+
+
+def _try_screen_download(screen_url: str, destination: Path) -> bool:
+    try:
+        _download_url(
+            screen_url,
+            destination,
+            timeout=_SCREEN_DOWNLOAD_TIMEOUT_SECONDS,
+        )
+    except urllib.error.URLError:
+        return False
+    return _preview_looks_valid(destination)
+
+
+def _download_embedded_document_image(canva_url: str, destination: Path) -> bool:
+    """Save the titled preview linked from the share page HTML.
+
+    Datacenter addresses are often refused the ``/screen`` response itself.
+    The share page still contains a signed ``document-image`` URL, and that
+    file downloads normally.
+    """
+    try:
+        html = _fetch_page_html(normalize_canva_share_url(canva_url))
+    except Exception:
+        return False
+    for image_url in document_image_urls_from_html(html):
+        try:
+            _download_url(image_url, destination)
+        except urllib.error.URLError:
+            continue
+        if _preview_looks_valid(destination):
+            return True
+    return False
 
 
 def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
@@ -390,17 +495,14 @@ def download_canva_share_preview(canva_url: str, destination: Path) -> Path:
         screen = _screen_url(resolved)
     except RuntimeError:
         screen = None
+    if screen and _try_screen_download(screen, destination):
+        return destination
+    if _download_embedded_document_image(resolved, destination):
+        return destination
+    if screen and _download_screen_with_browser(screen, destination):
+        return destination
     if screen:
-        try:
-            _download_url(screen, destination)
-            if _preview_looks_valid(destination):
-                return destination
-        except urllib.error.URLError:
-            pass
-        if _download_screen_with_browser(screen, destination):
-            return destination
         raise RuntimeError(f"Canva /screen image was not available for {canva_url!r}")
-
     raise RuntimeError(
         f"Could not derive a Canva /screen URL from {canva_url!r}"
     )

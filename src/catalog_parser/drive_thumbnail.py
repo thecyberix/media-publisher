@@ -474,10 +474,11 @@ def download_canva_thumbnail(
     """Write a Canva design export to ``destination``; return source label.
 
     Tries the Canva Connect API first. When that export fails, downloads the
-    public publish-share ``/screen`` image, opening it in Chromium when a plain
-    download is not an image. A missing ``/screen`` image raises so ingest can
-    stage the manual-review placeholder. Blank first pages are skipped when
-    the export returns later pages with content.
+    public publish-share ``/screen`` image. If that response is not an image,
+    downloads the composed document image embedded in the share page, then
+    tries Chromium. A missing image raises so ingest can stage the
+    manual-review placeholder. Blank first pages are skipped when the export
+    returns later pages with content.
     """
     del canva_web_client
     try:
