@@ -130,23 +130,6 @@ Suggested schedule: `30 12 * * *`, time zone **Europe/Sofia**. This is a separat
 
 The workflow publishes the Facebook and Instagram photo, plus a 10-second YouTube video added to the playlist **Екадаши**, the day before the observance and does nothing on other days. A successful post is recorded in `data/ekadashi_publish_state.json` so a second run the same day does not post again.
 
-### Instagram comment replies
-
-Suggested schedule: `45 * * * *`, time zone **Europe/Sofia**. That is 09:45, 10:45, and every other hour at minute 45, clear of the jobs that start on the hour and the 12:30 Ekadashi run.
-
-**URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/instagram-comment-responses.yml/dispatches`
-
-**Body:**
-
-```json
-{
-  "ref": "master",
-  "inputs": {}
-}
-```
-
-The workflow replies to keyword comments on the Inner Engineering and Miracle of Mind videos already on the watch list, and sends the configured DM. The same file records which comments were answered.
-
 ### One-off scheduled test from cron-job.org
 
 Use **Run now** on a throwaway cron job (or a dedicated “publish scheduled test” job) with:
@@ -196,7 +179,7 @@ python scripts/respond_instagram_playlist_comments.py --apply
 
 The first command only lists matches. `--apply` sends the reply and the DM. The token needs `instagram_manage_comments` and `instagram_manage_messages`. DMs use Instagram private replies and only go out within 7 days of the comment; older comments still get the public reply.
 
-Dispatch `instagram-comment-responses.yml` the same way as the other publish workflows. A cron-job.org job can call it hourly at minute 45 (`45 * * * *`, Europe/Sofia). The workflow commits `data/instagram_comment_responses.json` so a comment is not answered twice.
+Metricool sends these replies. The script remains for a manual run.
 
 Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run.
 

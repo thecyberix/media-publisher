@@ -48,11 +48,6 @@
       "workflow": "publish-ekadashi.yml",
       "inputs": {}
     },
-    "instagram-comment-responses": {
-      "description": "Reply and DM on Inner Engineering and Miracle of Mind Instagram comments",
-      "workflow": "instagram-comment-responses.yml",
-      "inputs": {}
-    },
     "catalog-daily-dry-run": {
       "description": "Catalog orchestrator dry run (no Airtable/Drive writes)",
       "workflow": "catalog-daily-workflow.yml",
@@ -137,12 +132,6 @@
       "schedule": "30 12 * * *",
       "timezone": "Europe/Sofia",
       "preset": "publish-ekadashi"
-    },
-    "instagram-comment-responses-hourly-sofia": {
-      "description": "cron-job.org mirror — Instagram keyword replies and DMs, hourly at :45 Europe/Sofia",
-      "schedule": "45 * * * *",
-      "timezone": "Europe/Sofia",
-      "preset": "instagram-comment-responses"
     }
   }
 }
