@@ -240,6 +240,10 @@ class RagTranslateTests(unittest.TestCase):
         self.assertIn("every designed English text overlay", CANVA_COVER_EXTRACT_PROMPT)
         self.assertIn("Wisdom Bomb", CAPTION_EXTRACT_PROMPT)
         self.assertIn("Wisdom Bomb", CANVA_COVER_EXTRACT_PROMPT)
+        self.assertIn("proper name inside the headline", CAPTION_EXTRACT_PROMPT)
+        self.assertIn("entirely in capital letters", CAPTION_EXTRACT_PROMPT)
+        self.assertIn("entirely in capital letters", CANVA_COVER_EXTRACT_PROMPT)
+        self.assertNotIn("speaker or guest names", CAPTION_EXTRACT_PROMPT)
         self.assertEqual(
             parse_caption_lines_json(
                 '{"caption": ["Life on the Edge"], "ignored": ["Sadhguru", "2024"]}'
@@ -354,6 +358,13 @@ class RagTranslateTests(unittest.TestCase):
                 "бъдете радостни\nвинаги",
             ),
             "БЪДЕТЕ РАДОСТНИ\nВИНАГИ",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "DID SHIVA\nSmoke Weed?",
+                "пушил ли е шива\nтрева?",
+            ),
+            "ПУШИЛ ЛИ Е ШИВА\nТрева?",
         )
         self.assertEqual(
             match_source_line_casing(
@@ -762,6 +773,8 @@ class RagTranslateTests(unittest.TestCase):
         )
         self.assertIn("caption", caption_messages[1]["content"].lower())
         self.assertIn("line", caption_messages[1]["content"].lower())
+        self.assertIn("named person", caption_messages[1]["content"])
+        self.assertIn("Keep proper names.", caption_messages[0]["content"])
 
 
 if __name__ == "__main__":

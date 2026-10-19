@@ -128,6 +128,9 @@ def metadata_caption_system_prompt() -> str:
         "You are a professional thumbnail caption translator for Sadhguru / Isha "
         f"content. Translate English overlay caption lines into natural {name} that "
         "matches the tone and phrasing of the provided example title translations. "
+        "Keep the same subject as the English. If the English asks about a named "
+        "person, the translation asks about that person. Address the reader only "
+        "when the English addresses the reader. Keep proper names. "
         "Preserve the same number of lines and line breaks as the English source. "
         "Do not add credits, hashtags, logos, or explanations. Return only the "
         f"{name} caption text."
@@ -140,15 +143,20 @@ CAPTION_EXTRACT_PROMPT = (
     "Return ONLY JSON: "
     '{"caption": ["Line one", "Line two"], "ignored": ["other overlay"]}.\n'
     "caption: lines that belong to that one designed caption block, top to "
-    "bottom. A multi-line title is still the caption; keep those lines together.\n"
+    "bottom. A multi-line title is still the caption; keep those lines together. "
+    "A proper name inside the headline is part of the caption. Keep it in "
+    "caption. Do not move it to ignored.\n"
     "ignored: additional overlay that is not the caption (speaker or guest "
-    "names, dates, locations, campaign slogans or stamps, quotes that are not "
-    "the caption, lower-thirds, burned-in subtitles, logos, watermarks, "
-    "channel names, UI chrome). A vertical series label along the side edge "
-    "is ignored, not caption: the series name (for example \"Wisdom Bomb\") "
-    "and its episode number (for example \"09\", \"11\", \"12\"), including "
-    "when dots or a rotation separate them.\n"
-    "Preserve the capitalization of each caption line as shown in the image.\n"
+    "credits that sit apart from the headline, dates, locations, campaign "
+    "slogans or stamps, quotes that are not the caption, lower-thirds, "
+    "burned-in subtitles, logos, watermarks, channel names, UI chrome). A "
+    "vertical series label along the side edge is ignored, not caption: the "
+    "series name (for example \"Wisdom Bomb\") and its episode number (for "
+    "example \"09\", \"11\", \"12\"), including when dots or a rotation "
+    "separate them.\n"
+    "Copy the capitalization of each caption line exactly as printed. If a "
+    "line is entirely in capital letters, return that line entirely in capital "
+    "letters. Do not rewrite it in title case.\n"
     'If there is no designed caption, return {"caption": [], "ignored": []}.'
 )
 
@@ -164,8 +172,10 @@ CANVA_COVER_EXTRACT_PROMPT = (
     "side text in ignored. It is not part of the caption.\n"
     "Return ONLY JSON: "
     '{"caption": ["Line one", "Line two"], "ignored": []}.\n'
-    "caption: all designed cover lines in visual order. Preserve capitalization "
-    "as shown in the image.\n"
+    "caption: all designed cover lines in visual order. Copy the capitalization "
+    "of each line exactly as printed. If a line is entirely in capital letters, "
+    "return that line entirely in capital letters. Do not rewrite it in title "
+    "case.\n"
     "ignored: leave empty unless a line is clearly UI chrome rather than design "
     "text.\n"
     'If there is no designed text, return {"caption": [], "ignored": []}.'
@@ -1402,6 +1412,9 @@ def build_metadata_messages(
         instructions = (
             f"Translate the English thumbnail caption into {name}.\n"
             "Preserve the exact number of lines and line breaks.\n"
+            "Keep the same subject. A question about a named person stays about "
+            "that person. Address the reader only when the English addresses "
+            "the reader. Keep proper names.\n"
             "Do not add credits, hashtags, or logos.\n\n"
         )
     else:
