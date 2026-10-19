@@ -264,7 +264,7 @@ def _editing_assignment_records(
 
 
 class IngestPlanningTests(unittest.TestCase):
-    def test_no_preference_waits_for_video_capacity_instead_of_reel_fallback(self) -> None:
+    def test_open_assignment_blocks_ingest_until_queue_is_empty(self) -> None:
         records = _translator_reel_records("Genka Petrova", 12)
         actions = plan_ingest_actions(
             records,
@@ -286,7 +286,7 @@ class IngestPlanningTests(unittest.TestCase):
         self.assertEqual(actions[0].ingest_type, "Video")
         self.assertEqual(actions[0].ingest_count, 1)
 
-    def test_no_preference_assigns_video_when_exact_capacity_available(self) -> None:
+    def test_open_assignment_blocks_even_when_a_video_would_fit(self) -> None:
         records = _translator_reel_records("Genka Petrova", 5)
         actions = plan_ingest_actions(
             records,
@@ -294,9 +294,39 @@ class IngestPlanningTests(unittest.TestCase):
             target_reel_to_video_ratio=6,
             max_video_seconds=900,
         )
-        self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0].ingest_type, "Video")
-        self.assertEqual(actions[0].ingest_count, 1)
+        self.assertEqual(actions, [])
+
+    def test_preferred_type_also_waits_for_an_empty_queue(self) -> None:
+        records = _translator_reel_records("Genka Petrova", 3)
+        records.append(
+            {
+                "id": "rec_video_dilyana",
+                "fields": {
+                    FIELD_TITLE: "Open video",
+                    "Type": "Video",
+                    "Status": STATUS_TODO,
+                    "Translator": "Dilyana Hayes",
+                    "Duration": 600,
+                },
+            }
+        )
+        actions = plan_ingest_actions(
+            records,
+            translators=[
+                ("Genka Petrova", 15, "Reel"),
+                ("Dilyana Hayes", 15, "Video"),
+                ("Zhivko Zhelyazkov", 4, "Reel"),
+            ],
+            target_reel_to_video_ratio=6,
+            max_video_seconds=900,
+        )
+        self.assertEqual(
+            [
+                (action.translator_name, action.ingest_type, action.ingest_count)
+                for action in actions
+            ],
+            [("Zhivko Zhelyazkov", "Reel", 4)],
+        )
 
     def test_small_capacity_translator_still_ingests_reels_when_ratio_wants_video(self) -> None:
         records: list[dict] = []

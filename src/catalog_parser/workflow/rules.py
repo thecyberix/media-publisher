@@ -193,6 +193,26 @@ def count_active_translation_reel_units(
     return total
 
 
+def translator_has_open_assignment(
+    records: list[dict[str, Any]],
+    translator_name: str,
+) -> bool:
+    """True when this translator still has a To do row.
+
+    Preferred translation type does not matter. Finished rows (Translation done
+    and later) do not count as open work.
+    """
+    for record in records:
+        fields = record.get("fields", {})
+        if not isinstance(fields, dict):
+            continue
+        if fields.get(FIELD_TRANSLATOR) != translator_name:
+            continue
+        if fields.get(FIELD_STATUS) == STATUS_TODO:
+            return True
+    return False
+
+
 def count_active_editing_seconds(
     records: list[dict[str, Any]],
     editor_name: str,
@@ -809,6 +829,12 @@ def plan_ingest_actions(
     max_video_seconds: int,
     editor_names: frozenset[str] | None = None,
 ) -> list[WorkflowAction]:
+    """Ingest a full batch only for translators with no To do rows.
+
+    The empty-queue gate is the same with or without ``preferred_translation_type``.
+    That preference only chooses what the batch contains once the queue is empty.
+    Dual-role editors who still have Translation done work are skipped as well.
+    """
     actions: list[WorkflowAction] = []
     reels_pool, videos_pool = pool_type_counts(records)
     editors = editor_names or frozenset()
@@ -819,8 +845,10 @@ def plan_ingest_actions(
             and count_active_editing_reel_units(records, translator_name) > 0
         ):
             continue
+        if translator_has_open_assignment(records, translator_name):
+            continue
 
-        active_units = count_active_translation_reel_units(records, translator_name)
+        active_units = 0
         chunks, reels_pool, videos_pool = plan_capacity_ingest_chunks(
             weekly_capacity_reels=weekly_capacity_reels,
             preferred_type=preferred_type,
