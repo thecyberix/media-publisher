@@ -16,6 +16,8 @@ from media_publisher.sources.happyscribe import (
     HappyScribeError,
     HappyScribeExport,
     _parse_export,
+    describe_download_http_error,
+    public_download_target,
     burned_video_destination_path,
 )
 
@@ -283,12 +285,13 @@ class HappyScribeWebClient:
             with urllib.request.urlopen(request, timeout=300) as response:
                 destination.write_bytes(response.read())
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace").strip()
             raise HappyScribeWebError(
-                f"Download failed with HTTP {exc.code}: {detail}"
+                f"Download failed with {describe_download_http_error(url, exc)}"
             ) from exc
         except urllib.error.URLError as exc:
-            raise HappyScribeWebError(f"Download failed: {exc.reason}") from exc
+            target = public_download_target(url)
+            where = f" from {target}" if target else ""
+            raise HappyScribeWebError(f"Download failed{where}: {exc.reason}") from exc
 
         return destination
 

@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from xml.etree import ElementTree
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator
@@ -106,6 +107,40 @@ class HappyScribeExport:
     state: str
     format: str
     download_link: str | None = None
+
+
+def public_download_target(url: str) -> str:
+    """Host and file name for logs. Omits the signed query string."""
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.netloc:
+        return ""
+    name = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
+    return f"{parsed.netloc}/{name}" if name else parsed.netloc
+
+
+def describe_download_http_error(url: str, exc: urllib.error.HTTPError) -> str:
+    """Short download failure text: status, public target, and S3 code when present."""
+    failed_url = getattr(exc, "url", None) or getattr(exc, "filename", None) or url
+    target = public_download_target(str(failed_url))
+    detail = exc.read().decode("utf-8", errors="replace").strip()
+    summary = detail.replace("\n", " ")
+    if "<Code>" in detail:
+        try:
+            root = ElementTree.fromstring(detail)
+        except ElementTree.ParseError:
+            root = None
+        if root is not None:
+            code = (root.findtext("Code") or "").strip()
+            message = (root.findtext("Message") or "").strip()
+            if code and message:
+                summary = f"{code}: {message}"
+            elif code:
+                summary = code
+    if len(summary) > 300:
+        summary = summary[:300]
+    if target:
+        return f"HTTP {exc.code} from {target}: {summary}"
+    return f"HTTP {exc.code}: {summary}"
 
 
 def _field_text(value: Any) -> str | None:
@@ -1226,11 +1261,14 @@ class HappyScribeClient:
         *,
         export_format: str = "srt",
     ) -> Path:
-        download_url = self.get_subtitle_download_url(
-            transcription_id,
-            export_format=export_format,
+        return self._download_with_fresh_url(
+            lambda: self.get_subtitle_download_url(
+                transcription_id,
+                export_format=export_format,
+            ),
+            destination,
+            "Subtitle export download",
         )
-        return self.download_file(download_url, destination)
 
     def get_video_download_url(self, transcription_id: str) -> str:
         transcription = self.get_transcription(transcription_id)
@@ -1265,22 +1303,43 @@ class HappyScribeClient:
             with urllib.request.urlopen(request, timeout=300) as response:
                 destination.write_bytes(response.read())
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace").strip()
             raise HappyScribeError(
-                f"Download failed with HTTP {exc.code}: {detail}"
+                f"Download failed with {describe_download_http_error(url, exc)}"
             ) from exc
         except urllib.error.URLError as exc:
-            raise HappyScribeError(f"Download failed: {exc.reason}") from exc
+            target = public_download_target(url)
+            where = f" from {target}" if target else ""
+            raise HappyScribeError(f"Download failed{where}: {exc.reason}") from exc
 
         return destination
+
+    def _download_with_fresh_url(
+        self,
+        url_factory,
+        destination: Path,
+        label: str,
+    ) -> Path:
+        """Download once, and once more after HTTP 403 with a newly issued URL."""
+        try:
+            return self.download_file(url_factory(), destination)
+        except HappyScribeError as exc:
+            if "HTTP 403" not in str(exc):
+                raise HappyScribeError(f"{label} failed: {exc}") from exc
+        try:
+            return self.download_file(url_factory(), destination)
+        except HappyScribeError as exc:
+            raise HappyScribeError(f"{label} failed: {exc}") from exc
 
     def download_video(
         self,
         transcription_id: str,
         destination: Path,
     ) -> Path:
-        download_url = self.get_video_download_url(transcription_id)
-        return self.download_file(download_url, destination)
+        return self._download_with_fresh_url(
+            lambda: self.get_video_download_url(transcription_id),
+            destination,
+            "Source video download",
+        )
 
     def download_video_with_burned_subtitles(
         self,

@@ -541,7 +541,7 @@ def run_publish_pipeline(
                     print_line(f"  Video: {video_path}")
                 except (HappyScribeError, HappyScribeWebError) as exc:
                     message = str(exc)
-                    print_line(f"  Video download failed: {message}")
+                    print_line(f"  HappyScribe download failed: {message}")
                     for task in record_tasks:
                         results.append(
                             PlatformPublishResult(
@@ -620,7 +620,7 @@ def run_publish_pipeline(
                 print_line(f"  Video: {video_path}")
             except (HappyScribeError, HappyScribeWebError) as exc:
                 message = str(exc)
-                print_line(f"  Video download failed: {message}")
+                print_line(f"  HappyScribe download failed: {message}")
                 for task in record_tasks:
                     results.append(
                         PlatformPublishResult(

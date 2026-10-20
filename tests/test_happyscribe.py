@@ -385,6 +385,76 @@ class HappyScribeClientTests(unittest.TestCase):
         self.assertEqual(result, destination)
         download_mock.assert_called_once_with("https://example.com/video.mp4", destination)
 
+    def test_download_file_reports_s3_denial_without_signed_query(self) -> None:
+        import io
+        import urllib.error
+
+        client = HappyScribeClient("hs-test")
+        body = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b"<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>"
+        )
+        http_error = urllib.error.HTTPError(
+            "https://bucket.s3.amazonaws.com/clip.srt?X-Amz-Signature=secret",
+            403,
+            "Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(body),
+        )
+        signed = "https://bucket.s3.amazonaws.com/clip.srt?X-Amz-Signature=secret"
+        with patch(
+            "media_publisher.sources.happyscribe.urllib.request.urlopen",
+            side_effect=http_error,
+        ):
+            with self.assertRaises(HappyScribeError) as caught:
+                client.download_file(signed, Path("clip.srt"))
+
+        message = str(caught.exception)
+        self.assertIn("bucket.s3.amazonaws.com/clip.srt", message)
+        self.assertIn("AccessDenied: Access Denied", message)
+        self.assertNotIn("X-Amz-Signature", message)
+        self.assertNotIn("secret", message)
+
+    def test_download_subtitles_retries_access_denied_with_a_fresh_link(self) -> None:
+        client = HappyScribeClient("hs-test")
+        destination = Path("out.srt")
+        denied = HappyScribeError(
+            "Download failed with HTTP 403 from bucket.s3.amazonaws.com/a.srt: "
+            "AccessDenied: Access Denied"
+        )
+        with patch.object(
+            client,
+            "get_subtitle_download_url",
+            side_effect=["https://s3.example/a", "https://s3.example/b"],
+        ) as url_mock, patch.object(
+            client,
+            "download_file",
+            side_effect=[denied, destination],
+        ) as download_mock:
+            result = client.download_subtitles("tx1", destination)
+
+        self.assertEqual(result, destination)
+        self.assertEqual(url_mock.call_count, 2)
+        self.assertEqual(download_mock.call_count, 2)
+
+    def test_download_video_does_not_retry_other_http_errors(self) -> None:
+        client = HappyScribeClient("hs-test")
+        missing = HappyScribeError(
+            "Download failed with HTTP 404 from media.happyscribe.com/v.mp4: missing"
+        )
+        with patch.object(
+            client,
+            "get_video_download_url",
+            return_value="https://media.happyscribe.com/v.mp4",
+        ) as url_mock, patch.object(
+            client, "download_file", side_effect=missing
+        ):
+            with self.assertRaises(HappyScribeError) as caught:
+                client.download_video("tx1", Path("v.mp4"))
+
+        self.assertIn("Source video download failed", str(caught.exception))
+        self.assertEqual(url_mock.call_count, 1)
+
 
 class HappyScribeEnrichmentTests(unittest.TestCase):
     def test_transcription_id_from_job(self) -> None:
