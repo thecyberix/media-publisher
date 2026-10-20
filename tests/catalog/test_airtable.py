@@ -12,8 +12,16 @@ from catalog_parser.airtable import (
     build_yt_title_comment,
     catalog_record_comments,
     catalog_record_to_airtable_fields,
+    FIELD_ORIGINAL_VIDEO,
+    FIELD_ORIGINAL_VIDEO_NAME,
     FIELD_TITLE,
+    FIELD_TYPE,
+    FIELD_VIDEO_FOLDER,
+    collect_ingest_identity,
+    load_existing_original_video_keys_for_ingest,
+    load_existing_original_video_names_for_ingest,
     load_existing_titles_for_ingest,
+    load_existing_video_folder_ids_for_ingest,
     normalize_original_video_name,
     normalize_title,
     normalize_title_variants,
@@ -89,7 +97,9 @@ class AirtableMappingTests(unittest.TestCase):
             {"sample title | sadhguru", "sample title"},
         )
 
-    def test_load_existing_titles_for_ingest_merges_archive_titles(self) -> None:
+    def test_load_existing_titles_for_ingest_merges_archive_identity(self) -> None:
+        from catalog_parser.workflow.archive_title_cache import ArchiveIngestIdentity
+
         client = AirtableClient("pat-test", "app-current", "Catalog")
         cache = type(
             "Cache",
@@ -97,13 +107,23 @@ class AirtableMappingTests(unittest.TestCase):
             {
                 "existing_title_keys": lambda self: {
                     "reel\tcurrent title",
-                }
+                },
+                "existing_video_folder_ids": lambda self: set(),
+                "existing_original_video_names": lambda self: set(),
+                "existing_original_video_keys": lambda self: set(),
+                "records": [],
             },
         )()
+        identity = ArchiveIngestIdentity(
+            title_keys=frozenset({"reel\tarchived title"}),
+            folder_ids=frozenset({"archive-folder"}),
+            original_video_names=frozenset({"archive youtube name"}),
+            original_video_keys=frozenset({"yt:archivedvid"}),
+        )
 
         with patch(
-            "catalog_parser.workflow.archive_title_cache.load_archive_titles",
-            return_value={"archived title"},
+            "catalog_parser.workflow.archive_title_cache.load_archive_identity",
+            return_value=identity,
         ) as archive_mock:
             titles = load_existing_titles_for_ingest(
                 client,
@@ -113,19 +133,67 @@ class AirtableMappingTests(unittest.TestCase):
                         base_id="app-archive",
                         table_name="Archive",
                         title_fields=("Original Video Name",),
+                        identity_fields=("Original Video Name",),
+                        title_from_original_video_name=True,
                     )
                 ],
                 project_root=Path("."),
             )
 
         self.assertIn("reel\tcurrent title", titles)
-        self.assertIn("*\tarchived title", titles)
+        self.assertIn("reel\tarchived title", titles)
         archive_mock.assert_called_once()
+
+    def test_archive_identity_is_loaded_once_for_every_ingest_check(self) -> None:
+        from catalog_parser.workflow.archive_title_cache import ArchiveIngestIdentity
+
+        client = AirtableClient("pat-test", "app-current", "Catalog")
+        cache = type(
+            "Cache",
+            (),
+            {
+                "existing_title_keys": lambda self: set(),
+                "existing_video_folder_ids": lambda self: set(),
+                "existing_original_video_names": lambda self: set(),
+                "existing_original_video_keys": lambda self: set(),
+                "records": [],
+            },
+        )()
+        identity = ArchiveIngestIdentity(
+            title_keys=frozenset({"reel\tarchived title"}),
+            folder_ids=frozenset({"archive-folder"}),
+            original_video_names=frozenset({"archive youtube name"}),
+            original_video_keys=frozenset({"yt:archivedvid"}),
+        )
+
+        with patch(
+            "catalog_parser.workflow.archive_title_cache.load_archive_identity",
+            return_value=identity,
+        ) as archive_mock:
+            titles = load_existing_titles_for_ingest(
+                client, table_cache=cache, project_root=Path(".")
+            )
+            folders = load_existing_video_folder_ids_for_ingest(
+                client, table_cache=cache, project_root=Path(".")
+            )
+            names = load_existing_original_video_names_for_ingest(
+                client, table_cache=cache, project_root=Path(".")
+            )
+            keys = load_existing_original_video_keys_for_ingest(
+                client, table_cache=cache, project_root=Path(".")
+            )
+
+        archive_mock.assert_called_once()
+        self.assertIn("reel\tarchived title", titles)
+        self.assertEqual(folders, {"archive-folder"})
+        self.assertEqual(names, {"archive youtube name"})
+        self.assertEqual(keys, {"yt:archivedvid"})
 
     def test_load_existing_titles_uses_archive_file_cache_without_meta_api(self) -> None:
         from catalog_parser.workflow.archive_title_cache import (
+            ArchiveIngestIdentity,
             archive_cache_path,
-            write_archive_title_cache,
+            write_archive_identity_cache,
         )
         from catalog_parser.workflow import archive_title_cache as cache_module
 
@@ -145,16 +213,23 @@ class AirtableMappingTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            write_archive_title_cache(
+            write_archive_identity_cache(
                 archive_cache_path(root),
                 sources=[
                     AirtableArchiveSource(
                         base_id="app-archive",
                         table_name="Archive",
                         title_fields=("Original Video Name",),
+                        identity_fields=("Original Video Name",),
+                        title_from_original_video_name=True,
                     )
                 ],
-                titles={"archived title"},
+                identity=ArchiveIngestIdentity(
+                    title_keys=frozenset({"*\tarchived title"}),
+                    folder_ids=frozenset(),
+                    original_video_names=frozenset(),
+                    original_video_keys=frozenset(),
+                ),
             )
             with patch(
                 "catalog_parser.workflow.archive_sources.resolve_archive_sources"
@@ -349,6 +424,37 @@ class AirtableIdentityListTests(unittest.TestCase):
         self.assertIn(FIELD_TITLE, query["fields[]"])
         self.assertIn(FIELD_VIDEO_FOLDER, query["fields[]"])
         client._clear_ingest_identity_cache()
+
+    def test_missing_archive_values_are_omitted_per_row(self) -> None:
+        titled, folders, names, videos = collect_ingest_identity(
+            {
+                FIELD_TITLE: "Has Title",
+                FIELD_TYPE: "Video",
+                FIELD_ORIGINAL_VIDEO_NAME: "YouTube Name | Sadhguru",
+                FIELD_VIDEO_FOLDER: "https://drive.google.com/drive/folders/folder1",
+                FIELD_ORIGINAL_VIDEO: "https://youtu.be/dQw4w9WgXcQ",
+            }
+        )
+        self.assertIn("video\thas title", titled)
+        self.assertEqual(folders, {"folder1"})
+        self.assertEqual(names, {"youtube name"})
+        self.assertTrue(any(key.startswith("yt:") for key in videos))
+
+        sparse_titles, sparse_folders, sparse_names, sparse_videos = collect_ingest_identity(
+            {FIELD_TITLE: "Only Title", FIELD_TYPE: "Reel"}
+        )
+        self.assertEqual(sparse_titles, {"reel\tonly title"})
+        self.assertEqual(sparse_folders, set())
+        self.assertEqual(sparse_names, set())
+        self.assertEqual(sparse_videos, set())
+
+        old_titles, _old_folders, old_names, _old_videos = collect_ingest_identity(
+            {FIELD_ORIGINAL_VIDEO_NAME: "Legacy Title | Sadhguru"},
+            title_from_original_video_name=True,
+        )
+        self.assertIn("*\tlegacy title", old_titles)
+        self.assertIn("*\tlegacy title | sadhguru", old_titles)
+        self.assertEqual(old_names, set())
 
 
 class AirtableSyncTests(unittest.TestCase):

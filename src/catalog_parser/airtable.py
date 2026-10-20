@@ -159,7 +159,7 @@ def normalize_title_variants(value: Any) -> set[str]:
     return variants
 
 
-# Title dedup is scoped by Type. Archive titles without a type use ANY.
+# Title dedup is scoped by Type. A row with no Type blocks every type.
 TITLE_KEY_ANY_TYPE = "*"
 
 
@@ -203,7 +203,7 @@ def title_identity_collides(
     title_value: Any,
     video_type: Any = None,
 ) -> bool:
-    """True when title is taken for this type (or as an any-type archive key)."""
+    """True when title is taken for this type (or by a row that has no type)."""
     for variant in normalize_title_variants(title_value):
         if make_title_identity_key(variant, video_type) in existing_title_keys:
             return True
@@ -212,11 +212,58 @@ def title_identity_collides(
     return False
 
 
+def collect_ingest_identity(
+    fields: dict[str, Any],
+    *,
+    title_from_original_video_name: bool = False,
+) -> tuple[set[str], set[str], set[str], set[str]]:
+    """Title keys, folder ids, original-name keys, and video keys for one row.
+
+    Empty values are omitted, so a row that lacks one field does not participate
+    in that check. When the table has no Title column, Original Video Name is
+    the title and is not also stored as an original-video name.
+    """
+    titles: set[str] = set()
+    folder_ids: set[str] = set()
+    names: set[str] = set()
+    video_keys: set[str] = set()
+
+    if title_from_original_video_name:
+        title_value = fields.get(FIELD_ORIGINAL_VIDEO_NAME)
+    else:
+        title_value = fields.get(FIELD_TITLE)
+    titles.update(title_identity_keys(title_value, fields.get(FIELD_TYPE)))
+
+    if not title_from_original_video_name:
+        name_key = normalize_original_video_name_key(
+            fields.get(FIELD_ORIGINAL_VIDEO_NAME)
+        )
+        if name_key:
+            names.add(name_key)
+
+    link = fields.get(FIELD_VIDEO_FOLDER)
+    if isinstance(link, str) and link.strip():
+        folder_id = extract_drive_folder_id(link)
+        if folder_id:
+            folder_ids.add(folder_id)
+
+    video_key = normalize_original_video_key(fields.get(FIELD_ORIGINAL_VIDEO))
+    if video_key:
+        video_keys.add(video_key)
+
+    return titles, folder_ids, names, video_keys
+
+
 @dataclass(frozen=True)
 class AirtableArchiveSource:
     base_id: str
     table_name: str
     title_fields: tuple[str, ...]
+    # Columns from INGEST_IDENTITY_FIELDS that this table actually has.
+    # Empty means "do not list the table" — never request a missing field.
+    identity_fields: tuple[str, ...] = ()
+    # Older tables stored Title under the Original Video Name column.
+    title_from_original_video_name: bool = False
 
     @property
     def title_field(self) -> str:
@@ -388,22 +435,13 @@ class AirtableClient:
             fields = item.get("fields")
             if not isinstance(fields, dict):
                 continue
-            titles.update(
-                title_identity_keys(fields.get(FIELD_TITLE), fields.get(FIELD_TYPE))
+            row_titles, row_folders, row_names, row_videos = collect_ingest_identity(
+                fields
             )
-            link = fields.get(FIELD_VIDEO_FOLDER)
-            if isinstance(link, str) and link.strip():
-                folder_id = extract_drive_folder_id(link)
-                if folder_id:
-                    folder_ids.add(folder_id)
-            name_key = normalize_original_video_name_key(
-                fields.get(FIELD_ORIGINAL_VIDEO_NAME)
-            )
-            if name_key:
-                names.add(name_key)
-            video_key = normalize_original_video_key(fields.get(FIELD_ORIGINAL_VIDEO))
-            if video_key:
-                video_keys.add(video_key)
+            titles.update(row_titles)
+            folder_ids.update(row_folders)
+            names.update(row_names)
+            video_keys.update(row_videos)
 
         packed = (
             frozenset(titles),
@@ -470,6 +508,46 @@ class AirtableClient:
                 titles.update(normalize_title_variants(record_fields.get(field_name)))
 
         return titles
+
+    def list_table_ingest_identity(
+        self,
+        *,
+        base_id: str,
+        table_name: str,
+        fields: tuple[str, ...],
+        title_from_original_video_name: bool = False,
+    ) -> tuple[set[str], set[str], set[str], set[str]]:
+        """One paged list of an archive table, projected to ingest identity sets.
+
+        ``fields`` must already exist on that table. Airtable rejects unknown
+        field names, and each page is one API call regardless of how many of
+        these columns are requested.
+        """
+        selected = tuple(field for field in fields if field)
+        if not selected:
+            return set(), set(), set(), set()
+
+        titles: set[str] = set()
+        folder_ids: set[str] = set()
+        names: set[str] = set()
+        video_keys: set[str] = set()
+        for record in self.list_records(
+            fields=list(selected),
+            base_id=base_id,
+            table_name=table_name,
+        ):
+            record_fields = record.get("fields")
+            if not isinstance(record_fields, dict):
+                continue
+            row_titles, row_folders, row_names, row_videos = collect_ingest_identity(
+                record_fields,
+                title_from_original_video_name=title_from_original_video_name,
+            )
+            titles.update(row_titles)
+            folder_ids.update(row_folders)
+            names.update(row_names)
+            video_keys.update(row_videos)
+        return titles, folder_ids, names, video_keys
 
     def find_record_id_by_exact_field(
         self,
@@ -799,6 +877,40 @@ class AirtableClient:
         return created, skipped
 
 
+def _archive_identity_for_ingest(
+    airtable: AirtableClient,
+    *,
+    table_cache: Any | None = None,
+    archive_sources: list[AirtableArchiveSource] | None = None,
+    project_root: Path | None = None,
+):
+    """Archive identity sets, loaded once per client and reused by every check."""
+    from catalog_parser.workflow.archive_title_cache import (
+        ArchiveIngestIdentity,
+        archive_cache_refresh_requested,
+        load_archive_identity,
+    )
+
+    refresh = archive_cache_refresh_requested()
+    if archive_sources is None and not refresh:
+        cached = getattr(airtable, "_archive_ingest_identity", None)
+        if isinstance(cached, ArchiveIngestIdentity):
+            return cached
+
+    records = table_cache.records if table_cache is not None else None
+    identity = load_archive_identity(
+        airtable,
+        archive_sources,
+        project_root=project_root or Path(__file__).resolve().parents[2],
+        records=records,
+        skip_base_id=airtable.base_id,
+        skip_table_name=airtable.table_name,
+    )
+    if archive_sources is None and not refresh:
+        airtable._archive_ingest_identity = identity
+    return identity
+
+
 def load_existing_titles_for_ingest(
     airtable: AirtableClient,
     *,
@@ -806,55 +918,18 @@ def load_existing_titles_for_ingest(
     archive_sources: list[AirtableArchiveSource] | None = None,
     project_root: Path | None = None,
 ) -> set[str]:
-    from catalog_parser.workflow.archive_sources import resolve_archive_sources
-    from catalog_parser.workflow.archive_title_cache import (
-        archive_cache_enabled,
-        archive_cache_path,
-        archive_cache_refresh_requested,
-        load_archive_titles,
-        peek_archive_title_cache,
-    )
-
     if table_cache is not None:
         titles = table_cache.existing_title_keys()
     else:
         titles = airtable.list_existing_titles()
-
-    root = project_root or Path(__file__).resolve().parents[2]
-    refresh_archives = archive_cache_refresh_requested()
-    if (
-        archive_sources is None
-        and archive_cache_enabled()
-        and not refresh_archives
-    ):
-        cached_archive_titles = peek_archive_title_cache(archive_cache_path(root))
-        if cached_archive_titles:
-            for archive_title in cached_archive_titles:
-                titles.update(title_identity_keys(archive_title, TITLE_KEY_ANY_TYPE))
-            return titles
-
-    if archive_sources is None:
-        records = table_cache.records if table_cache is not None else None
-        archive_sources = resolve_archive_sources(airtable, records=records)
-
-    filtered_sources: list[AirtableArchiveSource] = []
-    for source in archive_sources:
-        if (
-            source.base_id == airtable.base_id
-            and source.table_name == airtable.table_name
-            and source.title_fields == (FIELD_TITLE,)
-        ):
-            continue
-        filtered_sources.append(source)
-
-    if filtered_sources:
-        # Archive rows are type-unknown: block that title for every ingest type.
-        for archive_title in load_archive_titles(
+    titles.update(
+        _archive_identity_for_ingest(
             airtable,
-            filtered_sources,
-            project_root=root,
-        ):
-            titles.update(title_identity_keys(archive_title, TITLE_KEY_ANY_TYPE))
+            table_cache=table_cache,
+            archive_sources=archive_sources,
+            project_root=project_root,
+        ).title_keys
+    )
     return titles
 
 
@@ -862,30 +937,66 @@ def load_existing_video_folder_ids_for_ingest(
     airtable: AirtableClient,
     *,
     table_cache: Any | None = None,
+    archive_sources: list[AirtableArchiveSource] | None = None,
+    project_root: Path | None = None,
 ) -> set[str]:
-    """Live-table Drive folder ids already present as Video Folder."""
+    """Drive folder ids already present as Video Folder, including archives."""
     if table_cache is not None:
-        return table_cache.existing_video_folder_ids()
-    return airtable.list_existing_video_folder_ids()
+        folder_ids = table_cache.existing_video_folder_ids()
+    else:
+        folder_ids = airtable.list_existing_video_folder_ids()
+    folder_ids.update(
+        _archive_identity_for_ingest(
+            airtable,
+            table_cache=table_cache,
+            archive_sources=archive_sources,
+            project_root=project_root,
+        ).folder_ids
+    )
+    return folder_ids
 
 
 def load_existing_original_video_names_for_ingest(
     airtable: AirtableClient,
     *,
     table_cache: Any | None = None,
+    archive_sources: list[AirtableArchiveSource] | None = None,
+    project_root: Path | None = None,
 ) -> set[str]:
-    """Live-table Original Video Name keys already present (ytTitle dedup)."""
+    """Original Video Name keys already present, including archives."""
     if table_cache is not None:
-        return table_cache.existing_original_video_names()
-    return airtable.list_existing_original_video_names()
+        names = table_cache.existing_original_video_names()
+    else:
+        names = airtable.list_existing_original_video_names()
+    names.update(
+        _archive_identity_for_ingest(
+            airtable,
+            table_cache=table_cache,
+            archive_sources=archive_sources,
+            project_root=project_root,
+        ).original_video_names
+    )
+    return names
 
 
 def load_existing_original_video_keys_for_ingest(
     airtable: AirtableClient,
     *,
     table_cache: Any | None = None,
+    archive_sources: list[AirtableArchiveSource] | None = None,
+    project_root: Path | None = None,
 ) -> set[str]:
-    """Live-table Original Video platform keys already present (ctLink dedup)."""
+    """Original Video platform keys already present, including archives."""
     if table_cache is not None:
-        return table_cache.existing_original_video_keys()
-    return airtable.list_existing_original_video_keys()
+        video_keys = table_cache.existing_original_video_keys()
+    else:
+        video_keys = airtable.list_existing_original_video_keys()
+    video_keys.update(
+        _archive_identity_for_ingest(
+            airtable,
+            table_cache=table_cache,
+            archive_sources=archive_sources,
+            project_root=project_root,
+        ).original_video_keys
+    )
+    return video_keys

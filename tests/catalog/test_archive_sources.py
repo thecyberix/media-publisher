@@ -6,9 +6,12 @@ from unittest.mock import patch
 from catalog_parser.airtable import (
     AirtableArchiveSource,
     AirtableClient,
+    FIELD_ORIGINAL_VIDEO,
     FIELD_ORIGINAL_VIDEO_NAME,
     FIELD_STATUS,
     FIELD_TITLE,
+    FIELD_TYPE,
+    FIELD_VIDEO_FOLDER,
 )
 from catalog_parser.workflow.archive_sources import (
     STATUS_NOT_ASSIGNED,
@@ -95,6 +98,9 @@ class ArchiveSourceDiscoveryTests(unittest.TestCase):
                             "fields": [
                                 {"name": FIELD_ORIGINAL_VIDEO_NAME},
                                 {"name": FIELD_TITLE},
+                                {"name": FIELD_TYPE},
+                                {"name": FIELD_VIDEO_FOLDER},
+                                {"name": FIELD_ORIGINAL_VIDEO},
                             ],
                         }
                     ],
@@ -109,11 +115,21 @@ class ArchiveSourceDiscoveryTests(unittest.TestCase):
                     base_id="app2024",
                     table_name="Table 2",
                     title_fields=(FIELD_ORIGINAL_VIDEO_NAME,),
+                    identity_fields=(FIELD_ORIGINAL_VIDEO_NAME,),
+                    title_from_original_video_name=True,
                 ),
                 AirtableArchiveSource(
                     base_id="app2025",
                     table_name="Translator's Paradise",
                     title_fields=(FIELD_TITLE, FIELD_ORIGINAL_VIDEO_NAME),
+                    identity_fields=(
+                        FIELD_TITLE,
+                        FIELD_TYPE,
+                        FIELD_VIDEO_FOLDER,
+                        FIELD_ORIGINAL_VIDEO_NAME,
+                        FIELD_ORIGINAL_VIDEO,
+                    ),
+                    title_from_original_video_name=False,
                 ),
             ],
         )

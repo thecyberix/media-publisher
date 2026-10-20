@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from catalog_parser.airtable import (
+    INGEST_IDENTITY_FIELDS,
     AirtableArchiveSource,
     AirtableClient,
     FIELD_ORIGINAL_VIDEO_NAME,
@@ -85,12 +86,16 @@ def _pick_catalog_table(
     return None
 
 
-def _pick_title_fields(table: dict[str, Any]) -> tuple[str, ...]:
-    field_names = {
+def _table_field_names(table: dict[str, Any]) -> set[str]:
+    return {
         str(field.get("name"))
         for field in table.get("fields", [])
         if isinstance(field, dict) and field.get("name")
     }
+
+
+def _pick_title_fields(table: dict[str, Any]) -> tuple[str, ...]:
+    field_names = _table_field_names(table)
     selected = [field for field in CATALOG_TITLE_FIELDS if field in field_names]
     if selected:
         return tuple(selected)
@@ -101,6 +106,16 @@ def _pick_title_fields(table: dict[str, Any]) -> tuple[str, ...]:
         if isinstance(primary, dict) and primary.get("name"):
             return (str(primary["name"]),)
     return (FIELD_ORIGINAL_VIDEO_NAME,)
+
+
+def _pick_identity_fields(table: dict[str, Any]) -> tuple[str, ...]:
+    """Identity columns this archive table actually has.
+
+    Requesting a missing Airtable field fails the whole list call, so the
+    schema — already fetched to find the table — decides the field list.
+    """
+    field_names = _table_field_names(table)
+    return tuple(field for field in INGEST_IDENTITY_FIELDS if field in field_names)
 
 
 def resolve_archive_sources(
@@ -148,16 +163,29 @@ def resolve_archive_sources(
             continue
 
         title_fields = _pick_title_fields(table)
+        identity_fields = _pick_identity_fields(table)
+        title_from_original_video_name = (
+            FIELD_TITLE not in _table_field_names(table)
+            and FIELD_ORIGINAL_VIDEO_NAME in identity_fields
+        )
         sources.append(
             AirtableArchiveSource(
                 base_id=base_id,
                 table_name=table_name,
                 title_fields=title_fields,
+                identity_fields=identity_fields,
+                title_from_original_video_name=title_from_original_video_name,
             )
         )
+        title_note = (
+            "Original Video Name used as Title"
+            if title_from_original_video_name
+            else f"title field(s): {', '.join(title_fields)}"
+        )
+        identity_note = ", ".join(identity_fields) if identity_fields else "none"
         print(
             f"Resolved {year} archive to base {base.get('name')!r} / "
-            f"{table_name!r} using title field(s): {', '.join(title_fields)}"
+            f"{table_name!r}; {title_note}; ingest fields: {identity_note}"
         )
 
     _PROCESS_RESOLVED[cache_key] = list(sources)

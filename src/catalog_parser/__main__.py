@@ -128,7 +128,10 @@ def load_existing_airtable_video_folder_ids(
     airtable_client = client if client is not None else build_airtable_client()
     if airtable_client is None:
         return set()
-    return load_existing_video_folder_ids_for_ingest(airtable_client)
+    return load_existing_video_folder_ids_for_ingest(
+        airtable_client,
+        project_root=PROJECT_ROOT,
+    )
 
 
 def load_existing_airtable_original_video_names(
@@ -139,7 +142,10 @@ def load_existing_airtable_original_video_names(
     airtable_client = client if client is not None else build_airtable_client()
     if airtable_client is None:
         return set()
-    return load_existing_original_video_names_for_ingest(airtable_client)
+    return load_existing_original_video_names_for_ingest(
+        airtable_client,
+        project_root=PROJECT_ROOT,
+    )
 
 
 def load_existing_airtable_original_video_keys(
@@ -150,7 +156,10 @@ def load_existing_airtable_original_video_keys(
     airtable_client = client if client is not None else build_airtable_client()
     if airtable_client is None:
         return set()
-    return load_existing_original_video_keys_for_ingest(airtable_client)
+    return load_existing_original_video_keys_for_ingest(
+        airtable_client,
+        project_root=PROJECT_ROOT,
+    )
 
 
 def enrich_single_record_with_smartcat_api(

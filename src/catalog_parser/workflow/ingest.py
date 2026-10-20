@@ -288,14 +288,17 @@ def ingest_batch(
     existing_folder_ids = load_existing_video_folder_ids_for_ingest(
         airtable,
         table_cache=table_cache,
+        project_root=PROJECT_ROOT,
     )
     existing_original_video_names = load_existing_original_video_names_for_ingest(
         airtable,
         table_cache=table_cache,
+        project_root=PROJECT_ROOT,
     )
     existing_original_video_keys = load_existing_original_video_keys_for_ingest(
         airtable,
         table_cache=table_cache,
+        project_root=PROJECT_ROOT,
     )
     staging_dir = PROJECT_ROOT / "output" / "ingest-thumbnails"
     staging_dir.mkdir(parents=True, exist_ok=True)

@@ -219,10 +219,25 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python scripts/catalog/print_google_service_account_email.py
 
+      - name: Restore archive identity cache
+        id: restore_archive_cache
+        if: >-
+          steps.auth_check.outcome == 'success'
+          && inputs.mode == 'ingest'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python -u scripts/catalog/restore_workflow_state.py \
+            --workflow catalog-daily-workflow.yml \
+            --exclude-run-id "${{ github.run_id }}" \
+            --required backups/airtable-archive-titles.json
+
       - name: Run unassigned ingest
         if: >-
           steps.auth_check.outcome == 'success'
           && inputs.mode == 'ingest'
+          && steps.restore_archive_cache.outcome == 'success'
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_URL: ${{ vars.AIRTABLE_URL }}

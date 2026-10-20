@@ -11,17 +11,9 @@ from typing import Any
 from catalog_parser.airtable import (
     AirtableClient,
     AirtableError,
-    FIELD_ORIGINAL_VIDEO,
-    FIELD_ORIGINAL_VIDEO_NAME,
-    FIELD_TITLE,
-    FIELD_TYPE,
-    FIELD_VIDEO_FOLDER,
     catalog_record_to_airtable_fields,
-    normalize_original_video_key,
-    normalize_original_video_name_key,
-    title_identity_keys,
+    collect_ingest_identity,
 )
-from catalog_parser.drive_docs import extract_drive_folder_id
 from catalog_parser.workflow.status_history import record_status_history_from_snapshots
 
 DEFAULT_BACKUP_DIR = Path("output") / "backups"
@@ -240,19 +232,22 @@ class TableCache:
                 return record
         return None
 
-    def existing_title_keys(self) -> set[str]:
-        """Typed title identity keys (``{type}\\t{title}``)."""
-        keys: set[str] = set()
+    def _iter_ingest_identity(
+        self,
+    ) -> list[tuple[set[str], set[str], set[str], set[str]]]:
+        rows: list[tuple[set[str], set[str], set[str], set[str]]] = []
         for record in self._records:
             fields = record.get("fields")
             if not isinstance(fields, dict):
                 continue
-            keys.update(
-                title_identity_keys(
-                    fields.get(FIELD_TITLE),
-                    fields.get(FIELD_TYPE),
-                )
-            )
+            rows.append(collect_ingest_identity(fields))
+        return rows
+
+    def existing_title_keys(self) -> set[str]:
+        """Typed title identity keys (``{type}\\t{title}``)."""
+        keys: set[str] = set()
+        for title_keys, _folders, _names, _videos in self._iter_ingest_identity():
+            keys.update(title_keys)
         return keys
 
     def existing_titles(self) -> set[str]:
@@ -261,40 +256,20 @@ class TableCache:
 
     def existing_video_folder_ids(self) -> set[str]:
         folder_ids: set[str] = set()
-        for record in self._records:
-            fields = record.get("fields")
-            if not isinstance(fields, dict):
-                continue
-            link = fields.get(FIELD_VIDEO_FOLDER)
-            if not isinstance(link, str) or not link.strip():
-                continue
-            folder_id = extract_drive_folder_id(link)
-            if folder_id:
-                folder_ids.add(folder_id)
+        for _titles, row_folders, _names, _videos in self._iter_ingest_identity():
+            folder_ids.update(row_folders)
         return folder_ids
 
     def existing_original_video_names(self) -> set[str]:
         names: set[str] = set()
-        for record in self._records:
-            fields = record.get("fields")
-            if not isinstance(fields, dict):
-                continue
-            key = normalize_original_video_name_key(
-                fields.get(FIELD_ORIGINAL_VIDEO_NAME)
-            )
-            if key:
-                names.add(key)
+        for _titles, _folders, row_names, _videos in self._iter_ingest_identity():
+            names.update(row_names)
         return names
 
     def existing_original_video_keys(self) -> set[str]:
         keys: set[str] = set()
-        for record in self._records:
-            fields = record.get("fields")
-            if not isinstance(fields, dict):
-                continue
-            key = normalize_original_video_key(fields.get(FIELD_ORIGINAL_VIDEO))
-            if key:
-                keys.add(key)
+        for _titles, _folders, _names, row_videos in self._iter_ingest_identity():
+            keys.update(row_videos)
         return keys
 
     def update_fields(self, record_id: str, field_updates: dict[str, Any]) -> None:
