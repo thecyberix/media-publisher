@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import io
+import json
 import unittest
-from unittest.mock import Mock
+import urllib.error
+import urllib.request
+from unittest.mock import Mock, patch
 
 from media_publisher.transient_retry import (
     call_with_transient_retry,
     delay_before_retry,
+    execute_urllib_request,
     http_status_from_exception,
     is_transient_exception,
     is_transient_http_status,
@@ -84,6 +89,75 @@ class TransientRetryTests(unittest.TestCase):
             max_delay_seconds=20.0,
         )
         self.assertEqual(delay, 20.0)
+
+
+def _http_error(code: int, body: bytes) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        url="https://api.example/token",
+        code=code,
+        msg="Error",
+        hdrs=None,
+        fp=io.BytesIO(body),
+    )
+
+
+def _ok_body(payload: dict[str, object]) -> Mock:
+    response = Mock()
+    response.read.return_value = json.dumps(payload).encode("utf-8")
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    return response
+
+
+class ExecuteUrllibRequestTests(unittest.TestCase):
+    def test_retries_503_then_returns_body(self) -> None:
+        calls = {"n": 0}
+        logs: list[str] = []
+
+        def urlopen(request: urllib.request.Request, timeout: float = 60) -> Mock:
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise _http_error(503, b'{"error":"service unavailable"}')
+            return _ok_body({"access_token": "new"})
+
+        with patch(
+            "media_publisher.transient_retry.urllib.request.urlopen",
+            side_effect=urlopen,
+        ):
+            raw = execute_urllib_request(
+                lambda: urllib.request.Request("https://api.example/token"),
+                timeout=60,
+                attempts=5,
+                sleep=lambda _delay: None,
+                log=logs.append,
+                operation="Canva token exchange",
+            )
+        self.assertEqual(json.loads(raw), {"access_token": "new"})
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(len(logs), 2)
+        self.assertIn("HTTP 503", logs[0])
+
+    def test_does_not_retry_http_400(self) -> None:
+        calls = {"n": 0}
+
+        def urlopen(request: urllib.request.Request, timeout: float = 60) -> Mock:
+            calls["n"] += 1
+            raise _http_error(400, b'{"error":"invalid_grant"}')
+
+        with patch(
+            "media_publisher.transient_retry.urllib.request.urlopen",
+            side_effect=urlopen,
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                execute_urllib_request(
+                    lambda: urllib.request.Request("https://api.example/token"),
+                    timeout=60,
+                    attempts=5,
+                    sleep=lambda _delay: None,
+                )
+        self.assertEqual(ctx.exception.code, 400)
+        self.assertEqual(getattr(ctx.exception, "detail_text"), '{"error":"invalid_grant"}')
+        self.assertEqual(calls["n"], 1)
 
 
 if __name__ == "__main__":

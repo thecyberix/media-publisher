@@ -148,7 +148,7 @@ Status changes between daily snapshots are appended to `output/workflow/status_h
 
 On GitHub Actions, the daily workflow:
 
-1. Restores `workflow-state` from the **newest unexpired GitHub artifact** of that name (not from `gh run list --status=success`, which can page past recent runs). Ingest-only successes are skipped because they do not upload `workflow-state`. The restore step logs the selected run id / URL / `createdAt`, refuses a snapshot whose Airtable `fetched_at` does not match that run, and fails the job if that artifact is older than 72 hours.
+1. Restores `workflow-state` from the **newest unexpired GitHub artifact** of that name (not from `gh run list --status=success`, which can page past recent runs). Ingest-only successes are skipped because they do not upload `workflow-state`. The restore step logs each candidate run id / URL / `createdAt`. If that artifact's Airtable `fetched_at` does not match the run — for example a failed run re-uploaded the previous snapshot — restore skips it and tries the next artifact. It fails the job only when no candidate matches, or when every remaining artifact is older than 72 hours.
 2. Runs the orchestrator and appends any new status events.
 3. Uploads `airtable-latest.json`, `status_history.json`, and `editor_last_assigned.json` as artifacts **only if restore succeeded** (so a failed restore cannot publish a truncated history).
 
@@ -361,7 +361,7 @@ python scripts/_canva_auth_interactive.py
 
 When `CONFIG_SYNC_PAT` is set, the script updates the `CANVA_TOKEN_JSON` GitHub secret automatically.
 
-Canva refresh tokens are **single-use**. The daily authorization check skips Canva. Catalog orchestration refreshes (if needed) and probes Canva once at startup, then syncs `CANVA_TOKEN_JSON` when `CONFIG_SYNC_PAT` is set. Later steps in the same job must keep the rotated on-disk token — they do not rematerialize `CANVA_TOKEN_JSON` from the job-scoped secret after Restore. Avoid overlapping Canva-using workflows (catalog + publish) that could refresh the same secret concurrently.
+Canva refresh tokens are **single-use** and rotate only after a successful token response. Catalog and publish retry transient token-endpoint failures (HTTP 408, 429, 500, 502, 503, 504, and network errors) up to 5 times with backoff, and they do not retry permanent errors such as `invalid_grant`. The daily authorization check skips Canva. Catalog orchestration refreshes (if needed) and probes Canva once at startup, then syncs `CANVA_TOKEN_JSON` when `CONFIG_SYNC_PAT` is set. Later steps in the same job must keep the rotated on-disk token — they do not rematerialize `CANVA_TOKEN_JSON` from the job-scoped secret after Restore. Avoid overlapping Canva-using workflows (catalog + publish) that could refresh the same secret concurrently.
 
 Test locally:
 
@@ -473,7 +473,7 @@ The [Reporting workflow](../.github/workflows/reporting.yml) emails a summary ev
 
 The report covers the **previous calendar week** (Monday 00:00 – Sunday 23:59, UTC+3). It reads `output/workflow/status_history.json` accumulated by daily runs — **no Airtable API calls**.
 
-Daily runs restore the previous `workflow-state` artifact (Airtable backup + status history) before writing a new snapshot. Restore lists unexpired `workflow-state` artifacts newest first, skips the current `github.run_id` and ingest-only successes, logs that choice, and fails if the backup `fetched_at` does not belong to the selected run. `actions/upload-artifact@v4` strips the common `output/` prefix from uploaded paths, so restore looks under both `backups/…` / `workflow/…` and legacy `output/backups/…` / `output/workflow/…`.
+Daily runs restore the previous `workflow-state` artifact (Airtable backup + status history) before writing a new snapshot. Restore lists unexpired `workflow-state` artifacts newest first, skips the current `github.run_id` and ingest-only successes, and skips an artifact whose backup `fetched_at` does not belong to that run so a failed re-upload cannot block the previous good snapshot. It fails when no remaining artifact matches. `actions/upload-artifact@v4` strips the common `output/` prefix from uploaded paths, so restore looks under both `backups/…` / `workflow/…` and legacy `output/backups/…` / `output/workflow/…`.
 
 - **Translation** — record entered `2. Translation done` without an Editor (Translator field used for attribution)
 - **Editing** — record entered `3. Editing done` without Combined Media File (Editor field used for attribution)

@@ -18,6 +18,7 @@ from threading import Thread
 from typing import Any
 
 from catalog_parser.runtime_env import CANVA_TOKEN_RELATIVE_PATH
+from media_publisher.transient_retry import execute_urllib_request
 
 DEFAULT_API_BASE = "https://api.canva.com/rest/v1"
 DEFAULT_AUTH_BASE = "https://www.canva.com/api"
@@ -289,22 +290,32 @@ class CanvaClient:
         *,
         fallback_refresh_token: str | None = None,
     ) -> CanvaToken:
-        request = urllib.request.Request(
-            f"{self.api_base}/oauth/token",
-            data=urllib.parse.urlencode(body).encode("utf-8"),
-            method="POST",
-        )
-        request.add_header(
-            "Authorization",
-            _basic_auth_header(self.client_id, self.client_secret),
-        )
-        request.add_header("Content-Type", "application/x-www-form-urlencoded")
+        # Error responses do not return a new refresh token. Transient token
+        # endpoint failures (such as HTTP 503) are retried with the same token.
+        # Permanent errors, including invalid_grant, are not retried.
+        encoded = urllib.parse.urlencode(body).encode("utf-8")
+        auth_header = _basic_auth_header(self.client_id, self.client_secret)
+
+        def build_request() -> urllib.request.Request:
+            request = urllib.request.Request(
+                f"{self.api_base}/oauth/token",
+                data=encoded,
+                method="POST",
+            )
+            request.add_header("Authorization", auth_header)
+            request.add_header("Content-Type", "application/x-www-form-urlencoded")
+            return request
 
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+            raw = execute_urllib_request(
+                build_request,
+                timeout=60,
+                log=print,
+                operation="Canva token exchange",
+            )
+            payload = json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace").strip()
+            detail = str(getattr(exc, "detail_text", "") or "").strip()
             raise CanvaError(
                 f"Canva token exchange failed with HTTP {exc.code}: {detail}"
             ) from exc

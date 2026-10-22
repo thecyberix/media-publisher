@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import random
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from typing import TypeVar
 
@@ -17,6 +19,9 @@ T = TypeVar("T")
 DEFAULT_ATTEMPTS = 3
 DEFAULT_BASE_DELAY_SECONDS = 1.0
 DEFAULT_MAX_DELAY_SECONDS = 20.0
+URLLIB_TRANSIENT_ATTEMPTS = 5
+URLLIB_TRANSIENT_BASE_DELAY_SECONDS = 5.0
+URLLIB_TRANSIENT_MAX_DELAY_SECONDS = 60.0
 TRANSIENT_HTTP_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 
 
@@ -166,5 +171,76 @@ def call_with_transient_retry(
                     rng=rng,
                 )
             )
+    assert last_exc is not None
+    raise last_exc
+
+
+def execute_urllib_request(
+    build_request: Callable[[], urllib.request.Request],
+    *,
+    timeout: float,
+    attempts: int = URLLIB_TRANSIENT_ATTEMPTS,
+    base_delay_seconds: float = URLLIB_TRANSIENT_BASE_DELAY_SECONDS,
+    max_delay_seconds: float = URLLIB_TRANSIENT_MAX_DELAY_SECONDS,
+    sleep: Callable[[float], None] | None = None,
+    log: Callable[[str], None] | None = None,
+    operation: str = "request",
+    rng: random.Random | None = None,
+) -> bytes:
+    """Send a urllib request and retry transient HTTP and network failures.
+
+    ``build_request`` is called on every attempt so the body can be sent again.
+    Only use this when repeating the request is safe. HTTP 408, 429, 500, 502,
+    503, and 504 are retried, as are network ``URLError`` failures. Other HTTP
+    statuses fail immediately.
+
+    On the final ``HTTPError``, the body has already been read and is stored on
+    ``exc.detail_text``.
+    """
+    if attempts < 1:
+        raise ValueError("attempts must be >= 1")
+    sleeper = time.sleep if sleep is None else sleep
+
+    last_exc: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        request = build_request()
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            exc.detail_text = detail  # type: ignore[attr-defined]
+            last_exc = exc
+            if attempt >= attempts or not is_transient_http_status(exc.code):
+                raise
+            delay = delay_before_retry(
+                attempt,
+                base_delay_seconds=base_delay_seconds,
+                max_delay_seconds=max_delay_seconds,
+                retry_after=retry_after_seconds(exc),
+                rng=rng,
+            )
+            if log is not None:
+                log(
+                    f"{operation} failed with HTTP {exc.code}; "
+                    f"retrying in {delay:.0f}s (attempt {attempt}/{attempts})"
+                )
+            sleeper(delay)
+        except urllib.error.URLError as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                raise
+            delay = delay_before_retry(
+                attempt,
+                base_delay_seconds=base_delay_seconds,
+                max_delay_seconds=max_delay_seconds,
+                rng=rng,
+            )
+            if log is not None:
+                log(
+                    f"{operation} failed: {exc.reason}; "
+                    f"retrying in {delay:.0f}s (attempt {attempt}/{attempts})"
+                )
+            sleeper(delay)
     assert last_exc is not None
     raise last_exc

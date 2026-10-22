@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -203,8 +204,7 @@ class RestoredFileAndBackupTests(unittest.TestCase):
 
 
 class RestoreWorkflowStateScriptTests(unittest.TestCase):
-    def test_restore_copies_files_and_rejects_mismatched_backup(self) -> None:
-
+    def test_restore_skips_stale_reupload_and_uses_older_matching_backup(self) -> None:
         payloads = [
             _run(
                 16,
@@ -215,12 +215,13 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
             ),
             _run(
                 18,
-                "2026-09-18T00:01:12Z",
+                "2026-09-17T04:11:42Z",
                 number=108,
-                started_at="2026-09-18T00:01:12Z",
-                updated_at="2026-09-18T00:03:52Z",
+                started_at="2026-09-17T04:11:42Z",
+                updated_at="2026-09-17T04:14:08Z",
             ),
         ]
+        tried: list[int] = []
 
         def fake_list(workflow: str, *, limit: int) -> list[dict]:
             self.assertEqual(workflow, "catalog-daily-workflow.yml")
@@ -233,45 +234,106 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
             output_root = tmp / "output"
 
             def fake_download(*, run_id: int, artifact: str, extract_dir: Path) -> None:
-                self.assertEqual(run_id, 18)
+                tried.append(run_id)
                 self.assertEqual(artifact, "workflow-state")
+                if extract_dir.exists():
+                    shutil.rmtree(extract_dir)
                 extract_dir.mkdir(parents=True, exist_ok=True)
+                fetched_at = (
+                    "2026-09-16T00:03:31.464684+00:00"
+                    if run_id == 18
+                    else "2026-09-16T00:02:20+00:00"
+                )
                 backup = extract_dir / "backups" / "airtable-latest.json"
                 backup.parent.mkdir(parents=True)
                 backup.write_text(
-                    json.dumps(
-                        {
-                            "fetched_at": "2026-09-16T00:03:31.464684+00:00",
-                            "records": [],
-                        }
-                    ),
+                    json.dumps({"fetched_at": fetched_at, "records": []}),
                     encoding="utf-8",
                 )
                 history = extract_dir / "workflow" / "status_history.json"
                 history.parent.mkdir(parents=True)
                 history.write_text("[]", encoding="utf-8")
 
+            selected = restore_workflow_state(
+                workflow="catalog-daily-workflow.yml",
+                exclude_run_id=19,
+                artifact="workflow-state",
+                extract_dir=extract_dir,
+                output_root=output_root,
+                required=[
+                    "backups/airtable-latest.json",
+                    "workflow/status_history.json",
+                ],
+                optional=[],
+                list_limit=20,
+                max_run_age=timedelta(hours=72),
+                warn_run_age=timedelta(hours=36),
+                backup_slack=timedelta(hours=2),
+                now=datetime(2026, 9, 17, 8, 0, 0, tzinfo=timezone.utc),
+                list_runs=fake_list,
+                download=fake_download,
+            )
+            self.assertEqual(tried, [18, 16])
+            self.assertEqual(selected.database_id, 16)
+            restored = json.loads(
+                (output_root / "backups" / "airtable-latest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(restored["fetched_at"], "2026-09-16T00:02:20+00:00")
+
+    def test_restore_fails_when_every_backup_mismatches_its_run(self) -> None:
+        payloads = [
+            _run(
+                16,
+                "2026-09-16T00:01:09Z",
+                number=106,
+                started_at="2026-09-16T00:01:09Z",
+                updated_at="2026-09-16T00:03:42Z",
+            ),
+            _run(
+                18,
+                "2026-09-17T04:11:42Z",
+                number=108,
+                started_at="2026-09-17T04:11:42Z",
+                updated_at="2026-09-17T04:14:08Z",
+            ),
+        ]
+
+        def fake_download(*, run_id: int, artifact: str, extract_dir: Path) -> None:
+            if extract_dir.exists():
+                shutil.rmtree(extract_dir)
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            backup = extract_dir / "backups" / "airtable-latest.json"
+            backup.parent.mkdir(parents=True)
+            backup.write_text(
+                json.dumps(
+                    {"fetched_at": "2026-09-01T00:03:31+00:00", "records": []}
+                ),
+                encoding="utf-8",
+            )
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
             with self.assertRaises(WorkflowStateError) as ctx:
                 restore_workflow_state(
                     workflow="catalog-daily-workflow.yml",
                     exclude_run_id=19,
                     artifact="workflow-state",
-                    extract_dir=extract_dir,
-                    output_root=output_root,
-                    required=[
-                        "backups/airtable-latest.json",
-                        "workflow/status_history.json",
-                    ],
+                    extract_dir=tmp / "extract",
+                    output_root=tmp / "output",
+                    required=["backups/airtable-latest.json"],
                     optional=[],
                     list_limit=20,
                     max_run_age=timedelta(hours=72),
                     warn_run_age=timedelta(hours=36),
                     backup_slack=timedelta(hours=2),
-                    now=datetime(2026, 9, 19, 0, 3, 43, tzinfo=timezone.utc),
-                    list_runs=fake_list,
+                    now=datetime(2026, 9, 17, 8, 0, 0, tzinfo=timezone.utc),
+                    list_runs=lambda workflow, *, limit: payloads,
                     download=fake_download,
                 )
-            self.assertIn("does not match selected run 18", str(ctx.exception))
+        message = str(ctx.exception)
+        self.assertIn("backup does not match run: [18, 16]", message)
 
     def test_restore_succeeds_when_backup_matches_selected_run(self) -> None:
 

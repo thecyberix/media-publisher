@@ -298,6 +298,7 @@ def restore_workflow_state(
 
     skipped_missing: list[int] = []
     skipped_too_old: list[int] = []
+    skipped_mismatch: list[int] = []
     selected = None
     for run in eligible:
         if max_run_age is not None and not run_is_within_max_age(
@@ -324,13 +325,40 @@ def restore_workflow_state(
             skipped_missing.append(run.database_id)
             log(f"Skipping run {run.database_id}: {exc}")
             continue
+        backup_source = find_restored_file(extract_dir, BACKUP_RELATIVE)
+        if backup_source is not None:
+            try:
+                validate_backup_matches_run(
+                    backup_source, run, slack=backup_slack, log=log
+                )
+            except WorkflowStateError as exc:
+                skipped_mismatch.append(run.database_id)
+                log(f"Skipping run {run.database_id}: {exc}")
+                continue
+        elif BACKUP_RELATIVE in required:
+            skipped_mismatch.append(run.database_id)
+            log(
+                f"Skipping run {run.database_id}: required workflow-state file "
+                f"missing from artifact: {BACKUP_RELATIVE}"
+            )
+            continue
         selected = run
+        log(f"Selected: {format_run_log_line(selected)}")
+        copy_restored_files(
+            extract_dir=extract_dir,
+            output_root=output_root,
+            required=required,
+            optional=optional,
+            log=log,
+        )
         break
 
     if selected is None:
         reasons: list[str] = []
         if skipped_missing:
             reasons.append(f"no {artifact} artifact: {skipped_missing}")
+        if skipped_mismatch:
+            reasons.append(f"backup does not match run: {skipped_mismatch}")
         if skipped_too_old:
             reasons.append(f"older than {max_run_age}: {skipped_too_old}")
         detail = f" ({'; '.join(reasons)})" if reasons else ""
@@ -339,22 +367,5 @@ def restore_workflow_state(
             f"(exclude run_id={exclude_run_id}).{detail}"
         )
 
-    log(f"Selected: {format_run_log_line(selected)}")
-    backup_source = find_restored_file(extract_dir, BACKUP_RELATIVE)
-    if backup_source is not None:
-        validate_backup_matches_run(
-            backup_source, selected, slack=backup_slack, log=log
-        )
-    elif BACKUP_RELATIVE in required:
-        raise WorkflowStateError(
-            f"Required workflow-state file missing from artifact: {BACKUP_RELATIVE}"
-        )
-    copy_restored_files(
-        extract_dir=extract_dir,
-        output_root=output_root,
-        required=required,
-        optional=optional,
-        log=log,
-    )
     return selected
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from media_publisher.models import PublishJob, VideoFormat
+from media_publisher.transient_retry import execute_urllib_request
 
 DEFAULT_API_BASE = "https://api.canva.com/rest/v1"
 AUTHORIZE_URL = "https://www.canva.com/api/oauth/authorize"
@@ -619,20 +620,32 @@ class CanvaClient:
         return f"Basic {credentials}"
 
     def _token_request(self, form: dict[str, str]) -> CanvaToken:
-        data = urllib.parse.urlencode(form).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.api_base}/oauth/token",
-            data=data,
-            method="POST",
-        )
-        request.add_header("Authorization", self._basic_auth_header())
-        request.add_header("Content-Type", "application/x-www-form-urlencoded")
+        # Error responses do not return a new refresh token. Transient token
+        # endpoint failures (such as HTTP 503) are retried with the same token.
+        # Permanent errors, including invalid_grant, are not retried.
+        encoded = urllib.parse.urlencode(form).encode("utf-8")
+        auth_header = self._basic_auth_header()
+
+        def build_request() -> urllib.request.Request:
+            request = urllib.request.Request(
+                f"{self.api_base}/oauth/token",
+                data=encoded,
+                method="POST",
+            )
+            request.add_header("Authorization", auth_header)
+            request.add_header("Content-Type", "application/x-www-form-urlencoded")
+            return request
 
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+            raw = execute_urllib_request(
+                build_request,
+                timeout=60,
+                log=print,
+                operation="Canva token request",
+            )
+            payload = json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace").strip()
+            detail = str(getattr(exc, "detail_text", "") or "").strip()
             message = f"Canva token request failed with HTTP {exc.code}: {detail}"
             if "invalid_grant" in detail or "Token lineage has been revoked" in detail:
                 message += (

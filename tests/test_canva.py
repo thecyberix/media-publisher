@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
 import base64
 import urllib.error
+import urllib.request
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from media_publisher.models import PublishJob
 from media_publisher.sources.canva import (
@@ -442,6 +444,84 @@ class CanvaEnrichmentTests(unittest.TestCase):
                 self.assertEqual(client.ensure_ready(), "refreshed")
             refresh_mock.assert_called_once_with("refresh")
             probe_mock.assert_called_once_with("new-access")
+
+
+class CanvaTokenRequestRetryTests(unittest.TestCase):
+    def _client(self, token_path: Path) -> CanvaClient:
+        return CanvaClient(
+            client_id="client-id",
+            client_secret="client-secret",
+            token_path=token_path,
+        )
+
+    def test_retries_service_unavailable_then_saves_token(self) -> None:
+        calls = {"n": 0}
+
+        def urlopen(request: urllib.request.Request, timeout: float = 60) -> MagicMock:
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise urllib.error.HTTPError(
+                    url="https://api.canva.com/rest/v1/oauth/token",
+                    code=503,
+                    msg="Error",
+                    hdrs=None,
+                    fp=io.BytesIO(b'{"statusCode":503,"error":"service unavailable"}'),
+                )
+            response = MagicMock()
+            response.read.return_value = json.dumps(
+                {
+                    "access_token": "new-access",
+                    "refresh_token": "new-refresh",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                }
+            ).encode("utf-8")
+            response.__enter__.return_value = response
+            response.__exit__.return_value = False
+            return response
+
+        with tempfile.TemporaryDirectory() as tmp:
+            token_path = Path(tmp) / "canva-token.json"
+            with (
+                patch(
+                    "media_publisher.transient_retry.urllib.request.urlopen",
+                    side_effect=urlopen,
+                ),
+                patch("media_publisher.transient_retry.time.sleep"),
+            ):
+                token = self._client(token_path).refresh_access_token("old-refresh")
+            self.assertEqual(token.access_token, "new-access")
+            saved = json.loads(token_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["refresh_token"], "new-refresh")
+        self.assertEqual(calls["n"], 2)
+
+    def test_does_not_retry_invalid_grant(self) -> None:
+        calls = {"n": 0}
+
+        def urlopen(request: urllib.request.Request, timeout: float = 60) -> MagicMock:
+            calls["n"] += 1
+            raise urllib.error.HTTPError(
+                url="https://api.canva.com/rest/v1/oauth/token",
+                code=400,
+                msg="Error",
+                hdrs=None,
+                fp=io.BytesIO(b'{"error":"invalid_grant"}'),
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = self._client(Path(tmp) / "canva-token.json")
+            with (
+                patch(
+                    "media_publisher.transient_retry.urllib.request.urlopen",
+                    side_effect=urlopen,
+                ),
+                patch("media_publisher.transient_retry.time.sleep"),
+            ):
+                with self.assertRaises(CanvaError) as ctx:
+                    client.refresh_access_token("old-refresh")
+        self.assertIn("invalid_grant", str(ctx.exception))
+        self.assertIn("no longer valid", str(ctx.exception))
+        self.assertEqual(calls["n"], 1)
 
 
 if __name__ == "__main__":
