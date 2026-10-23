@@ -6,6 +6,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from catalog_parser.airtable import (
     FIELD_COMBINED_MEDIA_FILE,
+    FIELD_PLAYLISTS,
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TRANSLATED_SUBTITLES,
@@ -18,6 +19,7 @@ from catalog_parser.airtable import (
     STATUS_TRANSLATION_DONE,
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
+from catalog_parser.playlists import PlaylistConfig, PlaylistRule
 from catalog_parser.workflow.publish_schedule import (
     FIELD_SG_FB_DATE,
     FIELD_SG_IG_DATE,
@@ -76,6 +78,116 @@ class PublishScheduleTests(unittest.TestCase):
         self.assertEqual(fields[FIELD_SG_YT_DATE], "2026-07-06")
         self.assertEqual(fields[FIELD_SG_FB_DATE], "2026-07-06")
         self.assertEqual(fields[FIELD_SG_IG_DATE], "2026-07-06")
+
+    def test_schedule_prefers_priority_playlist_within_the_same_status(self) -> None:
+        airtable = MagicMock()
+        records = [
+            {
+                "id": "rec-thumb",
+                "createdTime": "2026-07-01T10:00:00.000Z",
+                "fields": {
+                    FIELD_STATUS: STATUS_SYNC_DONE,
+                    FIELD_TITLE: "Thumbnail only",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Thumbnail only",
+                    FIELD_TYPE: TYPE_REEL,
+                    FIELD_PLAYLISTS: ["Съзнателна Планета"],
+                    "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
+                },
+            },
+            {
+                "id": "rec-priority",
+                "createdTime": "2026-07-03T10:00:00.000Z",
+                "fields": {
+                    FIELD_STATUS: STATUS_SYNC_DONE,
+                    FIELD_TITLE: "Priority playlist",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Priority playlist",
+                    FIELD_TYPE: TYPE_REEL,
+                    FIELD_PLAYLISTS: ["Съзнателна Планета", "Чудото на Ума"],
+                },
+            },
+        ]
+        config = PlaylistConfig(
+            rules=(
+                PlaylistRule("Съзнателна Планета"),
+                PlaylistRule("Чудото на Ума"),
+            ),
+            publish_priority=("Чудото на Ума",),
+        )
+
+        with (
+            patch(
+                "catalog_parser.workflow.publish_schedule.load_playlist_config",
+                return_value=config,
+            ),
+            patch(
+                "catalog_parser.workflow.publish_schedule._notify_if_missing_prepared_thumbnail",
+                return_value=False,
+            ),
+        ):
+            result = schedule_tomorrow_publish(
+                airtable=airtable,
+                records=records,
+                drive_service=MagicMock(),
+                target_date=date(2026, 7, 6),
+            )
+
+        self.assertEqual(result.record_id, "rec-priority")
+
+    def test_schedule_keeps_status_ahead_of_playlist_priority(self) -> None:
+        airtable = MagicMock()
+        records = [
+            {
+                "id": "rec-editing",
+                "createdTime": "2026-07-01T10:00:00.000Z",
+                "fields": {
+                    FIELD_STATUS: STATUS_EDITING_DONE,
+                    FIELD_TITLE: "Editing priority",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Editing priority",
+                    FIELD_TYPE: TYPE_REEL,
+                    FIELD_PLAYLISTS: ["Чудото на Ума"],
+                    FIELD_COMBINED_MEDIA_FILE: "https://drive.google.com/file/d/abc/view",
+                    FIELD_TRANSLATED_SUBTITLES: "https://drive.google.com/file/d/srt/view",
+                    "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
+                },
+            },
+            {
+                "id": "rec-sync",
+                "createdTime": "2026-07-03T10:00:00.000Z",
+                "fields": {
+                    FIELD_STATUS: STATUS_SYNC_DONE,
+                    FIELD_TITLE: "Sync without priority",
+                    FIELD_VIDEO_NAME_TRANSLATED: "Sync without priority",
+                    FIELD_TYPE: TYPE_REEL,
+                    FIELD_PLAYLISTS: ["Съзнателна Планета"],
+                },
+            },
+        ]
+        config = PlaylistConfig(
+            rules=(
+                PlaylistRule("Съзнателна Планета"),
+                PlaylistRule("Чудото на Ума"),
+            ),
+            publish_priority=("Чудото на Ума",),
+        )
+
+        with (
+            patch(
+                "catalog_parser.workflow.publish_schedule.load_playlist_config",
+                return_value=config,
+            ),
+            patch(
+                "catalog_parser.workflow.publish_schedule._notify_if_missing_prepared_thumbnail",
+                return_value=False,
+            ),
+        ):
+            result = schedule_tomorrow_publish(
+                airtable=airtable,
+                records=records,
+                drive_service=MagicMock(),
+                target_date=date(2026, 7, 6),
+            )
+
+        self.assertEqual(result.record_id, "rec-sync")
 
     def test_schedule_tomorrow_omits_instagram_for_long_videos(self) -> None:
         airtable = MagicMock()

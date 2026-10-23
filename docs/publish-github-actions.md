@@ -170,7 +170,7 @@ Ekadashi dates come from the public Isha Google Calendar ICS (`ishacalendar@gmai
 
 ### Instagram keyword replies
 
-Inner Engineering and Miracle of Mind videos ask people to comment a keyword. `config/playlists.json` holds that keyword, the public reply, and the DM next to the original comment. The checker only looks at videos on the watch list in `data/instagram_comment_responses.json`. That list is filled from `output/instagram-end-card-comments.json` (videos whose comment was posted or already present) and each later Instagram publish adds its own video.
+`config/playlists.json` `publish_priority` lists video playlists to schedule first. Airtable status still comes first: Synchronization done is scheduled before Editing done, and Editing done before Translation done. Inside one status, names earlier in `publish_priority` are scheduled sooner; videos on none of those playlists wait behind them. Inner Engineering and Miracle of Mind videos ask people to comment a keyword. `config/playlists.json` holds that keyword, the public reply, and the DM next to the original comment. The checker only looks at videos on the watch list in `data/instagram_comment_responses.json`. That list is filled from `output/instagram-end-card-comments.json` (videos whose comment was posted or already present) and each later Instagram publish adds its own video.
 
 ```powershell
 python scripts/respond_instagram_playlist_comments.py

@@ -16,16 +16,7 @@
       "center_y_px": 675,
       "radius_px": 52
     },
-    "signature_top_px": 958,
-    "brand_watermark": {
-      "text": "Садгуру България",
-      "color": "#FFFFFF",
-      "x_px": 10,
-      "y_px": 7,
-      "font_size_px": 18,
-      "font_family": "Segoe UI",
-      "font_weight": "bold"
-    }
+    "signature_top_px": 958
   },
   "typography": {
     "font_family": "Times New Roman",

@@ -24,6 +24,7 @@ from catalog_parser.playlists import (
     combined_media_airtable_fields,
     instagram_comments_for_playlists,
     load_playlist_config,
+    playlist_publish_rank,
     youtube_playlist_ids_for_end_cards,
     youtube_playlists,
 )
@@ -103,6 +104,7 @@ class YoutubePlaylistTests(unittest.TestCase):
         )
         self.assertEqual(config.quote_playlist, "Цитати")
         self.assertEqual(config.ekadashi_playlist, "Екадаши")
+        self.assertEqual(config.publish_priority, ())
         names = youtube_playlists(config=config)
         self.assertNotIn("Цитати", names)
         self.assertNotIn("Екадаши", names)
@@ -167,6 +169,31 @@ class YoutubePlaylistTests(unittest.TestCase):
             ),
             [],
         )
+
+    def test_publish_rank_uses_the_earliest_listed_playlist(self) -> None:
+        priority = ("Чудото на Ума", "Вътрешно Изграждане")
+        self.assertEqual(
+            playlist_publish_rank(["Съзнателна Планета", "Вътрешно Изграждане"], priority),
+            1,
+        )
+        self.assertEqual(playlist_publish_rank(["Чудото на Ума"], priority), 0)
+        self.assertEqual(playlist_publish_rank(["Съзнателна Планета"], priority), 2)
+        self.assertEqual(playlist_publish_rank([], ()), 0)
+
+    def test_load_rejects_an_unknown_publish_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "playlists.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "playlists": [{"name": "Always"}],
+                        "publish_priority": ["Missing"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(RuntimeError):
+                load_playlist_config(path)
 
     def test_load_rejects_an_unknown_end_card(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

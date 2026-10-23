@@ -13,6 +13,7 @@ from catalog_parser.parser import (
     filter_by_video_type,
     order_pkg_tn_first,
     parse_pub_date,
+    sort_by_views_descending,
     parse_type_column_duration,
     parse_video_type,
     sort_by_pub_date_newest_first,
@@ -127,6 +128,23 @@ class PkgTnFilterTests(unittest.TestCase):
         self.assertEqual(
             ordered,
             ["Marked old", "Marked new", "Unmarked new", "Unmarked old"],
+        )
+
+
+class ViewOrderTests(unittest.TestCase):
+    def test_sort_by_views_descending_puts_missing_last(self) -> None:
+        records = [
+            {"ctTitle": "low", "ctViews": 10},
+            {"ctTitle": "none", "ctViews": None},
+            {"ctTitle": "high", "ctViews": "909148"},
+            {"ctTitle": "blank", "ctViews": ""},
+            {"ctTitle": "mid", "ctViews": 50000},
+            {"ctTitle": "tied-first", "ctViews": 10},
+        ]
+        ordered = [row["ctTitle"] for row in sort_by_views_descending(records)]
+        self.assertEqual(
+            ordered,
+            ["high", "mid", "low", "tied-first", "none", "blank"],
         )
 
 

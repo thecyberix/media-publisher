@@ -31,6 +31,8 @@ class WorkflowConfig:
     work_dir: Path
     target_reel_to_video_ratio: int
     max_video_seconds: int
+    prioritize_thumbnails: bool = True
+    prioritize_views: bool = False
 
 
 def _parse_person(item: object) -> PersonProfile | None:
@@ -96,6 +98,15 @@ def _required_int(data: dict, key: str, source: str) -> int:
     return int(data[key])
 
 
+def _optional_bool(data: dict, key: str, source: str, *, default: bool) -> bool:
+    if key not in data or data[key] is None:
+        return default
+    value = data[key]
+    if not isinstance(value, bool):
+        raise RuntimeError(f"{source} {key} must be a boolean")
+    return value
+
+
 def _load_profiles_json(project_root: Path) -> dict:
     raw = os.getenv("WORKFLOW_PROFILES_JSON", "").strip()
     if raw:
@@ -105,6 +116,36 @@ def _load_profiles_json(project_root: Path) -> dict:
     if isinstance(profiles, dict):
         return profiles
     return {}
+
+
+def load_prioritize_views(project_root: Path) -> bool:
+    """Whether ingest scans SM catalog rows with the highest ``ctViews`` first.
+
+    Missing ``prioritize_views`` keeps publication-date order. Rows with no
+    view count stay after rows that have one.
+    """
+    data = _load_shared_workflow_config(project_root)
+    return _optional_bool(
+        data,
+        "prioritize_views",
+        SHARED_WORKFLOW_CONFIG.as_posix(),
+        default=False,
+    )
+
+
+def load_prioritize_thumbnails(project_root: Path) -> bool:
+    """Whether ingest scans pkgTn-marked SM catalog rows before unmarked ones.
+
+    Missing ``prioritize_thumbnails`` keeps the previous behavior: marked rows
+    first, then unmarked rows.
+    """
+    data = _load_shared_workflow_config(project_root)
+    return _optional_bool(
+        data,
+        "prioritize_thumbnails",
+        SHARED_WORKFLOW_CONFIG.as_posix(),
+        default=True,
+    )
 
 
 def load_catalog_id(project_root: Path) -> str:
@@ -183,6 +224,12 @@ def load_workflow_config(project_root: Path) -> WorkflowConfig:
             shared, "target_reel_to_video_ratio", source
         ),
         max_video_seconds=_required_int(shared, "max_video_seconds", source),
+        prioritize_thumbnails=_optional_bool(
+            shared, "prioritize_thumbnails", source, default=True
+        ),
+        prioritize_views=_optional_bool(
+            shared, "prioritize_views", source, default=False
+        ),
     )
 
 

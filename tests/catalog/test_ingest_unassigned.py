@@ -232,6 +232,129 @@ class IngestBatchTests(unittest.TestCase):
         airtable.create_records.assert_not_called()
         self.assertTrue(any("would ingest" in line for line in logs))
 
+    @patch("catalog_parser.workflow.ingest.build_eligible_catalog_records")
+    @patch("catalog_parser.workflow.ingest.build_canva_client_from_env", return_value=None)
+    @patch("catalog_parser.workflow.ingest.get_docs_service")
+    @patch("catalog_parser.workflow.ingest.get_drive_service")
+    @patch("catalog_parser.workflow.ingest.get_sheets_service")
+    @patch("catalog_parser.workflow.ingest.parse_catalog")
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
+    def test_require_pkg_tn_drops_unmarked_rows(
+        self,
+        _mock_catalog_id: MagicMock,
+        mock_parse_catalog: MagicMock,
+        _mock_sheets: MagicMock,
+        _mock_drive: MagicMock,
+        _mock_docs: MagicMock,
+        _mock_canva: MagicMock,
+        mock_build_eligible: MagicMock,
+    ) -> None:
+        mock_parse_catalog.return_value = [
+            {"ctTitle": "Marked", "pkgTn": "1"},
+            {"ctTitle": "Unmarked", "pkgTn": "X"},
+        ]
+        mock_build_eligible.return_value = ([], 0)
+        logs: list[str] = []
+
+        created = ingest_batch(
+            MagicMock(),
+            desired_type="Reel",
+            target_count=1,
+            max_video_seconds=900,
+            airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+            require_pkg_tn=True,
+            dry_run=True,
+            log=logs.append,
+        )
+
+        self.assertEqual(created, [])
+        candidates = mock_build_eligible.call_args.args[0]
+        self.assertEqual([row["ctTitle"] for row in candidates], ["Marked"])
+        self.assertTrue(any("pkgTn filter: 1/2" in line for line in logs))
+        self.assertTrue(
+            mock_parse_catalog.call_args.kwargs["prioritize_thumbnails"]
+        )
+
+    @patch("catalog_parser.workflow.ingest.build_eligible_catalog_records")
+    @patch("catalog_parser.workflow.ingest.build_canva_client_from_env", return_value=None)
+    @patch("catalog_parser.workflow.ingest.get_docs_service")
+    @patch("catalog_parser.workflow.ingest.get_drive_service")
+    @patch("catalog_parser.workflow.ingest.get_sheets_service")
+    @patch("catalog_parser.workflow.ingest.parse_catalog")
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
+    def test_prioritize_thumbnails_false_keeps_catalog_order(
+        self,
+        _mock_catalog_id: MagicMock,
+        mock_parse_catalog: MagicMock,
+        _mock_sheets: MagicMock,
+        _mock_drive: MagicMock,
+        _mock_docs: MagicMock,
+        _mock_canva: MagicMock,
+        mock_build_eligible: MagicMock,
+    ) -> None:
+        mock_parse_catalog.return_value = [
+            {"ctTitle": "Newer unmarked", "pkgTn": None},
+            {"ctTitle": "Older marked", "pkgTn": "1"},
+        ]
+        mock_build_eligible.return_value = ([], 0)
+        logs: list[str] = []
+
+        ingest_batch(
+            MagicMock(),
+            desired_type="Reel",
+            target_count=1,
+            max_video_seconds=900,
+            airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+            prioritize_thumbnails=False,
+            dry_run=True,
+            log=logs.append,
+        )
+
+        self.assertFalse(mock_parse_catalog.call_args.kwargs["prioritize_thumbnails"])
+        self.assertFalse(mock_parse_catalog.call_args.kwargs["prioritize_views"])
+        passed = mock_build_eligible.call_args.args[0]
+        self.assertEqual(
+            [row["ctTitle"] for row in passed],
+            ["Newer unmarked", "Older marked"],
+        )
+        self.assertTrue(any("thumbnails not prioritized" in line for line in logs))
+
+    @patch("catalog_parser.workflow.ingest.build_eligible_catalog_records")
+    @patch("catalog_parser.workflow.ingest.build_canva_client_from_env", return_value=None)
+    @patch("catalog_parser.workflow.ingest.get_docs_service")
+    @patch("catalog_parser.workflow.ingest.get_drive_service")
+    @patch("catalog_parser.workflow.ingest.get_sheets_service")
+    @patch("catalog_parser.workflow.ingest.parse_catalog")
+    @patch("catalog_parser.workflow.ingest.load_catalog_id", return_value="sheet123")
+    def test_prioritize_views_is_passed_to_catalog_parse(
+        self,
+        _mock_catalog_id: MagicMock,
+        mock_parse_catalog: MagicMock,
+        _mock_sheets: MagicMock,
+        _mock_drive: MagicMock,
+        _mock_docs: MagicMock,
+        _mock_canva: MagicMock,
+        mock_build_eligible: MagicMock,
+    ) -> None:
+        mock_parse_catalog.return_value = [{"ctTitle": "Popular"}]
+        mock_build_eligible.return_value = ([], 0)
+        logs: list[str] = []
+
+        ingest_batch(
+            MagicMock(),
+            desired_type="Reel",
+            target_count=1,
+            max_video_seconds=900,
+            airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+            prioritize_thumbnails=False,
+            prioritize_views=True,
+            dry_run=True,
+            log=logs.append,
+        )
+
+        self.assertTrue(mock_parse_catalog.call_args.kwargs["prioritize_views"])
+        self.assertTrue(any("by view count, highest first" in line for line in logs))
+
     @patch(
         "catalog_parser.workflow.ingest._auto_sort_ingest_review_thumbnails"
     )

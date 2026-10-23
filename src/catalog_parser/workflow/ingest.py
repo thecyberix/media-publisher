@@ -90,6 +90,8 @@ def ingest_batch_for_translator(
     table_cache: TableCache | None = None,
     dry_run: bool = False,
     require_pkg_tn: bool = False,
+    prioritize_thumbnails: bool = True,
+    prioritize_views: bool = False,
     log: Callable[[str], None] | None = None,
     pending_review_items: list[Any] | None = None,
 ) -> list[str]:
@@ -105,6 +107,8 @@ def ingest_batch_for_translator(
         table_cache=table_cache,
         dry_run=dry_run,
         require_pkg_tn=require_pkg_tn,
+        prioritize_thumbnails=prioritize_thumbnails,
+        prioritize_views=prioritize_views,
         log=log,
         pending_review_items=pending_review_items,
     )
@@ -124,6 +128,8 @@ def ingest_batch_for_editor(
     table_cache: TableCache | None = None,
     dry_run: bool = False,
     require_pkg_tn: bool = False,
+    prioritize_thumbnails: bool = True,
+    prioritize_views: bool = False,
     log: Callable[[str], None] | None = None,
     pending_review_items: list[Any] | None = None,
 ) -> list[str]:
@@ -143,6 +149,8 @@ def ingest_batch_for_editor(
         table_cache=table_cache,
         dry_run=dry_run,
         require_pkg_tn=require_pkg_tn,
+        prioritize_thumbnails=prioritize_thumbnails,
+        prioritize_views=prioritize_views,
         log=log,
         pending_review_items=pending_review_items,
     )
@@ -160,6 +168,8 @@ def ingest_batch_unassigned(
     table_cache: TableCache | None = None,
     dry_run: bool = False,
     require_pkg_tn: bool = False,
+    prioritize_thumbnails: bool = True,
+    prioritize_views: bool = False,
     log: Callable[[str], None] | None = None,
     pending_review_items: list[Any] | None = None,
     required_title: str | None = None,
@@ -184,6 +194,8 @@ def ingest_batch_unassigned(
         table_cache=table_cache,
         dry_run=dry_run,
         require_pkg_tn=require_pkg_tn,
+        prioritize_thumbnails=prioritize_thumbnails,
+        prioritize_views=prioritize_views,
         log=log,
         pending_review_items=pending_review_items,
         required_title=required_title,
@@ -203,6 +215,8 @@ def ingest_batch(
     table_cache: TableCache | None = None,
     dry_run: bool = False,
     require_pkg_tn: bool = False,
+    prioritize_thumbnails: bool = True,
+    prioritize_views: bool = False,
     log: Callable[[str], None] | None = None,
     pending_review_items: list[Any] | None = None,
     required_title: str | None = None,
@@ -232,6 +246,8 @@ def ingest_batch(
         min_duration=min_duration,
         max_duration=max_duration,
         video_type=video_type,
+        prioritize_thumbnails=prioritize_thumbnails,
+        prioritize_views=prioritize_views,
     )
     if require_pkg_tn:
         before = len(candidates)
@@ -240,11 +256,22 @@ def ingest_batch(
             f"pkgTn filter: {len(candidates)}/{before} {video_type} candidate(s) "
             f"have pkgTn marked (not empty/X)."
         )
-    else:
+    elif prioritize_thumbnails:
         marked = sum(1 for row in candidates if tn_is_marked(row.get("pkgTn")))
+        order = "by view count, highest first" if prioritize_views else "in publication-date order"
         emit(
             f"Ingest order: {marked} pkgTn-marked {video_type} candidate(s) first, "
-            f"then {len(candidates) - marked} unmarked."
+            f"then {len(candidates) - marked} unmarked, {order}."
+        )
+    elif prioritize_views:
+        emit(
+            f"Ingest order: {len(candidates)} {video_type} candidate(s) "
+            "by view count, highest first. Rows without ctViews stay last."
+        )
+    else:
+        emit(
+            f"Ingest order: {len(candidates)} {video_type} candidate(s) "
+            "by publication date (thumbnails not prioritized)."
         )
 
     if wanted_title:
@@ -332,6 +359,8 @@ def ingest_batch(
             min_duration=min_duration,
             max_duration=type_max_duration,
             video_type=video_type,
+            prioritize_thumbnails=prioritize_thumbnails,
+            prioritize_views=prioritize_views,
         )
         if require_pkg_tn:
             candidates = filter_by_pkg_tn(candidates, require_marked=True)

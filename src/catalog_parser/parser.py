@@ -218,6 +218,38 @@ def parse_pub_date(value: Any) -> datetime | None:
     return None
 
 
+def catalog_view_count(value: Any) -> int | None:
+    """Raw SM catalog ``ctViews`` count, or None when the cell is blank."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value >= 0 else None
+    if isinstance(value, str):
+        text = value.strip().replace(",", "").replace(" ", "")
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except ValueError:
+            return None
+        return int(number) if number >= 0 else None
+    return None
+
+
+def sort_by_views_descending(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Highest ``ctViews`` first. Rows with no count stay last, in their prior order."""
+
+    def sort_key(record: dict[str, Any]) -> tuple[int, int]:
+        views = catalog_view_count(record.get("ctViews"))
+        if views is None:
+            return (1, 0)
+        return (0, -views)
+
+    return sorted(records, key=sort_key)
+
+
 def sort_by_pub_date_newest_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     def sort_key(record: dict[str, Any]) -> tuple[int, float]:
         parsed = parse_pub_date(record.get(PUB_DATE_FIELD))
@@ -319,6 +351,9 @@ def parse_catalog(
     min_duration: int = DEFAULT_MIN_DURATION,
     max_duration: int = DEFAULT_MAX_DURATION,
     video_type: str = DEFAULT_VIDEO_TYPE,
+    *,
+    prioritize_thumbnails: bool = True,
+    prioritize_views: bool = False,
 ) -> list[dict[str, Any]]:
     values = fetch_catalog_values(service, catalog_id)
     if not values:
@@ -331,9 +366,12 @@ def parse_catalog(
     records = apply_type_column_duration(records)
     records = filter_by_video_type(records, video_type)
     records = filter_by_duration(records, min_duration, max_duration)
-    records = select_fields(records)
     records = sort_by_pub_date_newest_first(records)
-    records = order_pkg_tn_first(records)
+    if prioritize_views:
+        records = sort_by_views_descending(records)
+    records = select_fields(records)
+    if prioritize_thumbnails:
+        records = order_pkg_tn_first(records)
     if limit > 0:
         records = records[:limit]
     return records

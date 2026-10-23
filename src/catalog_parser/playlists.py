@@ -6,7 +6,10 @@ that ending is found on the reference video. ``comment`` is the Instagram
 comment posted on that video. ``keyword``, ``reply``, and ``dm`` answer a
 later comment that contains the keyword. ``quote_playlist`` is the title
 of the playlist that receives quote videos only. ``ekadashi_playlist`` is the
-title of the playlist that receives Ekadashi videos only.
+title of the playlist that receives Ekadashi videos only. ``publish_priority``
+is an ordered list of video playlist names to schedule first. Airtable status
+still decides which pool is used; names earlier in the list are scheduled
+sooner inside that pool.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ class PlaylistConfig:
     rules: tuple[PlaylistRule, ...]
     quote_playlist: str | None = None
     ekadashi_playlist: str | None = None
+    publish_priority: tuple[str, ...] = ()
 
 
 def playlists_config_path(project_root: Path | None = None) -> Path:
@@ -87,6 +91,11 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
         ekadashi_playlist=_parse_optional_playlist_title(
             payload, "ekadashi_playlist", source=config_path.as_posix()
         ),
+        publish_priority=_parse_publish_priority(
+            payload,
+            rule_names=tuple(rule.name for rule in rules),
+            source=config_path.as_posix(),
+        ),
     )
 
 
@@ -120,6 +129,17 @@ def youtube_playlist_ids_for_end_cards(
             + f". Channel playlists: {known}"
         )
     return found
+
+
+def playlist_publish_rank(assigned: Sequence[str], priority: Sequence[str]) -> int:
+    """Lower ranks are scheduled sooner. Unlisted videos sort after listed ones."""
+    assigned_names = {
+        name.strip() for name in assigned if isinstance(name, str) and name.strip()
+    }
+    for index, name in enumerate(priority):
+        if name in assigned_names:
+            return index
+    return len(priority)
 
 
 def youtube_playlists(
@@ -181,6 +201,35 @@ def combined_media_airtable_fields(
     if playlists:
         fields[FIELD_PLAYLISTS] = list(playlists)
     return fields
+
+
+def _parse_publish_priority(
+    payload: dict[str, Any],
+    *,
+    rule_names: tuple[str, ...],
+    source: str,
+) -> tuple[str, ...]:
+    if "publish_priority" not in payload:
+        return ()
+    raw = payload.get("publish_priority")
+    if not isinstance(raw, list):
+        raise RuntimeError(f"{source} publish_priority must be an array of playlist names")
+    known = set(rule_names)
+    names: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw, start=1):
+        if not isinstance(item, str) or not item.strip():
+            raise RuntimeError(f"{source} publish_priority[{index}] must be a playlist name")
+        name = item.strip()
+        if name in seen:
+            raise RuntimeError(f"{source} publish_priority duplicates {name!r}")
+        if name not in known:
+            raise RuntimeError(
+                f"{source} publish_priority[{index}] {name!r} is not a video playlist"
+            )
+        seen.add(name)
+        names.append(name)
+    return tuple(names)
 
 
 def _parse_optional_playlist_title(

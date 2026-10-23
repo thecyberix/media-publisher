@@ -7,7 +7,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from catalog_parser.workflow.config import load_catalog_id, load_workflow_config
+from catalog_parser.workflow.config import (
+    load_catalog_id,
+    load_prioritize_thumbnails,
+    load_prioritize_views,
+    load_workflow_config,
+)
 
 
 PROFILES = {
@@ -69,6 +74,8 @@ class LoadWorkflowConfigTests(unittest.TestCase):
             self.assertEqual(config.catalog_id, "sheetFromFile01")
             self.assertEqual(config.target_reel_to_video_ratio, 6)
             self.assertEqual(config.max_video_seconds, 900)
+            self.assertTrue(config.prioritize_thumbnails)
+            self.assertFalse(config.prioritize_views)
 
     def test_missing_ratio_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -173,6 +180,60 @@ class LoadWorkflowConfigTests(unittest.TestCase):
             self.assertEqual(config.translators[0].email, "translator@example.com")
             self.assertIsNone(config.editors[0].email)
             self.assertIsNone(config.timing_editors[0].email)
+
+    def test_prioritize_thumbnails_from_shared_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_shared(
+                root,
+                {
+                    "catalog_id": "sheetFromFile01",
+                    "target_reel_to_video_ratio": 6,
+                    "max_video_seconds": 900,
+                    "prioritize_thumbnails": False,
+                },
+            )
+            (root / "workflow_config.json").write_text(
+                json.dumps(
+                    {
+                        "drive_url": "https://drive.google.com/drive/folders/abc",
+                        "profiles": PROFILES,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"DRIVE_URL": "", "WORKFLOW_PROFILES_JSON": ""},
+                clear=False,
+            ):
+                config = load_workflow_config(root)
+            self.assertFalse(config.prioritize_thumbnails)
+            self.assertFalse(load_prioritize_thumbnails(root))
+
+    def test_prioritize_views_from_shared_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_shared(
+                root,
+                {
+                    "catalog_id": "sheetFromFile01",
+                    "target_reel_to_video_ratio": 6,
+                    "max_video_seconds": 900,
+                    "prioritize_views": True,
+                },
+            )
+            self.assertTrue(load_prioritize_views(root))
+
+    def test_prioritize_thumbnails_must_be_boolean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_shared(
+                root,
+                {"catalog_id": "sheetFromFile01", "prioritize_thumbnails": "yes"},
+            )
+            with self.assertRaises(RuntimeError):
+                load_prioritize_thumbnails(root)
 
     def test_invalid_email_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

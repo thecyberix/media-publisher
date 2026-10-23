@@ -130,6 +130,8 @@ Ingest mix of Reels vs long videos is also in `config/workflow_config.json`:
 |-------|---------|
 | `target_reel_to_video_ratio` | Prefer Reels until there are this many Reels per Video (this repo uses `6`) |
 | `max_video_seconds` | Skip catalog Videos longer than this during ingest (this repo uses `900`, 15 minutes) |
+| `prioritize_thumbnails` | When `true` (this repo), ingest scans SM catalog rows with a `pkgTn` thumbnail mark before unmarked rows. When `false`, ingest does not prefer thumbnails. |
+| `prioritize_views` | When `true`, ingest scans rows with the highest `ctViews` count first. Rows with no count stay last. When `false` (this repo), publication date decides the order inside each thumbnail group. |
 
 ### How CI credentials work
 

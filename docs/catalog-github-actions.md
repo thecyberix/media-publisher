@@ -455,7 +455,7 @@ Optional workflow tuning can be passed as **Variables** (or added to the workflo
 | `VIDEO_TYPE` | `Reel` | Default video type when not driven by workflow rules. |
 | `TARGET_LANGUAGE` | `Bulgarian` | Key in `config/languages.json` (alias, country, months). |
 
-Catalog ingest limits (`catalog_id`, `target_reel_to_video_ratio`, `max_video_seconds`) live in checked-in `config/workflow_config.json`.
+Catalog ingest limits (`catalog_id`, `target_reel_to_video_ratio`, `max_video_seconds`, `prioritize_thumbnails`, `prioritize_views`) live in checked-in `config/workflow_config.json`. `prioritize_thumbnails` keeps the preference for SM catalog rows whose `pkgTn` thumbnail mark is present and not `X`. `prioritize_views` scans the highest `ctViews` counts first.
 
 ## Google service account setup
 

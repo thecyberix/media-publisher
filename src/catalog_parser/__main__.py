@@ -66,7 +66,11 @@ from catalog_parser.parser import (
     tn_is_marked,
     type_duration_bounds,
 )
-from catalog_parser.workflow.config import load_catalog_id
+from catalog_parser.workflow.config import (
+    load_catalog_id,
+    load_prioritize_thumbnails,
+    load_prioritize_views,
+)
 from catalog_parser.runtime_env import materialize_credentials, maybe_persist_canva_token
 from catalog_parser.smartcat import (
     DEFAULT_UI_BASE,
@@ -710,7 +714,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Only consider SM catalog rows whose pkgTn mark is present and not X. "
-            "By default ingest still prefers pkgTn-marked rows first, then unmarked."
+            "By default ingest follows prioritize_thumbnails in "
+            "config/workflow_config.json: marked rows first, then unmarked."
         ),
     )
     smartcat_group = ingest_parser.add_mutually_exclusive_group()
@@ -844,6 +849,8 @@ def run_unassigned_ingest(args: argparse.Namespace, parser: argparse.ArgumentPar
             table_cache=table_cache,
             dry_run=args.dry_run,
             require_pkg_tn=bool(getattr(args, "require_pkg_tn", False)),
+            prioritize_thumbnails=config.prioritize_thumbnails,
+            prioritize_views=config.prioritize_views,
             log=print,
             required_title=required_title,
         )
@@ -920,6 +927,8 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
     target_count = 1 if required_title else (limit if limit > 0 else DEFAULT_LIMIT)
     parse_limit = limit if args.sheet_only else 0
 
+    prioritize_thumbnails = load_prioritize_thumbnails(PROJECT_ROOT)
+    prioritize_views = load_prioritize_views(PROJECT_ROOT)
     records = parse_catalog(
         service,
         catalog_id,
@@ -927,6 +936,8 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         min_duration=min_duration,
         max_duration=max_duration,
         video_type=video_type,
+        prioritize_thumbnails=prioritize_thumbnails,
+        prioritize_views=prioritize_views,
     )
     if required_title:
         before_title = len(records)
@@ -942,11 +953,22 @@ def run_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
             f"pkgTn filter: {len(records)}/{before} {video_type} candidate(s) "
             f"have pkgTn marked (not empty/X)."
         )
-    else:
+    elif prioritize_thumbnails:
         marked = sum(1 for row in records if tn_is_marked(row.get("pkgTn")))
+        order = "by view count, highest first" if prioritize_views else "in publication-date order"
         print(
             f"Ingest order: {marked} pkgTn-marked {video_type} candidate(s) first, "
-            f"then {len(records) - marked} unmarked."
+            f"then {len(records) - marked} unmarked, {order}."
+        )
+    elif prioritize_views:
+        print(
+            f"Ingest order: {len(records)} {video_type} candidate(s) "
+            "by view count, highest first. Rows without ctViews stay last."
+        )
+    else:
+        print(
+            f"Ingest order: {len(records)} {video_type} candidate(s) "
+            "by publication date (thumbnails not prioritized)."
         )
 
     airtable_client: AirtableClient | None = None

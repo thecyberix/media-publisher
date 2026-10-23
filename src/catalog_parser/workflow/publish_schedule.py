@@ -11,6 +11,7 @@ from catalog_parser.airtable import (
     AirtableClient,
     FIELD_COMBINED_MEDIA_FILE,
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
+    FIELD_PLAYLISTS,
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TRANSLATED_SUBTITLES,
@@ -21,6 +22,7 @@ from catalog_parser.airtable import (
     STATUS_SYNC_DONE,
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_SHORT, TYPE_VIDEO
+from catalog_parser.playlists import load_playlist_config, playlist_publish_rank
 
 FIELD_SG_YT_DATE = "SG-YT-Date published"
 FIELD_SG_FB_DATE = "SG-FB-Date published"
@@ -493,11 +495,27 @@ def _is_unscheduled_candidate(fields: dict[str, Any]) -> bool:
     return True
 
 
-def _candidate_sort_key(record: dict[str, Any]) -> tuple[int, str]:
+def _assigned_playlist_names(fields: dict[str, Any]) -> list[str]:
+    value = fields.get(FIELD_PLAYLISTS)
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = _field_text(value)
+    return [text] if text else []
+
+
+def _candidate_sort_key(
+    record: dict[str, Any],
+    publish_priority: tuple[str, ...],
+) -> tuple[int, int, str]:
     fields = record.get("fields", {})
+    if not isinstance(fields, dict):
+        fields = {}
+    playlist_rank = playlist_publish_rank(
+        _assigned_playlist_names(fields), publish_priority
+    )
     thumb_rank = 0 if has_original_video_thumbnail(fields) else 1
     created = record.get("createdTime") or ""
-    return (thumb_rank, str(created))
+    return (playlist_rank, thumb_rank, str(created))
 
 
 def _collect_candidate_pools(
@@ -527,9 +545,11 @@ def _collect_candidate_pools(
         ) and _has_drive_file_field(fields, FIELD_TRANSLATION_RESOURCES):
             translation_done.append(record)
 
-    sync_done.sort(key=_candidate_sort_key)
-    editing_done.sort(key=_candidate_sort_key)
-    translation_done.sort(key=_candidate_sort_key)
+    publish_priority = load_playlist_config().publish_priority
+    sort_key = lambda record: _candidate_sort_key(record, publish_priority)
+    sync_done.sort(key=sort_key)
+    editing_done.sort(key=sort_key)
+    translation_done.sort(key=sort_key)
     return sync_done, editing_done, translation_done
 
 

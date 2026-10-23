@@ -320,6 +320,8 @@ def _ingest_for_translator(
         use_console=use_console,
         table_cache=table_cache,
         dry_run=dry_run,
+        prioritize_thumbnails=config.prioritize_thumbnails,
+        prioritize_views=config.prioritize_views,
         pending_review_items=pending_review_items,
     )
     fallback = f"{len(created_ids) or action.ingest_count} {action.ingest_type}(s)"
@@ -389,6 +391,8 @@ def _ingest_for_editor(
         pending_review_items=pending_review_items,
         table_cache=table_cache,
         dry_run=dry_run,
+        prioritize_thumbnails=config.prioritize_thumbnails,
+        prioritize_views=config.prioritize_views,
     )
     fallback = f"{len(created_ids) or action.ingest_count} {action.ingest_type}(s)"
     if dry_run:

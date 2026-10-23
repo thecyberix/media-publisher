@@ -1087,6 +1087,8 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
         )
         config = MagicMock()
         config.max_video_seconds = 900
+        config.prioritize_thumbnails = True
+        config.prioritize_views = True
         with patch(
             "catalog_parser.workflow.actions.ingest_batch_for_editor",
             return_value=["rec1", "rec2"],
@@ -1114,6 +1116,8 @@ class WeeklyEditorAssignmentTests(unittest.TestCase):
             ingest_mock.call_args.kwargs["pending_review_items"],
             pending,
         )
+        self.assertTrue(ingest_mock.call_args.kwargs["prioritize_thumbnails"])
+        self.assertTrue(ingest_mock.call_args.kwargs["prioritize_views"])
 
 
 if __name__ == "__main__":
