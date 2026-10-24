@@ -377,7 +377,6 @@ class PublishPipelineTests(unittest.TestCase):
             "youtube_client_secrets": Path("auth/youtube-client.json"),
             "youtube_token": Path("auth/youtube-token.json"),
             "youtube_channel_handle": "SadhguruBulgarian",
-            "youtube_playlist_id": None,
             "youtube_daily_playlist_id": None,
             "template_urls": {},
             "meta_page_id": "page",
@@ -387,6 +386,33 @@ class PublishPipelineTests(unittest.TestCase):
         }
         values.update(overrides)
         return PublishPipelineSettings(**values)
+
+    def test_youtube_publish_uses_playlists_from_the_record(self) -> None:
+        from unittest.mock import Mock
+
+        from media_publisher.pipeline import publish_platform_task
+
+        task = PlatformScheduleTask(
+            platform="youtube",
+            publish_at=datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc),
+            job=PublishJob(title="Demo", video_path="clip.mp4"),
+            record_id="rec1",
+            record_fields={"Playlists": ["Съзнателна Планета", "Чудото на Ума"]},
+        )
+        with patch(
+            "media_publisher.pipeline.publish_to_youtube",
+            return_value="yt123",
+        ) as publish:
+            url = publish_platform_task(
+                task,
+                settings=self._pipeline_settings(),
+                meta_client=Mock(),
+            )
+        self.assertEqual(url, "https://www.youtube.com/watch?v=yt123")
+        self.assertEqual(
+            publish.call_args.kwargs["playlist_titles"],
+            ["Съзнателна Планета", "Чудото на Ума"],
+        )
 
     def test_run_publish_pipeline_no_tasks(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")

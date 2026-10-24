@@ -174,6 +174,10 @@ def _field_multi_select(value: Any) -> list[str]:
     return [text] if text else []
 
 
+def playlist_names_from_fields(fields: dict[str, Any]) -> list[str]:
+    return _field_multi_select(fields.get(FIELD_PLAYLISTS))
+
+
 def video_format_from_type(type_value: Any) -> VideoFormat:
     text = _field_text(type_value)
     if text == TYPE_VIDEO:

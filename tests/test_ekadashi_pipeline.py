@@ -193,7 +193,6 @@ class EkadashiPublishTests(unittest.TestCase):
         ensure.assert_called_once()
         self.assertIsNone(ensure.call_args.kwargs.get("duration_seconds"))
         self.assertEqual(publish.call_args.kwargs["quote_playlist_title"], "Екадаши")
-        self.assertIsNone(publish.call_args.kwargs.get("playlist_id"))
         self.assertIsNone(publish.call_args.kwargs.get("daily_playlist_id"))
         job = publish.call_args.args[0]
         self.assertEqual(job.video_format, "short_form")

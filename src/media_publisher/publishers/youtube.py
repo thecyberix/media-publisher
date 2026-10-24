@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1291,6 +1292,21 @@ def youtube_video_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def _unique_playlist_titles(*groups: Sequence[str] | None) -> list[str]:
+    titles: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        if not group:
+            continue
+        for title in group:
+            name = title.strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            titles.append(name)
+    return titles
+
+
 def playlist_id_for_exact_title(
     playlists: list[tuple[str, str]],
     title: str,
@@ -1545,7 +1561,7 @@ def publish_to_youtube(
     youtube_channel_url: str | None = None,
     ffmpeg_path: str | None = None,
     cover_intro_seconds: float | None = None,
-    playlist_id: str | None = None,
+    playlist_titles: Sequence[str] | None = None,
     daily_playlist_id: str | None = None,
     daily_playlist_slots_path: Path | None = None,
     quote_playlist_title: str | None = None,
@@ -1627,18 +1643,20 @@ def publish_to_youtube(
                 raise
             # Shorts often reject API thumbnails; upload still succeeds.
 
-    archive_playlist_id = playlist_id.strip() if playlist_id else ""
-    if archive_playlist_id:
-        client.add_video_to_playlist(video_id, archive_playlist_id)
-
     quote_title = quote_playlist_title.strip() if quote_playlist_title else ""
-    if quote_title:
-        quote_playlist_id = playlist_id_for_exact_title(
-            client.owned_playlists(),
-            quote_title,
-        )
-        if quote_playlist_id != archive_playlist_id:
-            client.add_video_to_playlist(video_id, quote_playlist_id)
+    named_titles = _unique_playlist_titles(
+        playlist_titles,
+        [quote_title] if quote_title else None,
+    )
+    if named_titles:
+        owned = client.owned_playlists()
+        added: set[str] = set()
+        for title in named_titles:
+            resolved_id = playlist_id_for_exact_title(owned, title)
+            if resolved_id in added:
+                continue
+            client.add_video_to_playlist(video_id, resolved_id)
+            added.add(resolved_id)
 
     if daily_playlist_id and daily_playlist_slots_path is not None:
         resolved_daily_id = daily_playlist_id.strip()

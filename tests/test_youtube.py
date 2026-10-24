@@ -555,18 +555,26 @@ class YouTubeClientTests(unittest.TestCase):
                 video_format="post",
             )
             with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
-                client_cls.return_value.upload_video.return_value = "vid123"
+                client = client_cls.return_value
+                client.upload_video.return_value = "vid123"
+                client.owned_playlists.return_value = [
+                    ("PLtest123", "Съзнателна Планета"),
+                    ("PL-mom", "Чудото на Ума"),
+                ]
                 video_id = publish_to_youtube(
                     job,
                     client_secrets_path=secrets_path,
                     token_path=token_path,
-                    playlist_id="PLtest123",
+                    playlist_titles=["Съзнателна Планета", "Чудото на Ума"],
                 )
 
         self.assertEqual(video_id, "vid123")
-        client_cls.return_value.add_video_to_playlist.assert_called_once_with(
-            "vid123",
-            "PLtest123",
+        self.assertEqual(
+            client.add_video_to_playlist.call_args_list,
+            [
+                unittest.mock.call("vid123", "PLtest123"),
+                unittest.mock.call("vid123", "PL-mom"),
+            ],
         )
 
     def test_publish_to_youtube_adds_a_quote_to_its_named_playlist(self) -> None:
@@ -585,26 +593,16 @@ class YouTubeClientTests(unittest.TestCase):
             with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
                 client = client_cls.return_value
                 client.upload_video.return_value = "vid123"
-                client.owned_playlists.return_value = [
-                    ("PL-archive", "Съзнателна Планета"),
-                    ("PL-quotes", "Цитати"),
-                ]
+                client.owned_playlists.return_value = [("PL-quotes", "Цитати")]
                 video_id = publish_to_youtube(
                     job,
                     client_secrets_path=secrets_path,
                     token_path=token_path,
-                    playlist_id="PL-archive",
                     quote_playlist_title="Цитати",
                 )
 
         self.assertEqual(video_id, "vid123")
-        self.assertEqual(
-            client.add_video_to_playlist.call_args_list,
-            [
-                unittest.mock.call("vid123", "PL-archive"),
-                unittest.mock.call("vid123", "PL-quotes"),
-            ],
-        )
+        client.add_video_to_playlist.assert_called_once_with("vid123", "PL-quotes")
 
     def test_publish_to_youtube_skips_a_duplicate_quote_playlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -622,7 +620,7 @@ class YouTubeClientTests(unittest.TestCase):
                     job,
                     client_secrets_path=secrets_path,
                     token_path=token_path,
-                    playlist_id="PL-quotes",
+                    playlist_titles=["Цитати"],
                     quote_playlist_title="Цитати",
                 )
 
@@ -651,7 +649,6 @@ class YouTubeClientTests(unittest.TestCase):
                     job,
                     client_secrets_path=secrets_path,
                     token_path=token_path,
-                    playlist_id="PLarchive",
                     daily_playlist_id="PLdaily",
                     daily_playlist_slots_path=slots_path,
                 )
@@ -689,7 +686,6 @@ class YouTubeClientTests(unittest.TestCase):
                     job,
                     client_secrets_path=secrets_path,
                     token_path=token_path,
-                    playlist_id="PLarchive",
                     daily_playlist_id="PLdaily",
                     daily_playlist_slots_path=slots_path,
                 )

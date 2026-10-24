@@ -1,5 +1,6 @@
 """YouTube playlist names stored on the Airtable Playlists field.
 
+Catalog publish adds the uploaded video to the names stored on that record.
 Names and when they apply live in ``config/playlists.json``. A rule with no
 ``end_card`` is added to every video. A rule with ``end_card`` is added when
 that ending is found on the reference video. ``comment`` is the Instagram

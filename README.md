@@ -100,7 +100,6 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | `WORKFLOW_PROFILES_JSON` | JSON with `translators`, `editors`, and `timing_editors` arrays |
 | `YOUTUBE_CHANNEL_HANDLE` | YouTube channel handle (no `@`) |
 | `YOUTUBE_DAILY_PLAYLIST_JSON` | Daily playlist id plus quote/reel/lau slot video ids (and optional `pending`) |
-| `YOUTUBE_PLAYLIST_ID` | Archive playlist id for published catalog videos and quotes |
 
 Optional (read by workflows when set):
 

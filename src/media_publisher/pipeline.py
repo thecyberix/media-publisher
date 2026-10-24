@@ -27,6 +27,7 @@ from media_publisher.sources.airtable import (
     FIELD_TITLE,
     FIELD_TRANSLATION_RESOURCES,
     FIELD_VIDEO_NAME_TRANSLATED,
+    playlist_names_from_fields,
     fetch_missing_translation_reports,
     fetch_pending_schedule_tasks,
     is_editing_done_status,
@@ -103,7 +104,6 @@ class PublishPipelineSettings:
     youtube_client_secrets: Path
     youtube_token: Path
     youtube_channel_handle: str
-    youtube_playlist_id: str | None
     template_urls: dict[str, str]
     meta_page_id: str
     meta_instagram_account_id: str
@@ -164,7 +164,7 @@ def publish_platform_task(
             expected_channel_handle=settings.youtube_channel_handle,
             ffmpeg_path=settings.ffmpeg_path,
             cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
-            playlist_id=settings.youtube_playlist_id,
+            playlist_titles=playlist_names_from_fields(task.record_fields),
             daily_playlist_id=settings.youtube_daily_playlist_id,
             daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
             **settings.template_urls,

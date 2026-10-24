@@ -61,7 +61,6 @@ class QuotesPipelineSettings:
     youtube_client_secrets: Path
     youtube_token: Path
     youtube_channel_handle: str
-    youtube_playlist_id: str | None
     ffmpeg_path: str | None
     publish_mode: PublishMode = "staggered"
     private_test: bool = False
@@ -274,7 +273,6 @@ def _process_quote_work_items(
                     youtube_client_secrets=settings.youtube_client_secrets,
                     youtube_token=settings.youtube_token,
                     youtube_channel_handle=settings.youtube_channel_handle,
-                    youtube_playlist_id=settings.youtube_playlist_id,
                     youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
                     youtube_daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
                     ffmpeg_path=settings.ffmpeg_path,

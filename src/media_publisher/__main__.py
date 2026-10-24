@@ -89,6 +89,7 @@ from media_publisher.sources.airtable import (
     load_pending_video_schedule,
     has_video_name_translated,
     mark_platform_scheduled,
+    playlist_names_from_fields,
     mark_record_done_and_published_if_complete,
     record_schedule_tasks,
     record_to_publish_job,
@@ -1584,7 +1585,6 @@ def build_quotes_pipeline_settings(
         youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
         youtube_token=PROJECT_ROOT / settings.youtube_token,
         youtube_channel_handle=settings.youtube_channel_handle,
-        youtube_playlist_id=settings.youtube_playlist_id,
         youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
         youtube_daily_playlist_slots_path=daily_playlist_slots_path_from_settings(
             settings
@@ -1977,7 +1977,6 @@ def build_publish_pipeline_settings(
         youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
         youtube_token=PROJECT_ROOT / settings.youtube_token,
         youtube_channel_handle=settings.youtube_channel_handle,
-        youtube_playlist_id=settings.youtube_playlist_id,
         youtube_daily_playlist_id=settings.youtube_daily_playlist_id,
         youtube_daily_playlist_slots_path=daily_playlist_slots_path_from_settings(
             settings
@@ -2813,7 +2812,7 @@ def main() -> int:
                 expected_channel_handle=settings.youtube_channel_handle,
                 ffmpeg_path=settings.happyscribe_ffmpeg,
                 cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
-                playlist_id=settings.youtube_playlist_id,
+                playlist_titles=playlist_names_from_fields(task.record_fields),
                 daily_playlist_id=settings.youtube_daily_playlist_id,
                 daily_playlist_slots_path=daily_playlist_slots_path_from_settings(
                     settings

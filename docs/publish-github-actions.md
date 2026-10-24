@@ -181,7 +181,7 @@ The first command only lists matches. `--apply` sends the reply and the DM. The 
 
 Metricool sends these replies. The script remains for a manual run.
 
-Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run.
+Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run. Catalog YouTube uploads are added to the playlists named on the Airtable record. Quotes and Ekadashi posts use the playlist titles in `config/playlists.json`.
 
 When Original Video Thumbnail is set but Drive override and Canva catalog have no matching translated thumbnail, publish continues without one and emails `NOTIFY_EMAIL`. Generate the thumbnail offline with `scripts/_generate_thumbnails_from_original.py`.
 
@@ -194,7 +194,6 @@ When Original Video Thumbnail is set but Drive override and Canva catalog have n
 | `HAPPYSCRIBE_URL` | Primary HappyScribe library for catalog video lookup. Required. If it has `Short videos` / `Long videos` children, only the folder matching the video type is searched. |
 | `HAPPYSCRIBE_REVIEW_URL` | Optional parent HappyScribe library. Publish also searches the type-matching child (`Short videos` or `Long videos`). Unset: skip that fallback. |
 | `YOUTUBE_CHANNEL_HANDLE` | YouTube handle. Required for publish. |
-| `YOUTUBE_PLAYLIST_ID` | Channel playlist for published catalog videos and quotes. Unset: skip playlist add. |
 | `YOUTUBE_DAILY_PLAYLIST_JSON` | Daily Smartlink playlist id plus slot state (`playlist_id`, `quote`, `reel`, `lau`). Unset: skip daily playlist updates. |
 | `META_PAGE_USERNAME` | Facebook Page username. Required for Meta publish. |
 | `META_INSTAGRAM_USERNAME` | Instagram username. Required for Meta publish. |
