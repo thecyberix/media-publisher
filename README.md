@@ -86,7 +86,7 @@ Set under **Settings → Secrets and variables → Actions → Variables**. Thes
 | Variable | Purpose |
 |----------|---------|
 | `AIRTABLE_URL` | Live catalog table URL (`app…` / `tbl…` are parsed; the view segment is ignored) |
-| `CANVA_URL` | Parent Canva folder; catalog thumbs use child folders `Long videos` and `Short videos` |
+| `CANVA_URL` | Parent Canva folder. Catalog thumbs use `Thumbnails/Long videos` and `Thumbnails/Short videos`. Ekadashi posts use the sibling folder `Ekadashi`. |
 | `DRIVE_URL` | Parent Drive folder (`Combined Media Files`, `Events`, `Overrides`, `Quotes`, `Thumbnails for approval`) |
 | `HAPPYSCRIBE_URL` | HappyScribe library URL. If it contains `Short videos` / `Long videos` children, publish uses the folder that matches the video type. |
 | `META_INSTAGRAM_USERNAME` | Instagram username for the linked business account |

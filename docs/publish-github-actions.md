@@ -166,7 +166,7 @@ Facebook quote photos use the Graph API (same as before Playwright). Development
 - Events (Facebook only): `python scripts/schedule_event_facebook.py --event-type surya_kriya …`
 - Ekadashi (Facebook only): `python scripts/schedule_ekadashi_facebook.py --year 2026 --month 10`. Instagram is published by the `publish-ekadashi` workflow.
 
-Ekadashi dates come from the public Isha Google Calendar ICS (`ishacalendar@gmail.com`). The workflow publishes **Facebook and Instagram**, and a 10-second **YouTube** video on the **Екадаши** playlist, one day before at **12:30 Europe/Sofia**. The local Playwright scheduler posts **Facebook only**. Captions are hard-coded from 2025 Page posts (same ordinal slot). Images are Canva `Ekadashi 2026` pages.
+Ekadashi dates come from the public Isha Google Calendar ICS (`ishacalendar@gmail.com`). The workflow publishes **Facebook and Instagram**, and a 10-second **YouTube** video on the **Екадаши** playlist, one day before at **12:30 Europe/Sofia**. The local Playwright scheduler posts **Facebook only**. Captions are hard-coded from 2025 Page posts (same ordinal slot). Images are pages of the `Ekadashi {year}` design in the `Ekadashi` folder under `CANVA_URL`.
 
 ### Instagram keyword replies
 
@@ -190,7 +190,7 @@ When Original Video Thumbnail is set but Drive override and Canva catalog have n
 | Variable | Used for |
 |----------|----------|
 | `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval`. Bulgarian quote year workbooks live in `Quotes`. |
-| `CANVA_URL` | Parent Canva folder; catalog thumbnails use `Long videos` and `Short videos` |
+| `CANVA_URL` | Parent Canva folder. Catalog thumbnails use `Thumbnails/Long videos` and `Thumbnails/Short videos`. Ekadashi posts use the sibling folder `Ekadashi`. |
 | `HAPPYSCRIBE_URL` | Primary HappyScribe library for catalog video lookup. Required. If it has `Short videos` / `Long videos` children, only the folder matching the video type is searched. |
 | `HAPPYSCRIBE_REVIEW_URL` | Optional parent HappyScribe library. Publish also searches the type-matching child (`Short videos` or `Long videos`). Unset: skip that fallback. |
 | `YOUTUBE_CHANNEL_HANDLE` | YouTube handle. Required for publish. |

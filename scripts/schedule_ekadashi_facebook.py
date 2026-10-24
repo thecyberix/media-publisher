@@ -1,7 +1,8 @@
 """Schedule Ekadashi photo posts to Facebook via Playwright (local).
 
-Exports pages from Canva folder ``FAHWrBd1fUE`` / design ``Ekadashi {year}``,
-pairs each with the hard-coded 2025 caption for that slot, and schedules through
+Exports pages from the ``Ekadashi`` folder under ``CANVA_URL``
+(design ``Ekadashi {year}``), pairs each with the hard-coded 2025 caption
+for that slot, and schedules through
 Business Suite with Instagram unchecked.
 
 Prerequisites:
@@ -42,7 +43,6 @@ def main() -> int:
     _configure_stdio()
 
     from media_publisher.config import load_settings
-    from media_publisher.ekadashi import CANVA_EKADASHI_FOLDER_ID
     from media_publisher.ekadashi_facebook_browser_schedule import (
         DEFAULT_SCHEDULE_HOUR,
         DEFAULT_SCHEDULE_MINUTE,
@@ -57,7 +57,11 @@ def main() -> int:
         facebook_photo_via_browser_enabled,
         resolve_facebook_browser_state_path,
     )
-    from media_publisher.sources.canva import CanvaClient, CanvaError
+    from media_publisher.sources.canva import (
+        CanvaClient,
+        CanvaError,
+        resolve_canva_ekadashi_folder,
+    )
     from media_publisher.timezones import get_timezone
 
     parser = argparse.ArgumentParser(
@@ -71,8 +75,8 @@ def main() -> int:
     parser.add_argument("--day", type=int, help="Only this day of the month")
     parser.add_argument(
         "--folder-id",
-        default=CANVA_EKADASHI_FOLDER_ID,
-        help=f"Canva folder id (default: {CANVA_EKADASHI_FOLDER_ID})",
+        default="",
+        help="Canva folder id (default: the Ekadashi folder under CANVA_URL)",
     )
     parser.add_argument(
         "--ics",
@@ -164,6 +168,17 @@ def main() -> int:
         print(f"Canva setup failed: {exc}")
         return 1
 
+    folder_id = args.folder_id.strip()
+    if not folder_id:
+        if not settings.canva_url:
+            print("CANVA_URL is required in .env (or pass --folder-id)")
+            return 1
+        try:
+            folder_id = resolve_canva_ekadashi_folder(canva, settings.canva_url).id
+        except CanvaError as exc:
+            print(f"Canva setup failed: {exc}")
+            return 1
+
     print(f"Discovering Ekadashi for {args.year:04d}-{args.month:02d}…")
     try:
         items, warnings = discover_ekadashi_for_month(
@@ -175,7 +190,7 @@ def main() -> int:
             publish_hour=hour,
             publish_minute=minute,
             day=args.day,
-            folder_id=args.folder_id.strip() or CANVA_EKADASHI_FOLDER_ID,
+            folder_id=folder_id,
             ics_path=ics_path,
         )
     except EkadashiFacebookScheduleError as exc:

@@ -57,54 +57,65 @@ class EkadashiPublishTests(unittest.TestCase):
             state_path = root / "state.json"
             design = MagicMock(design_id="design", is_fallback=False, title="Ekadashi 2026")
             with patch(
-                "media_publisher.ekadashi_pipeline.find_ekadashi_design",
-                return_value=design,
-            ):
+                "media_publisher.ekadashi_pipeline.resolve_canva_ekadashi_folder",
+                return_value=MagicMock(id="FAHEkadashi"),
+            ) as resolve_folder:
                 with patch(
-                    "media_publisher.ekadashi_pipeline.export_ekadashi_page",
-                    return_value=image,
-                ) as export:
+                    "media_publisher.ekadashi_pipeline.find_ekadashi_design",
+                    return_value=design,
+                ) as find_design:
                     with patch(
-                        "media_publisher.ekadashi_pipeline.publish_local_quote_to_facebook",
-                        return_value="https://facebook.example/1",
-                    ) as facebook:
+                        "media_publisher.ekadashi_pipeline.export_ekadashi_page",
+                        return_value=image,
+                    ) as export:
                         with patch(
-                            "media_publisher.ekadashi_pipeline.publish_local_quote_to_instagram",
-                            return_value="https://instagram.example/1",
-                        ) as instagram:
+                            "media_publisher.ekadashi_pipeline.publish_local_quote_to_facebook",
+                            return_value="https://facebook.example/1",
+                        ) as facebook:
                             with patch(
-                                "media_publisher.ekadashi_pipeline.publish_ekadashi_to_youtube",
-                                return_value="https://youtube.example/1",
-                            ) as youtube:
-                                code = run_ekadashi_publish(
-                                    project_root=root,
-                                    publish_timezone="Europe/Sofia",
-                                    canva_client=MagicMock(),
-                                    page_id="page",
-                                    instagram_account_id="ig",
-                                    access_token="token",
-                                    youtube_client_secrets=root / "client.json",
-                                    youtube_token=root / "token.json",
-                                    today=date(2026, 10, 21),
-                                    entries=(_entry(),),
-                                    state_path=state_path,
-                                    print_line=lambda _message: None,
-                                )
-                                again = run_ekadashi_publish(
-                                    project_root=root,
-                                    publish_timezone="Europe/Sofia",
-                                    canva_client=MagicMock(),
-                                    page_id="page",
-                                    instagram_account_id="ig",
-                                    access_token="token",
-                                    youtube_client_secrets=root / "client.json",
-                                    youtube_token=root / "token.json",
-                                    today=date(2026, 10, 21),
-                                    entries=(_entry(),),
-                                    state_path=state_path,
-                                    print_line=lambda _message: None,
-                                )
+                                "media_publisher.ekadashi_pipeline.publish_local_quote_to_instagram",
+                                return_value="https://instagram.example/1",
+                            ) as instagram:
+                                with patch(
+                                    "media_publisher.ekadashi_pipeline.publish_ekadashi_to_youtube",
+                                    return_value="https://youtube.example/1",
+                                ) as youtube:
+                                    code = run_ekadashi_publish(
+                                        project_root=root,
+                                        publish_timezone="Europe/Sofia",
+                                        canva_client=MagicMock(),
+                                        page_id="page",
+                                        instagram_account_id="ig",
+                                        access_token="token",
+                                        youtube_client_secrets=root / "client.json",
+                                        youtube_token=root / "token.json",
+                                        today=date(2026, 10, 21),
+                                        entries=(_entry(),),
+                                        state_path=state_path,
+                                        canva_url="https://www.canva.com/folder/parent",
+                                        print_line=lambda _message: None,
+                                    )
+                                    again = run_ekadashi_publish(
+                                        project_root=root,
+                                        publish_timezone="Europe/Sofia",
+                                        canva_client=MagicMock(),
+                                        page_id="page",
+                                        instagram_account_id="ig",
+                                        access_token="token",
+                                        youtube_client_secrets=root / "client.json",
+                                        youtube_token=root / "token.json",
+                                        today=date(2026, 10, 21),
+                                        entries=(_entry(),),
+                                        state_path=state_path,
+                                        canva_url="https://www.canva.com/folder/parent",
+                                        print_line=lambda _message: None,
+                                    )
 
+            resolve_folder.assert_called_once()
+            self.assertEqual(
+                find_design.call_args.kwargs["folder_id"],
+                "FAHEkadashi",
+            )
             self.assertEqual(code, 0)
             self.assertEqual(again, 0)
             export.assert_called_once()

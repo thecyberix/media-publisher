@@ -21,6 +21,7 @@ from media_publisher.sources.canva import (
     ensure_catalog_thumbnail_from_canva,
     parse_canva_resource,
     resolve_canva_catalog_folder_urls,
+    resolve_canva_ekadashi_folder,
     resolve_thumbnail_target,
     save_token,
     thumbnail_catalog_url_for_format,
@@ -55,6 +56,7 @@ class CanvaThumbnailHelperTests(unittest.TestCase):
     def test_resolve_canva_catalog_folder_urls(self) -> None:
         client = Mock()
         client.find_subfolder.side_effect = [
+            CanvaFolderSummary(id="FAHThumbs", name="Thumbnails"),
             CanvaFolderSummary(id="FAHLongFolder", name="Long videos"),
             CanvaFolderSummary(id="FAHShortFolder", name="Short videos"),
         ]
@@ -65,9 +67,62 @@ class CanvaThumbnailHelperTests(unittest.TestCase):
         self.assertEqual(long_url, LONG_FOLDER_URL)
         self.assertEqual(short_url, SHORT_FOLDER_URL)
         self.assertEqual(
-            [call.args[1] for call in client.find_subfolder.call_args_list],
-            ["Long videos", "Short videos"],
+            [call.args for call in client.find_subfolder.call_args_list],
+            [
+                ("FAHSXg0enw4", "Thumbnails"),
+                ("FAHThumbs", "Long videos"),
+                ("FAHThumbs", "Short videos"),
+            ],
         )
+        self.assertEqual(
+            resolve_canva_catalog_folder_urls(client, PARENT_FOLDER_URL),
+            (LONG_FOLDER_URL, SHORT_FOLDER_URL),
+        )
+        self.assertEqual(client.find_subfolder.call_count, 3)
+
+    def test_resolve_canva_catalog_folder_urls_requires_thumbnails(self) -> None:
+        client = Mock()
+        client.find_subfolder.return_value = None
+        with self.assertRaises(CanvaError) as ctx:
+            resolve_canva_catalog_folder_urls(client, PARENT_FOLDER_URL)
+        self.assertIn("Thumbnails", str(ctx.exception))
+        client.find_subfolder.assert_called_once_with("FAHSXg0enw4", "Thumbnails")
+
+    def test_resolve_canva_catalog_folder_urls_requires_video_folders(self) -> None:
+        client = Mock()
+        client.find_subfolder.side_effect = [
+            CanvaFolderSummary(id="FAHThumbs", name="Thumbnails"),
+            None,
+            None,
+        ]
+        with self.assertRaises(CanvaError) as ctx:
+            resolve_canva_catalog_folder_urls(client, PARENT_FOLDER_URL)
+        message = str(ctx.exception)
+        self.assertIn("Thumbnails", message)
+        self.assertIn("Long videos", message)
+        self.assertIn("Short videos", message)
+
+    def test_resolve_canva_ekadashi_folder(self) -> None:
+        client = Mock()
+        client.find_subfolder.return_value = CanvaFolderSummary(
+            id="FAHEkadashi",
+            name="Ekadashi",
+        )
+        folder = resolve_canva_ekadashi_folder(client, PARENT_FOLDER_URL)
+        self.assertEqual(folder.id, "FAHEkadashi")
+        client.find_subfolder.assert_called_once_with("FAHSXg0enw4", "Ekadashi")
+        self.assertEqual(
+            resolve_canva_ekadashi_folder(client, PARENT_FOLDER_URL).id,
+            "FAHEkadashi",
+        )
+        self.assertEqual(client.find_subfolder.call_count, 1)
+
+    def test_resolve_canva_ekadashi_folder_missing(self) -> None:
+        client = Mock()
+        client.find_subfolder.return_value = None
+        with self.assertRaises(CanvaError) as ctx:
+            resolve_canva_ekadashi_folder(client, PARENT_FOLDER_URL)
+        self.assertIn("Ekadashi", str(ctx.exception))
 
     def test_catalog_video_name_from_job_uses_original_video_name(self) -> None:
         job = PublishJob(

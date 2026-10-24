@@ -20,9 +20,6 @@ ISHA_CALENDAR_EMBED_URL = (
     "https://calendar.google.com/calendar/embed"
     f"?src={urllib.parse.quote(DEFAULT_ISHA_CALENDAR_ID)}&ctz=Europe%2FSofia"
 )
-CANVA_EKADASHI_FOLDER_ID = "FAHWrBd1fUE"
-CANVA_EKADASHI_FOLDER_URL = f"https://www.canva.com/folder/{CANVA_EKADASHI_FOLDER_ID}"
-
 _USER_AGENT = "media-publisher/ekadashi-calendar"
 _SUMMARY_RE = re.compile(r"^SUMMARY(?:;[^:]*)?:(.*)$", re.MULTILINE)
 _DTSTART_DATE_RE = re.compile(

@@ -180,15 +180,17 @@ class EkadashiCalendarParseTests(unittest.TestCase):
             ],
             None,
         )
-        resolved = find_ekadashi_design(client, year=2027)
+        resolved = find_ekadashi_design(client, year=2027, folder_id="FAHEkadashi")
         self.assertTrue(resolved.is_fallback)
         self.assertEqual(resolved.design_year, 2026)
         self.assertEqual(resolved.design_id, "d26")
         self.assertEqual(resolved.requested_year, 2027)
 
-        exact = find_ekadashi_design(client, year=2026)
+        exact = find_ekadashi_design(client, year=2026, folder_id="FAHEkadashi")
         self.assertFalse(exact.is_fallback)
         self.assertEqual(exact.design_id, "d26")
+        for call in client.list_folder_designs.call_args_list:
+            self.assertEqual(call.args[0], "FAHEkadashi")
 
 
 class EkadashiScheduleHistoryTests(unittest.TestCase):

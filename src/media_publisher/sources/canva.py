@@ -63,8 +63,10 @@ def _format_canva_http_error(method: str, path: str, code: int, detail: str) -> 
     )
 
 
+CANVA_THUMBNAILS_FOLDER_NAME = "Thumbnails"
 CANVA_LONG_VIDEOS_FOLDER_NAME = "Long videos"
 CANVA_SHORT_VIDEOS_FOLDER_NAME = "Short videos"
+CANVA_EKADASHI_FOLDER_NAME = "Ekadashi"
 ORIGINAL_VIDEO_NAME_KEY = "Title"
 EXPORT_POLL_INTERVAL_SECONDS = 2.0
 EXPORT_POLL_MAX_ATTEMPTS = 60
@@ -265,24 +267,36 @@ def canva_folder_url(folder_id: str) -> str:
     return f"https://www.canva.com/folder/{folder_id}"
 
 
-def resolve_canva_catalog_folder_urls(
-    client: CanvaClient,
-    parent_url: str,
-) -> tuple[str, str]:
-    """Return (Long videos URL, Short videos URL) under CANVA_URL."""
-    cached = getattr(client, "_catalog_folder_urls", None)
-    if isinstance(cached, tuple) and len(cached) == 2:
-        return cached
-
+def _canva_parent_folder(parent_url: str) -> tuple[str, str]:
+    """Return (url, folder id) for the CANVA_URL parent folder."""
     text = (parent_url or "").strip()
     if not text:
         raise CanvaError("CANVA_URL is required (parent Canva folder URL)")
     resource_type, parent_id = parse_canva_resource(text)
     if resource_type != "folder":
         raise CanvaError("CANVA_URL must be a Canva folder URL")
+    return text, parent_id
 
-    long_folder = client.find_subfolder(parent_id, CANVA_LONG_VIDEOS_FOLDER_NAME)
-    short_folder = client.find_subfolder(parent_id, CANVA_SHORT_VIDEOS_FOLDER_NAME)
+
+def resolve_canva_catalog_folder_urls(
+    client: CanvaClient,
+    parent_url: str,
+) -> tuple[str, str]:
+    """Return (Long videos URL, Short videos URL) under CANVA_URL/Thumbnails."""
+    cached = getattr(client, "_catalog_folder_urls", None)
+    if isinstance(cached, tuple) and len(cached) == 2:
+        return cached
+
+    text, parent_id = _canva_parent_folder(parent_url)
+    thumbnails = client.find_subfolder(parent_id, CANVA_THUMBNAILS_FOLDER_NAME)
+    if thumbnails is None:
+        raise CanvaError(
+            "Canva folder "
+            f"{text!r} is missing subfolder {CANVA_THUMBNAILS_FOLDER_NAME!r}"
+        )
+
+    long_folder = client.find_subfolder(thumbnails.id, CANVA_LONG_VIDEOS_FOLDER_NAME)
+    short_folder = client.find_subfolder(thumbnails.id, CANVA_SHORT_VIDEOS_FOLDER_NAME)
     missing: list[str] = []
     if long_folder is None:
         missing.append(CANVA_LONG_VIDEOS_FOLDER_NAME)
@@ -291,7 +305,8 @@ def resolve_canva_catalog_folder_urls(
     if missing or long_folder is None or short_folder is None:
         raise CanvaError(
             "Canva folder "
-            f"{text!r} is missing subfolder(s): {', '.join(missing)}"
+            f"{text!r} is missing {CANVA_THUMBNAILS_FOLDER_NAME} subfolder(s): "
+            f"{', '.join(missing)}"
         )
 
     urls = (
@@ -300,6 +315,26 @@ def resolve_canva_catalog_folder_urls(
     )
     client._catalog_folder_urls = urls
     return urls
+
+
+def resolve_canva_ekadashi_folder(
+    client: CanvaClient,
+    parent_url: str,
+) -> CanvaFolderSummary:
+    """Return the Ekadashi folder directly under CANVA_URL."""
+    cached = getattr(client, "_ekadashi_folder", None)
+    if isinstance(cached, CanvaFolderSummary):
+        return cached
+
+    text, parent_id = _canva_parent_folder(parent_url)
+    folder = client.find_subfolder(parent_id, CANVA_EKADASHI_FOLDER_NAME)
+    if folder is None:
+        raise CanvaError(
+            "Canva folder "
+            f"{text!r} is missing subfolder {CANVA_EKADASHI_FOLDER_NAME!r}"
+        )
+    client._ekadashi_folder = folder
+    return folder
 
 
 def canva_catalog_urls_from_client(

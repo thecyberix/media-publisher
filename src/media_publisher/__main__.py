@@ -1760,6 +1760,8 @@ def run_ekadashi_cli(settings, args) -> int:
             return 1
 
     missing = canva_settings_missing(settings)
+    if not settings.canva_url:
+        missing.append("CANVA_URL")
     if not settings.publish_timezone:
         missing.append("PUBLISH_JSON timezone")
     needs_meta = any(platform in platforms for platform in ("facebook", "instagram"))
@@ -1802,6 +1804,7 @@ def run_ekadashi_cli(settings, args) -> int:
             template_urls=template_urls_from_settings(settings),
             platforms=platforms,
             dry_run=bool(args.dry_run),
+            canva_url=settings.canva_url,
             print_line=print_console,
         )
     except (MetaError, RuntimeError) as exc:

@@ -34,7 +34,11 @@ from media_publisher.publishers.quotes import (
     publish_local_quote_to_instagram,
 )
 from media_publisher.publishers.youtube import YouTubePublishError, publish_to_youtube, youtube_video_url
-from media_publisher.sources.canva import CanvaClient, CanvaError
+from media_publisher.sources.canva import (
+    CanvaClient,
+    CanvaError,
+    resolve_canva_ekadashi_folder,
+)
 from media_publisher.sources.image_video import ImageVideoError, ensure_quote_video
 from media_publisher.timezones import get_timezone
 
@@ -120,6 +124,7 @@ def run_ekadashi_publish(
     ics_text: str | None = None,
     ics_path: Path | None = None,
     entries: tuple[EkadashiEntry, ...] | None = None,
+    canva_url: str = "",
     print_line: Callable[[str], None] = print,
 ) -> int:
     """Publish Facebook and Instagram photos due on ``today``. Returns an exit code."""
@@ -157,6 +162,7 @@ def run_ekadashi_publish(
     state = load_publish_state(history_path)
     image_dir = cache_dir or (project_root / CACHE_RELATIVE_DIR)
     failed = False
+    ekadashi_folder_id = ""
 
     for entry in due:
         waiting = pending_platforms(state, entry.stem, selected)
@@ -171,7 +177,16 @@ def run_ekadashi_publish(
             continue
 
         try:
-            design = find_ekadashi_design(canva_client, year=entry.year)
+            if not ekadashi_folder_id:
+                ekadashi_folder_id = resolve_canva_ekadashi_folder(
+                    canva_client,
+                    canva_url,
+                ).id
+            design = find_ekadashi_design(
+                canva_client,
+                year=entry.year,
+                folder_id=ekadashi_folder_id,
+            )
             image_path = export_ekadashi_page(
                 canva_client,
                 design_id=design.design_id,

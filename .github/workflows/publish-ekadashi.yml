@@ -13,6 +13,7 @@ env:
   CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
   CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
   CANVA_TOKEN_JSON: ${{ secrets.CANVA_TOKEN_JSON }}
+  CANVA_URL: ${{ vars.CANVA_URL }}
   CONFIG_SYNC_PAT: ${{ secrets.CONFIG_SYNC_PAT }}
   META_APP_ID: ${{ secrets.META_APP_ID }}
   META_APP_SECRET: ${{ secrets.META_APP_SECRET }}

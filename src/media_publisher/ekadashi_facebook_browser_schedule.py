@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from media_publisher.ekadashi import (
-    CANVA_EKADASHI_FOLDER_ID,
     EkadashiCalendarError,
     EkadashiEntry,
     ekadashi_entries_for_month,
@@ -134,7 +133,7 @@ def mark_scheduled_in_history(
 def list_ekadashi_designs_by_year(
     client: CanvaClient,
     *,
-    folder_id: str = CANVA_EKADASHI_FOLDER_ID,
+    folder_id: str,
 ) -> dict[int, CanvaDesignSummary]:
     """Map design year → Canva design for titles matching ``Ekadashi YYYY``."""
     by_year: dict[int, CanvaDesignSummary] = {}
@@ -166,7 +165,7 @@ def find_ekadashi_design(
     client: CanvaClient,
     *,
     year: int,
-    folder_id: str = CANVA_EKADASHI_FOLDER_ID,
+    folder_id: str,
 ) -> ResolvedEkadashiDesign:
     """Resolve ``Ekadashi {year}``, or the latest available year design as fallback."""
     by_year = list_ekadashi_designs_by_year(client, folder_id=folder_id)
@@ -247,7 +246,7 @@ def discover_ekadashi_for_month(
     publish_minute: int = DEFAULT_SCHEDULE_MINUTE,
     days_before: int = DEFAULT_SCHEDULE_DAYS_BEFORE,
     day: int | None = None,
-    folder_id: str = CANVA_EKADASHI_FOLDER_ID,
+    folder_id: str,
     cache_dir: Path | None = None,
     ics_path: Path | None = None,
     calendar_id: str | None = None,
