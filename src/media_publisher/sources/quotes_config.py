@@ -89,7 +89,7 @@ class QuotesSourcesConfig:
 
     @property
     def translated_quotes_drive(self) -> dict[str, Any]:
-        """Column/header settings for Bulgarian year workbooks under DRIVE_URL/Quotes."""
+        """Column/header settings for quote year workbooks under DRIVE_URL/Quotes."""
         drive = self.payload.get("translated_quotes_drive")
         if not isinstance(drive, dict):
             return {}

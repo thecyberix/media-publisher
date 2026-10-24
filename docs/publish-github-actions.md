@@ -189,7 +189,7 @@ When Original Video Thumbnail is set but Drive override and Canva catalog have n
 
 | Variable | Used for |
 |----------|----------|
-| `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval`. Bulgarian quote year workbooks live in `Quotes`. |
+| `DRIVE_URL` | Parent Google Drive folder (`Automated Workflow`); publish uses `Overrides`, `Quotes`, and `Thumbnails for approval`. Quote year workbooks live in `Quotes` and are named from `year_workbook_pattern` in `config/quotes_sources.json`. |
 | `CANVA_URL` | Parent Canva folder. Catalog thumbnails use `Thumbnails/Long videos` and `Thumbnails/Short videos`. Ekadashi posts use the sibling folder `Ekadashi`. |
 | `HAPPYSCRIBE_URL` | Primary HappyScribe library for catalog video lookup. Required. If it has `Short videos` / `Long videos` children, only the folder matching the video type is searched. |
 | `HAPPYSCRIBE_REVIEW_URL` | Optional parent HappyScribe library. Publish also searches the type-matching child (`Short videos` or `Long videos`). Unset: skip that fallback. |

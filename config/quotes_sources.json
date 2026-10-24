@@ -52,7 +52,7 @@
     "previously_posted_column": "Previously Posted on"
   },
   "translated_quotes_drive": {
-    "year_workbook_pattern": "Sadhguru Quotes Bulgarian {year}",
+    "year_workbook_pattern": "Sadhguru Quotes {year}",
     "date_column": "Date",
     "english_column": "English",
     "translation_column": "Translation",

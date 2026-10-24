@@ -1,4 +1,4 @@
-"""Sync English quotes into Bulgarian month sheets and prepare translations."""
+"""Sync English quotes into year-workbook month sheets and prepare translations."""
 from __future__ import annotations
 
 import calendar
@@ -170,15 +170,19 @@ def _format_year_workbook_pattern(year: int, pattern: str) -> str:
     return pattern.format(year=year)
 
 
-def bulgarian_year_workbook_name(
-    year: int, config: QuotesSourcesConfig | None = None
-) -> str:
-    pattern = "Sadhguru Quotes Bulgarian {year}"
-    if config is not None:
-        raw = config.translated_quotes_drive.get("year_workbook_pattern")
-        if isinstance(raw, str) and raw.strip():
-            pattern = raw.strip()
-    return _format_year_workbook_pattern(year, pattern)
+def year_workbook_pattern(config: QuotesSourcesConfig) -> str:
+    """Drive file name pattern for quote year workbooks. Must include ``{year}``."""
+    raw = config.translated_quotes_drive.get("year_workbook_pattern")
+    if not isinstance(raw, str) or "{year}" not in raw:
+        raise QuotesTextSyncError(
+            "translated_quotes_drive.year_workbook_pattern is required "
+            "and must include {year}"
+        )
+    return raw.strip()
+
+
+def bulgarian_year_workbook_name(year: int, config: QuotesSourcesConfig) -> str:
+    return _format_year_workbook_pattern(year, year_workbook_pattern(config))
 
 
 def workbook_name_stems(file_name: str) -> set[str]:
@@ -198,13 +202,9 @@ def matches_year_workbook_name(file_name: str, expected_name: str) -> bool:
 
 
 def _year_from_bulgarian_workbook_name(
-    file_name: str, config: QuotesSourcesConfig | None = None
+    file_name: str, config: QuotesSourcesConfig
 ) -> int | None:
-    pattern = "Sadhguru Quotes Bulgarian {year}"
-    if config is not None:
-        raw = config.translated_quotes_drive.get("year_workbook_pattern")
-        if isinstance(raw, str) and raw.strip():
-            pattern = raw.strip()
+    pattern = year_workbook_pattern(config)
     prefix, separator, suffix = pattern.partition("{year}")
     if not separator:
         return None
@@ -241,7 +241,7 @@ def list_bulgarian_year_workbooks(
     return found
 
 
-def year_workbook_name(year: int, config: QuotesSourcesConfig | None = None) -> str:
+def year_workbook_name(year: int, config: QuotesSourcesConfig) -> str:
     """Alias for bulgarian_year_workbook_name (back-compat)."""
     return bulgarian_year_workbook_name(year, config)
 
@@ -426,7 +426,7 @@ def resolve_year_workbook(
     create_if_missing: bool = True,
 ) -> tuple[str, str, bool] | None:
     """
-    Return (spreadsheet_id, spreadsheet_name, created) for a Bulgarian year workbook
+    Return (spreadsheet_id, spreadsheet_name, created) for a quote year workbook
     discovered by name pattern under DRIVE_URL/Quotes.
     """
     folder_id = resolve_quotes_folder_id(drive)
@@ -449,7 +449,7 @@ def resolve_bulgarian_spreadsheet_id(
     config: QuotesSourcesConfig,
     year: int,
 ) -> str:
-    """Resolve the BG year workbook id from DRIVE_URL/Quotes (no hard-coded year URL)."""
+    """Resolve the quote year workbook id from DRIVE_URL/Quotes (no hard-coded year URL)."""
     workbook = resolve_year_workbook(
         drive=drive,
         config=config,
@@ -459,7 +459,7 @@ def resolve_bulgarian_spreadsheet_id(
     if workbook is not None:
         return workbook[0]
     raise QuotesTextSyncError(
-        f"Bulgarian quotes workbook {bulgarian_year_workbook_name(year, config)!r} "
+        f"Quote year workbook {bulgarian_year_workbook_name(year, config)!r} "
         "was not found under DRIVE_URL/Quotes"
     )
 
@@ -474,9 +474,9 @@ def resolve_destination_month_sheet(
     create_if_missing: bool = True,
 ) -> DestinationSheetRef | None:
     """
-    Resolve the Bulgarian month tab inside the yearly workbook:
+    Resolve the month tab inside the yearly workbook:
 
-      Sadhguru Quotes Bulgarian {year}  →  month tab (abbr or full month name)
+      year_workbook_pattern  →  month tab (abbr or full month name)
     """
     workbook = resolve_year_workbook(
         drive=drive,
@@ -851,10 +851,10 @@ def load_ready_translations_by_english(
         if cached:
             warnings.append(
                 f"Using cached Ready quotes ({len(cached)}); "
-                f"could not list Bulgarian quote workbooks: {exc}"
+                f"could not list quote year workbooks: {exc}"
             )
             return cached, warnings
-        return {}, [f"Could not list Bulgarian quote workbooks: {exc}"]
+        return {}, [f"Could not list quote year workbooks: {exc}"]
 
     live_by_spreadsheet: dict[str, dict[str, tuple[ReadyQuoteMatch, ...]] | None] = {}
     for spreadsheet_id, spreadsheet_name, _year in workbooks:
@@ -1125,7 +1125,7 @@ def format_quote_texts_email(
         or "https://drive.google.com/drive/folders/"
     )
     lines = [
-        "Quote texts were added or updated in the Bulgarian month sheets.",
+        "Quote texts were added or updated in the quote month sheets.",
         "",
         f"Folder: {folder_line}",
         f"Added: {len(added)}",
@@ -1549,7 +1549,7 @@ def sync_quote_texts_for_months(
     log(
         f"Indexed {len(ready_by_english)} Ready quotes from "
         f"{len(workbook_names)} "
-        f"Bulgarian workbooks ({cache_name})"
+        f"quote year workbooks ({cache_name})"
     )
     for year, month in targets:
         month_result = sync_month_quote_texts(

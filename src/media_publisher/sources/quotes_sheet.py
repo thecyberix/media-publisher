@@ -151,7 +151,7 @@ def load_monthly_quote_texts(
     if not resolved_id:
         raise QuotesSheetError(
             "spreadsheet_id is required "
-            "(resolve the Bulgarian year workbook under DRIVE_URL/Quotes)"
+            "(resolve the quote year workbook under DRIVE_URL/Quotes)"
         )
     tab = resolve_month_quote_tab(
         client,

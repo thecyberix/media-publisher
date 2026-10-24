@@ -12,6 +12,7 @@ from media_publisher.quotes_text_sync import (
     DestinationSheetRef,
     EnglishQuoteRow,
     QuoteTextChange,
+    QuotesTextSyncError,
     ReadyQuoteMatch,
     REUSED_READY_BACKGROUND,
     STALE_READY_BACKGROUND,
@@ -42,6 +43,7 @@ from media_publisher.sources.google_drive import (
 )
 from media_publisher.sources.google_sheets import SheetTab
 from media_publisher.sources.quotes_config import (
+    QuotesSourcesConfig,
     extract_spreadsheet_id,
     load_quotes_sources_config,
 )
@@ -54,29 +56,43 @@ class QuotesTextConfigTests(unittest.TestCase):
         self.assertIn("September 2026", names)
         self.assertIn("09 Sep 2026", names)
 
+    def _shipped_config(self) -> QuotesSourcesConfig:
+        root = Path(__file__).resolve().parents[1]
+        return load_quotes_sources_config(root / "config" / "quotes_sources.json")
+
     def test_year_workbook_name(self) -> None:
-        self.assertEqual(
-            year_workbook_name(2024),
-            "Sadhguru Quotes Bulgarian 2024",
+        config = self._shipped_config()
+        self.assertEqual(year_workbook_name(2024, config), "Sadhguru Quotes 2024")
+        self.assertEqual(year_workbook_name(2099, config), "Sadhguru Quotes 2099")
+        self.assertNotIn("Bulgarian", year_workbook_name(2024, config))
+
+    def test_year_workbook_pattern_is_required(self) -> None:
+        config = QuotesSourcesConfig(
+            path=Path("quotes_sources.json"),
+            payload={"translated_quotes_drive": {}},
         )
-        self.assertEqual(
-            year_workbook_name(2099),
-            "Sadhguru Quotes Bulgarian 2099",
-        )
+        with self.assertRaises(QuotesTextSyncError):
+            year_workbook_name(2024, config)
 
     def test_year_from_bulgarian_workbook_name(self) -> None:
+        config = self._shipped_config()
         self.assertEqual(
-            _year_from_bulgarian_workbook_name("Sadhguru Quotes Bulgarian 2022"),
+            _year_from_bulgarian_workbook_name("Sadhguru Quotes 2022", config),
             2022,
         )
         self.assertEqual(
             _year_from_bulgarian_workbook_name(
-                "Sadhguru Quotes Bulgarian 2023.xlsx"
+                "Sadhguru Quotes 2023.xlsx", config
             ),
             2023,
         )
         self.assertIsNone(
-            _year_from_bulgarian_workbook_name("Sadhguru Quote 2026")
+            _year_from_bulgarian_workbook_name("Sadhguru Quote 2026", config)
+        )
+        self.assertIsNone(
+            _year_from_bulgarian_workbook_name(
+                "Sadhguru Quotes Bulgarian 2022", config
+            )
         )
 
     def test_normalize_english_ignores_case_whitespace_and_quotes(self) -> None:
@@ -89,7 +105,7 @@ class QuotesTextConfigTests(unittest.TestCase):
         from media_publisher.quotes_text_sync import matches_year_workbook_name
 
         year = 2031
-        expected = f"Sadhguru Quotes Bulgarian {year}"
+        expected = f"Sadhguru Quotes {year}"
         self.assertTrue(matches_year_workbook_name(expected, expected))
         self.assertTrue(
             matches_year_workbook_name(f"{expected}.xlsx", expected)
@@ -156,6 +172,7 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
                         },
                         "translated_quotes_drive": {
                             "folder_id": "folder-1",
+                            "year_workbook_pattern": "Sadhguru Quotes {year}",
                             "date_column": "Date",
                             "english_column": "English",
                             "translation_column": "Translation",
@@ -921,22 +938,27 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
         drive.list_spreadsheets.return_value = [
             DriveFile(
                 id="xlsx-2022",
-                name="Sadhguru Quotes Bulgarian 2022.xlsx",
+                name="Sadhguru Quotes 2022.xlsx",
                 mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ),
             DriveFile(
                 id="sheet-2024",
-                name="Sadhguru Quotes Bulgarian 2024",
+                name="Sadhguru Quotes 2024",
                 mime_type=GOOGLE_SHEETS_MIME_TYPE,
             ),
             DriveFile(
                 id="sheet-2021",
-                name="Sadhguru Quotes Bulgarian 2021",
+                name="Sadhguru Quotes 2021",
                 mime_type=GOOGLE_SHEETS_MIME_TYPE,
             ),
             DriveFile(
                 id="english",
                 name="Sadhguru Quote 2026",
+                mime_type=GOOGLE_SHEETS_MIME_TYPE,
+            ),
+            DriveFile(
+                id="old-language-name",
+                name="Sadhguru Quotes Bulgarian 2020",
                 mime_type=GOOGLE_SHEETS_MIME_TYPE,
             ),
         ]
@@ -948,8 +970,8 @@ class QuotesTextSyncLogicTests(unittest.TestCase):
         self.assertEqual(
             workbooks,
             [
-                ("sheet-2024", "Sadhguru Quotes Bulgarian 2024", 2024),
-                ("sheet-2021", "Sadhguru Quotes Bulgarian 2021", 2021),
+                ("sheet-2024", "Sadhguru Quotes 2024", 2024),
+                ("sheet-2021", "Sadhguru Quotes 2021", 2021),
             ],
         )
 

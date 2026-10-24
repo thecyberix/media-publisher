@@ -489,8 +489,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Sync new/updated English quotes for the current and next month into the "
-            "Bulgarian quotes Drive folder, reuse Ready text when the same English "
-            "quote already exists in a Bulgarian year workbook, otherwise AI-translate "
+            "quotes Drive folder, reuse Ready text when the same English "
+            "quote already exists in a quote year workbook, otherwise AI-translate "
             "into Translation."
         ),
     )
