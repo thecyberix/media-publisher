@@ -5,6 +5,7 @@ from typing import Any
 
 from catalog_parser.airtable import (
     INGEST_IDENTITY_FIELDS,
+    STATUS_ARCHIVED,
     AirtableArchiveSource,
     AirtableClient,
     FIELD_ORIGINAL_VIDEO_NAME,
@@ -12,7 +13,6 @@ from catalog_parser.airtable import (
     FIELD_TITLE,
 )
 
-STATUS_NOT_ASSIGNED = "7. Not Assigned"
 ARCHIVE_POINTER_RE = re.compile(
     r"^(\d{4})\s+archive\s*:\s*(https://airtable\.com/\S+)",
     re.IGNORECASE,
@@ -38,7 +38,7 @@ def archive_pointers_from_records(records: list[dict[str, Any]]) -> list[tuple[s
         fields = record.get("fields")
         if not isinstance(fields, dict):
             continue
-        if fields.get(FIELD_STATUS) != STATUS_NOT_ASSIGNED:
+        if fields.get(FIELD_STATUS) != STATUS_ARCHIVED:
             continue
         parsed = parse_archive_pointer_title(fields.get(FIELD_TITLE))
         if parsed is None:
@@ -125,7 +125,7 @@ def resolve_archive_sources(
 ) -> list[AirtableArchiveSource]:
     if records is None:
         records = airtable.list_records(
-            filter_formula=f'{{{FIELD_STATUS}}}="{STATUS_NOT_ASSIGNED}"',
+            filter_formula=f'{{{FIELD_STATUS}}}="{STATUS_ARCHIVED}"',
         )
 
     pointers = archive_pointers_from_records(records)

@@ -124,7 +124,7 @@ Push to the branch cron-job uses in `"ref"` (`master` for this repo).
 - **mode `quotes`** — prepare quote translations only (current and next month). Does not run the catalog orchestrator.
 - **mode `ingest`** — ingest catalog rows without running the daily orchestrator. Skips assignment, mixing, quote prep, HappyScribe watch, and workflow-state uploads. Before ingest it restores `backups/airtable-archive-titles.json` from the newest `workflow-state` artifact so archive duplicate checks reuse that cache. It does not upload a new artifact.
   - **video_type** — `Reel`, `Short`, or `Video`
-  - **count** — how many rows to ingest (default `4`) as unassigned (`7. Not Assigned`). If this is not a positive integer, it is treated as a catalog **title**: ingest that one row of the selected type with Translator **High Priority** and Status **`1. To do`**. Duplicate, Smartcat, mix, duration, and other ingest checks still apply.
+  - **count** — how many rows to ingest (default `4`) with Status **`1. To do`** and no translator. If this is not a positive integer, it is treated as a catalog **title**: ingest that one row of the selected type with Translator **High Priority** and Status **`1. To do`**. Duplicate, Smartcat, mix, duration, and other ingest checks still apply.
   - **dry_run** — preview eligible rows without writing to Airtable
 
 Local equivalent:
@@ -182,7 +182,7 @@ Configure under **Settings → Secrets and variables → Actions → Secrets**.
 
 ### Archive duplicate checks during ingest
 
-Ingest skips a catalog row when its title (for that type), video folder, original video name, or original video link is already in Airtable. Archive bases are included the same way. They are discovered from rows with Status **`7. Not Assigned`** whose Title looks like `2024 archive: https://airtable.com/...`. Older archive tables may not have every current column; a check is skipped only for the archive row that lacks that value. If the table has no Title column, Original Video Name is used as the title. The workflow reads which columns exist from the Airtable schema and requests only those, in one list per archive table.
+Ingest skips a catalog row when its title (for that type), video folder, original video name, or original video link is already in Airtable. Archive bases are included the same way. They are discovered from rows with Status **`7. Archived`** whose Title looks like `2024 archive: https://airtable.com/...`. Older archive tables may not have every current column; a check is skipped only for the archive row that lacks that value. If the table has no Title column, Original Video Name is used as the title. The workflow reads which columns exist from the Airtable schema and requests only those, in one list per archive table.
 
 That identity is cached permanently at `output/backups/airtable-archive-titles.json`. The full daily workflow writes and uploads it. Ingest-only restores that file and does not replace it. A warm cache makes no archive API calls. A title-only cache from before this format is ignored, so the next full run reads each archive table once (one request per 100 records; the extra columns ride on that same request) and writes the new cache. Set `AIRTABLE_ARCHIVE_CACHE_REFRESH=true` to force a refresh, or delete the cache file.
 

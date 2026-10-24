@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from catalog_parser.airtable import (
+    STATUS_ARCHIVED,
     AirtableArchiveSource,
     AirtableClient,
     FIELD_ORIGINAL_VIDEO,
@@ -14,7 +15,6 @@ from catalog_parser.airtable import (
     FIELD_VIDEO_FOLDER,
 )
 from catalog_parser.workflow.archive_sources import (
-    STATUS_NOT_ASSIGNED,
     archive_pointers_from_records,
     parse_archive_pointer_title,
     resolve_archive_sources,
@@ -40,7 +40,7 @@ class ArchiveSourceDiscoveryTests(unittest.TestCase):
         records = [
             {
                 "fields": {
-                    FIELD_STATUS: STATUS_NOT_ASSIGNED,
+                    FIELD_STATUS: STATUS_ARCHIVED,
                     FIELD_TITLE: "2025 archive: https://airtable.com/invite/l?x=1",
                 }
             },
@@ -57,18 +57,18 @@ class ArchiveSourceDiscoveryTests(unittest.TestCase):
             [("2025", "https://airtable.com/invite/l?x=1")],
         )
 
-    def test_resolve_archive_sources_from_not_assigned_rows(self) -> None:
+    def test_resolve_archive_sources_from_archived_rows(self) -> None:
         client = AirtableClient("pat-test", "app-current", "Translator's Paradise")
         records = [
             {
                 "fields": {
-                    FIELD_STATUS: STATUS_NOT_ASSIGNED,
+                    FIELD_STATUS: STATUS_ARCHIVED,
                     FIELD_TITLE: "2024 archive: https://airtable.com/invite/l?x=2024",
                 }
             },
             {
                 "fields": {
-                    FIELD_STATUS: STATUS_NOT_ASSIGNED,
+                    FIELD_STATUS: STATUS_ARCHIVED,
                     FIELD_TITLE: "2025 archive: https://airtable.com/invite/l?x=2025",
                 }
             },

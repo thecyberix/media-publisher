@@ -701,7 +701,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Create Airtable rows without assigning a translator "
-            "(Status: 7. Not Assigned)."
+            "(Status: 1. To do)."
         ),
     )
     ingest_parser.add_argument(

@@ -52,7 +52,7 @@ STATUS_ALL = [
     "4. Problematic videos",
     "5. Synchronization done",
     "6. Done & Published",
-    "7. Not Assigned",
+    "7. Archived",
 ]
 
 TYPE_VIDEO = "Video"

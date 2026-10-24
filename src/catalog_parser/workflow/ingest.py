@@ -11,7 +11,6 @@ from catalog_parser.airtable import (
     FIELD_ORIGINAL_VIDEO_THUMBNAIL,
     FIELD_STATUS,
     FIELD_TRANSLATOR,
-    STATUS_NOT_ASSIGNED,
     STATUS_TODO,
     STATUS_TRANSLATION_DONE,
     load_existing_original_video_keys_for_ingest,
@@ -181,7 +180,7 @@ def ingest_batch_unassigned(
             FIELD_STATUS: STATUS_TODO,
         }
     else:
-        airtable_fields = {FIELD_STATUS: STATUS_NOT_ASSIGNED}
+        airtable_fields = {FIELD_STATUS: STATUS_TODO}
     return ingest_batch(
         airtable,
         desired_type=desired_type,

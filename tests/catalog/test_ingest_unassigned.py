@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from catalog_parser.airtable import STATUS_NOT_ASSIGNED, STATUS_TODO
+from catalog_parser.airtable import STATUS_TODO
 from catalog_parser.workflow.ingest import (
     HIGH_PRIORITY_TRANSLATOR,
     defer_or_send_review_notification,
@@ -98,7 +98,7 @@ class IngestBatchTests(unittest.TestCase):
         created_records = airtable.create_records.call_args.args[0]
         self.assertEqual(
             created_records[0]["_airtable_fields"],
-            {"Status": STATUS_NOT_ASSIGNED},
+            {"Status": STATUS_TODO},
         )
         self.assertNotIn("Translator", created_records[0]["_airtable_fields"])
 
@@ -223,7 +223,7 @@ class IngestBatchTests(unittest.TestCase):
             desired_type="Reel",
             target_count=1,
             max_video_seconds=900,
-            airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+            airtable_fields={"Status": STATUS_TODO},
             dry_run=True,
             log=logs.append,
         )
@@ -261,7 +261,7 @@ class IngestBatchTests(unittest.TestCase):
             desired_type="Reel",
             target_count=1,
             max_video_seconds=900,
-            airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+            airtable_fields={"Status": STATUS_TODO},
             require_pkg_tn=True,
             dry_run=True,
             log=logs.append,
@@ -304,7 +304,7 @@ class IngestBatchTests(unittest.TestCase):
             desired_type="Reel",
             target_count=1,
             max_video_seconds=900,
-            airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+            airtable_fields={"Status": STATUS_TODO},
             prioritize_thumbnails=False,
             dry_run=True,
             log=logs.append,
@@ -345,7 +345,7 @@ class IngestBatchTests(unittest.TestCase):
             desired_type="Reel",
             target_count=1,
             max_video_seconds=900,
-            airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+            airtable_fields={"Status": STATUS_TODO},
             prioritize_thumbnails=False,
             prioritize_views=True,
             dry_run=True,
@@ -478,7 +478,7 @@ class IngestBatchTests(unittest.TestCase):
                 desired_type="Reel",
                 target_count=1,
                 max_video_seconds=900,
-                airtable_fields={"Status": STATUS_NOT_ASSIGNED},
+                airtable_fields={"Status": STATUS_TODO},
                 pending_review_items=pending,
             )
 
