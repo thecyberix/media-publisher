@@ -128,7 +128,7 @@ Suggested schedule: `30 12 * * *`, time zone **Europe/Sofia**. This is a separat
 }
 ```
 
-The workflow publishes the Facebook and Instagram photo, plus a 10-second YouTube video added to the playlist **Екадаши**, the day before the observance and does nothing on other days. A successful post is recorded in `data/ekadashi_publish_state.json` so a second run the same day does not post again.
+The workflow publishes the Facebook and Instagram photo, plus a 10-second YouTube video, the day before the observance and does nothing on other days. The video is added to the **Екадаши** playlist when ``ekadashi_playlist`` is set in ``config/playlists.json``. A successful post is recorded in `data/ekadashi_publish_state.json` so a second run the same day does not post again.
 
 ### One-off scheduled test from cron-job.org
 
@@ -166,7 +166,7 @@ Facebook quote photos use the Graph API (same as before Playwright). Development
 - Events (Facebook only): `python scripts/schedule_event_facebook.py --event-type surya_kriya …`
 - Ekadashi (Facebook only): `python scripts/schedule_ekadashi_facebook.py --year 2026 --month 10`. Instagram is published by the `publish-ekadashi` workflow.
 
-Ekadashi dates come from the public Isha Google Calendar ICS (`ishacalendar@gmail.com`). The workflow publishes **Facebook and Instagram**, and a 10-second **YouTube** video on the **Екадаши** playlist, one day before at **12:30 Europe/Sofia**. The local Playwright scheduler posts **Facebook only**. Captions are hard-coded from 2025 Page posts (same ordinal slot). Images are pages of the `Ekadashi {year}` design in the `Ekadashi` folder under `CANVA_URL`.
+Ekadashi dates come from the public Isha Google Calendar ICS (`ishacalendar@gmail.com`). The workflow publishes **Facebook and Instagram**, and a 10-second **YouTube** video, one day before at **12:30 Europe/Sofia**. The video is added to the **Екадаши** playlist when that playlist is configured. The local Playwright scheduler posts **Facebook only**. Captions are hard-coded from 2025 Page posts (same ordinal slot). Images are pages of the `Ekadashi {year}` design in the `Ekadashi` folder under `CANVA_URL`.
 
 ### Instagram keyword replies
 

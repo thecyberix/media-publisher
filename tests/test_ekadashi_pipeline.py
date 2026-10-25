@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from catalog_parser.playlists import PlaylistConfig
 from media_publisher.ekadashi import EkadashiEntry
 from media_publisher.ekadashi_pipeline import (
     load_publish_state,
@@ -198,3 +199,36 @@ class EkadashiPublishTests(unittest.TestCase):
         self.assertEqual(job.video_format, "short_form")
         self.assertEqual(job.content_kind, "image")
         self.assertEqual(job.title, title)
+
+    def test_youtube_publishes_when_no_ekadashi_playlist_is_configured(self) -> None:
+        caption = "Утре си вземете почивка от храната. #Екадаши"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            image = root / "still.jpg"
+            video = root / "still.mp4"
+            image.write_bytes(b"jpg")
+            video.write_bytes(b"mp4")
+            secrets = root / "client.json"
+            token = root / "token.json"
+            secrets.write_text("{}", encoding="utf-8")
+            token.write_text("{}", encoding="utf-8")
+            with patch(
+                "media_publisher.ekadashi_pipeline.ensure_quote_video",
+                return_value=video,
+            ), patch(
+                "media_publisher.ekadashi_pipeline.load_playlist_config",
+                return_value=PlaylistConfig(rules=(), ekadashi_playlist=None),
+            ), patch(
+                "media_publisher.ekadashi_pipeline.publish_to_youtube",
+                return_value="vid123",
+            ) as publish:
+                url = publish_ekadashi_to_youtube(
+                    image_path=image,
+                    caption=caption,
+                    client_secrets_path=secrets,
+                    token_path=token,
+                    expected_channel_handle="@channel",
+                    work_dir=root,
+                )
+        self.assertEqual(url, "https://www.youtube.com/watch?v=vid123")
+        self.assertIsNone(publish.call_args.kwargs["quote_playlist_title"])

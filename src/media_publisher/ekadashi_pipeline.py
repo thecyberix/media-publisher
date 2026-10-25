@@ -2,7 +2,8 @@
 
 The post goes live the calendar day before the observance, the same moment the
 12:30 Europe/Sofia job runs. Facebook and Instagram get the still. YouTube gets
-a 10-second video made from that still and is added to the Ekadashi playlist.
+a 10-second video made from that still. When ``ekadashi_playlist`` is
+set, that video is added to the playlist.
 A committed state file keeps a second run from posting again.
 """
 from __future__ import annotations
@@ -249,7 +250,10 @@ def publish_ekadashi_to_youtube(
     template_urls: dict[str, str] | None = None,
     playlist_title: str | None = None,
 ) -> str:
-    """Upload a 10-second video of the still and add it to the Ekadashi playlist."""
+    """Upload a 10-second video of the still.
+
+    The video is added to the Ekadashi playlist when one is configured.
+    """
     video_path = ensure_quote_video(image_path, work_dir, ffmpeg_path=ffmpeg_path)
     title = build_ekadashi_youtube_title(caption)
     description = caption.strip()
@@ -264,11 +268,12 @@ def publish_ekadashi_to_youtube(
     from media_publisher.scheduling import prepare_job_for_immediate_publish
 
     prepare_job_for_immediate_publish(job, private=False)
-    resolved_title = (playlist_title or "").strip() or (
-        load_playlist_config().ekadashi_playlist or ""
+    configured = (
+        playlist_title
+        if playlist_title is not None
+        else load_playlist_config().ekadashi_playlist
     )
-    if not resolved_title:
-        raise YouTubePublishError("ekadashi_playlist is not configured")
+    resolved_title = (configured or "").strip() or None
     video_id = publish_to_youtube(
         job,
         client_secrets_path=client_secrets_path,

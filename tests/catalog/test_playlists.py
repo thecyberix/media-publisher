@@ -180,20 +180,20 @@ class YoutubePlaylistTests(unittest.TestCase):
         self.assertEqual(playlist_publish_rank(["Съзнателна Планета"], priority), 2)
         self.assertEqual(playlist_publish_rank([], ()), 0)
 
-    def test_load_rejects_an_unknown_publish_priority(self) -> None:
+    def test_load_accepts_a_publish_priority_that_is_only_in_airtable(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "playlists.json"
             path.write_text(
                 json.dumps(
                     {
                         "playlists": [{"name": "Always"}],
-                        "publish_priority": ["Missing"],
+                        "publish_priority": ["Only in Airtable"],
                     }
                 ),
                 encoding="utf-8",
             )
-            with self.assertRaises(RuntimeError):
-                load_playlist_config(path)
+            config = load_playlist_config(path)
+        self.assertEqual(config.publish_priority, ("Only in Airtable",))
 
     def test_load_rejects_an_unknown_end_card(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

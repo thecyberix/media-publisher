@@ -7,8 +7,11 @@ that ending is found on the reference video. ``comment`` is the Instagram
 comment posted on that video. ``keyword``, ``reply``, and ``dm`` answer a
 later comment that contains the keyword. ``quote_playlist`` is the title
 of the playlist that receives quote videos only. ``ekadashi_playlist`` is the
-title of the playlist that receives Ekadashi videos only. ``publish_priority``
-is an ordered list of video playlist names to schedule first. Airtable status
+title of the playlist that receives Ekadashi videos only. Omit it and the
+Ekadashi video is published without a playlist. ``publish_priority``
+is an ordered list of playlist names to schedule first. A name matches the
+Airtable Playlists field; it does not have to be one of the rules above.
+Airtable status
 still decides which pool is used; names earlier in the list are scheduled
 sooner inside that pool.
 """
@@ -94,7 +97,6 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
         ),
         publish_priority=_parse_publish_priority(
             payload,
-            rule_names=tuple(rule.name for rule in rules),
             source=config_path.as_posix(),
         ),
     )
@@ -207,7 +209,6 @@ def combined_media_airtable_fields(
 def _parse_publish_priority(
     payload: dict[str, Any],
     *,
-    rule_names: tuple[str, ...],
     source: str,
 ) -> tuple[str, ...]:
     if "publish_priority" not in payload:
@@ -215,7 +216,6 @@ def _parse_publish_priority(
     raw = payload.get("publish_priority")
     if not isinstance(raw, list):
         raise RuntimeError(f"{source} publish_priority must be an array of playlist names")
-    known = set(rule_names)
     names: list[str] = []
     seen: set[str] = set()
     for index, item in enumerate(raw, start=1):
@@ -224,10 +224,6 @@ def _parse_publish_priority(
         name = item.strip()
         if name in seen:
             raise RuntimeError(f"{source} publish_priority duplicates {name!r}")
-        if name not in known:
-            raise RuntimeError(
-                f"{source} publish_priority[{index}] {name!r} is not a video playlist"
-            )
         seen.add(name)
         names.append(name)
     return tuple(names)
