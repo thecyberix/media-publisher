@@ -1652,7 +1652,14 @@ def publish_to_youtube(
         owned = client.owned_playlists()
         added: set[str] = set()
         for title in named_titles:
-            resolved_id = playlist_id_for_exact_title(owned, title)
+            try:
+                resolved_id = playlist_id_for_exact_title(owned, title)
+            except YouTubePublishError:
+                print(
+                    f"YouTube playlist {title!r} was not found; "
+                    "the video stays off that playlist"
+                )
+                continue
             if resolved_id in added:
                 continue
             client.add_video_to_playlist(video_id, resolved_id)

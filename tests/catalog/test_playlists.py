@@ -195,6 +195,44 @@ class YoutubePlaylistTests(unittest.TestCase):
             config = load_playlist_config(path)
         self.assertEqual(config.publish_priority, ("Only in Airtable",))
 
+    def test_load_allows_an_empty_playlist_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "playlists.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "playlists": [],
+                        "quote_playlist": "",
+                        "ekadashi_playlist": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = load_playlist_config(path)
+        self.assertEqual(config.rules, ())
+        self.assertIsNone(config.quote_playlist)
+        self.assertIsNone(config.ekadashi_playlist)
+
+    def test_load_allows_only_end_card_playlists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "playlists.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "playlists": [
+                            {"name": "Inner", "end_card": "inner_engineering"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = load_playlist_config(path)
+        self.assertEqual(youtube_playlists(config=config), [])
+        self.assertEqual(
+            youtube_playlists([END_CARD_INNER_ENGINEERING], config=config),
+            ["Inner"],
+        )
+
     def test_load_rejects_an_unknown_end_card(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "playlists.json"

@@ -630,6 +630,28 @@ class YouTubeClientTests(unittest.TestCase):
         with self.assertRaises(YouTubePublishError):
             playlist_id_for_exact_title([("PL-other", "Друга")], "Цитати")
 
+    def test_publish_skips_a_playlist_that_is_not_on_the_channel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            secrets_path = self._write_client_secrets(root)
+            token_path = root / "token.json"
+            video_path = root / "clip.mp4"
+            video_path.write_bytes(b"video")
+            job = PublishJob(title="Clip", video_path=str(video_path))
+            with patch("media_publisher.publishers.youtube.YouTubeClient") as client_cls:
+                client = client_cls.return_value
+                client.upload_video.return_value = "vid123"
+                client.owned_playlists.return_value = [("PLtest123", "Съзнателна Планета")]
+                video_id = publish_to_youtube(
+                    job,
+                    client_secrets_path=secrets_path,
+                    token_path=token_path,
+                    playlist_titles=["Съзнателна Планета", "Missing"],
+                )
+
+        self.assertEqual(video_id, "vid123")
+        client.add_video_to_playlist.assert_called_once_with("vid123", "PLtest123")
+
     def test_publish_to_youtube_syncs_daily_playlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

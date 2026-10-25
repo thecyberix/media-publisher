@@ -3,7 +3,8 @@
 Catalog publish adds the uploaded video to the names stored on that record.
 Names and when they apply live in ``config/playlists.json``. A rule with no
 ``end_card`` is added to every video. A rule with ``end_card`` is added when
-that ending is found on the reference video. ``comment`` is the Instagram
+that ending is found on the reference video. Either kind can be omitted, and
+the ``playlists`` array itself can be empty. ``comment`` is the Instagram
 comment posted on that video. ``keyword``, ``reply``, and ``dm`` answer a
 later comment that contains the keyword. ``quote_playlist`` is the title
 of the playlist that receives quote videos only. ``ekadashi_playlist`` is the
@@ -69,9 +70,11 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
     payload = json.loads(config_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError(f"{config_path.as_posix()} must contain a JSON object")
-    raw_rules = payload.get("playlists")
-    if not isinstance(raw_rules, list) or not raw_rules:
-        raise RuntimeError(f"{config_path.as_posix()} playlists must be a non-empty array")
+    raw_rules = payload.get("playlists", [])
+    if raw_rules is None:
+        raw_rules = []
+    if not isinstance(raw_rules, list):
+        raise RuntimeError(f"{config_path.as_posix()} playlists must be an array")
 
     rules: list[PlaylistRule] = []
     seen: set[str] = set()
@@ -82,11 +85,6 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
                 f"{config_path.as_posix()} playlists[{index}] duplicates {rules[-1].name!r}"
             )
         seen.add(rules[-1].name)
-    if not any(rule.end_card is None for rule in rules):
-        raise RuntimeError(
-            f"{config_path.as_posix()} needs a playlist with no end_card "
-            "so every video is assigned one"
-        )
     return PlaylistConfig(
         rules=tuple(rules),
         quote_playlist=_parse_optional_playlist_title(
@@ -236,12 +234,12 @@ def _parse_optional_playlist_title(
     source: str,
 ) -> str | None:
     """Optional playlist title that is not one of the video rules above."""
-    if key not in payload:
+    if key not in payload or payload.get(key) is None:
         return None
     value = payload.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise RuntimeError(f"{source} {key} must be a non-empty string")
-    return value.strip()
+    if not isinstance(value, str):
+        raise RuntimeError(f"{source} {key} must be a string")
+    return value.strip() or None
 
 
 def _parse_rule(item: object, *, index: int, source: str) -> PlaylistRule:
