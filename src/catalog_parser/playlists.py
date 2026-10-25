@@ -2,8 +2,10 @@
 
 Catalog publish adds the uploaded video to the names stored on that record.
 Names and when they apply live in ``config/playlists.json``. A rule with no
-``end_card`` is added to every video. A rule with ``end_card`` is added when
-that ending is found on the reference video. Either kind can be omitted, and
+``end_card`` and no ``comment`` is added to every video. A rule with no
+``end_card`` that has a ``comment`` is left off that assignment. A rule with
+``end_card`` is added when that ending is found on the reference video.
+Either kind can be omitted, and
 the ``video_playlists`` array itself can be empty. ``comment`` is the Instagram
 comment posted on that video. ``keyword``, ``reply``, and ``dm`` answer a
 later comment that contains the keyword. ``quote_playlist`` is the title
@@ -148,13 +150,19 @@ def youtube_playlists(
     *,
     config: PlaylistConfig | None = None,
 ) -> list[str]:
-    """Playlist names for one video, in config order."""
+    """Playlist names for one video, in config order.
+
+    A rule with no end card is added to every video only when it has no
+    comment. A comment on that rule keeps the playlist off the default
+    assignment. A rule with an end card is added when that ending is detected.
+    """
     selected = config or load_playlist_config()
     detected = set(detected_end_cards)
     return [
         rule.name
         for rule in selected.rules
-        if rule.end_card is None or rule.end_card in detected
+        if (rule.end_card is None and not rule.comment)
+        or (rule.end_card is not None and rule.end_card in detected)
     ]
 
 

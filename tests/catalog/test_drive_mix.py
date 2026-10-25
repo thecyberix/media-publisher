@@ -652,11 +652,9 @@ class DriveMixStructureTests(unittest.TestCase):
                 video_type="Reel",
             )
 
-        from catalog_parser.playlists import load_playlist_config
+        from catalog_parser.playlists import youtube_playlists
 
-        defaults = tuple(
-            rule.name for rule in load_playlist_config().rules if rule.end_card is None
-        )
+        defaults = tuple(youtube_playlists())
         self.assertEqual(result.playlists, defaults)
         replace_mock.assert_called_once()
         self.assertEqual(replace_mock.call_args.kwargs["video_type"], "Reel")

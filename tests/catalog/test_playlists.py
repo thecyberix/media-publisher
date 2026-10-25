@@ -45,6 +45,29 @@ def _sample_config() -> PlaylistConfig:
 
 
 class YoutubePlaylistTests(unittest.TestCase):
+    def test_a_comment_without_an_end_card_is_not_added_to_every_video(self) -> None:
+        config = PlaylistConfig(
+            rules=(
+                PlaylistRule("Always"),
+                PlaylistRule("Noted", comment="Hello"),
+                PlaylistRule("Inner", END_CARD_INNER_ENGINEERING, comment="Join"),
+            )
+        )
+        self.assertEqual(youtube_playlists(config=config), ["Always"])
+        self.assertEqual(
+            instagram_comments_for_playlists(
+                youtube_playlists(config=config),
+                config=config,
+            ),
+            [],
+        )
+        assigned = youtube_playlists([END_CARD_INNER_ENGINEERING], config=config)
+        self.assertEqual(assigned, ["Always", "Inner"])
+        self.assertEqual(
+            instagram_comments_for_playlists(assigned, config=config),
+            ["Join"],
+        )
+
     def test_rules_without_an_end_card_are_always_included(self) -> None:
         self.assertEqual(
             youtube_playlists(config=_sample_config()),
@@ -278,13 +301,10 @@ class EndCardPlaylistTests(unittest.TestCase):
                 video_type="Reel",
                 reference_path=Path("REF 720p.mp4"),
             )
-        config = load_playlist_config()
-        expected = tuple(
-            rule.name
-            for rule in config.rules
-            if rule.end_card is None or rule.end_card == END_CARD_SAVE_SOIL
+        self.assertEqual(
+            playlists,
+            tuple(youtube_playlists([END_CARD_SAVE_SOIL])),
         )
-        self.assertEqual(playlists, expected)
 
 
 class CombineMediaPlaylistWriteTests(unittest.TestCase):
