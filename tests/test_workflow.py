@@ -752,12 +752,12 @@ class WorkflowActionTests(unittest.TestCase):
             SimpleNamespace(
                 name="Dilyana Hayes",
                 weekly_capacity_reels=15,
-                preferred_editing_type="Video",
+                preferred_video_type="Video",
             ),
             SimpleNamespace(
                 name="Nina Rueva",
                 weekly_capacity_reels=4,
-                preferred_editing_type="Reel",
+                preferred_video_type="Reel",
             ),
         ]
 
@@ -815,12 +815,12 @@ class WorkflowActionTests(unittest.TestCase):
             SimpleNamespace(
                 name="Timing Full",
                 weekly_capacity_reels=10,
-                preferred_timing_type="Video",
+                preferred_video_type="Video",
             ),
             SimpleNamespace(
                 name="Timing Free",
                 weekly_capacity_reels=20,
-                preferred_timing_type="Video",
+                preferred_video_type="Video",
             ),
         ]
 

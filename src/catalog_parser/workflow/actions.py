@@ -455,7 +455,7 @@ def _assign_editor(
     else:
         record_type = fields.get("Type")
         editor_slots = [
-            (editor.name, editor.weekly_capacity_reels, editor.preferred_editing_type)
+            (editor.name, editor.weekly_capacity_reels, editor.preferred_video_type)
             for editor in config.editors
         ]
         preferred_editors_by_translator = {
@@ -533,7 +533,7 @@ def _assign_timing_editor(
             (
                 timing_editor.name,
                 timing_editor.weekly_capacity_reels,
-                timing_editor.preferred_timing_type,
+                timing_editor.preferred_video_type,
             )
             for timing_editor in config.timing_editors
         ]

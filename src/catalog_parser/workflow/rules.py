@@ -256,7 +256,7 @@ def choose_editor(
 ) -> str | None:
     """Pick an editor for ``record_type``.
 
-    Each editor is ``(name, weekly_capacity_reels, preferred_editing_type)``.
+    Each editor is ``(name, weekly_capacity_reels, preferred_video_type)``.
     When ``preferred_editor`` is set, that person is chosen (type preference ignored).
     Otherwise pick the least-utilized eligible editor by type preference.
     """
@@ -393,7 +393,7 @@ def choose_timing_editor(
 ) -> str | None:
     """Pick the least-utilized eligible timing editor for ``record_type``.
 
-    Each timing editor is ``(name, weekly_capacity_reels, preferred_timing_type)``.
+    Each timing editor is ``(name, weekly_capacity_reels, preferred_video_type)``.
     Skips people whose preference does not match ``record_type``. Capacity is used
     only for utilization ranking (same as editor assignment); it is not a hard cap.
     """
@@ -831,7 +831,7 @@ def plan_ingest_actions(
 ) -> list[WorkflowAction]:
     """Ingest a full batch only for translators with no To do rows.
 
-    The empty-queue gate is the same with or without ``preferred_translation_type``.
+    The empty-queue gate is the same with or without ``preferred_video_type``.
     That preference only chooses what the batch contains once the queue is empty.
     Dual-role editors who still have Translation done work are skipped as well.
     """

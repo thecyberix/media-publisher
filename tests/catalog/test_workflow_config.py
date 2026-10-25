@@ -181,6 +181,58 @@ class LoadWorkflowConfigTests(unittest.TestCase):
             self.assertIsNone(config.editors[0].email)
             self.assertIsNone(config.timing_editors[0].email)
 
+    def test_preferred_video_type_is_shared_across_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_shared(
+                root,
+                {
+                    "catalog_id": "sheetFromFile01",
+                    "target_reel_to_video_ratio": 6,
+                    "max_video_seconds": 900,
+                },
+            )
+            (root / "workflow_config.json").write_text(
+                json.dumps(
+                    {
+                        "drive_url": "https://drive.google.com/drive/folders/abc",
+                        "profiles": {
+                            "translators": [
+                                {
+                                    "name": "T",
+                                    "weekly_capacity_reels": 4,
+                                    "preferred_video_type": " Reel ",
+                                }
+                            ],
+                            "editors": [
+                                {
+                                    "name": "E",
+                                    "weekly_capacity_reels": 4,
+                                    "preferred_video_type": "Video",
+                                }
+                            ],
+                            "timing_editors": [
+                                {
+                                    "name": "TE",
+                                    "weekly_capacity_reels": 4,
+                                    "preferred_video_type": "Reel",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"DRIVE_URL": "", "WORKFLOW_PROFILES_JSON": ""},
+                clear=False,
+            ):
+                config = load_workflow_config(root)
+            self.assertEqual(config.translators[0].preferred_video_type, "Reel")
+            self.assertEqual(config.editors[0].preferred_video_type, "Video")
+            self.assertEqual(config.timing_editors[0].preferred_video_type, "Reel")
+
     def test_prioritize_thumbnails_from_shared_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

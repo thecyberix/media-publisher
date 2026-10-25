@@ -409,7 +409,7 @@ Paste as one secret value (minified JSON):
     {
       "name": "Translator Name",
       "weekly_capacity_reels": 30,
-      "preferred_translation_type": "Reel",
+      "preferred_video_type": "Reel",
       "preferred_editor": "Editor Name",
       "email": "translator@example.com"
     }
@@ -418,7 +418,7 @@ Paste as one secret value (minified JSON):
     {
       "name": "Editor Name",
       "weekly_capacity_reels": 30,
-      "preferred_editing_type": "Video",
+      "preferred_video_type": "Video",
       "email": "editor@example.com"
     }
   ],
@@ -426,19 +426,19 @@ Paste as one secret value (minified JSON):
     {
       "name": "Timing Editor Name",
       "weekly_capacity_reels": 30,
-      "preferred_timing_type": "Video"
+      "preferred_video_type": "Video"
     }
   ]
 }
 ```
 
-Field names must match Airtable **Translator** / **Editor** / **Timing Editor** single-select values. Optional translator `preferred_editor` routes that translator's videos to a specific editor (type preference ignored) and those assignments run first in a workflow pass.
+Field names must match Airtable **Translator** / **Editor** / **Timing Editor** single-select values. Optional `preferred_video_type` (`Reel` or `Video`) is the same key on translators, editors, and timing editors: it limits that person's autonomous work to one type. Optional translator `preferred_editor` routes that translator's videos to a specific editor (type preference ignored) and those assignments run first in a workflow pass.
 
 Optional `email` on any profile sends one message to that address when the run assigns them work (translator ingest, editor ingest, editor assignment, or timing-editor assignment). Several assignments in the same run are listed in that single message. Profiles without `email` are not notified. The message uses `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD`. A dry run logs the recipient and does not send.
 
 ### Weekly editor assignment (Translation done)
 
-Each **Monday** (Europe/Sofia), the orchestrator assigns every editor a **new** batch equal to `weekly_capacity_reels`, independent of videos still in their queue. Capacity `0` is valid: the person stays in the roster, but that week's autonomous ingest is skipped. If that Monday run is missed, later days do **not** catch up. Work comes from **unassigned** `2. Translation done` rows of the matching `preferred_editing_type` (translator `preferred_editor` still wins and ignores type).
+Each **Monday** (Europe/Sofia), the orchestrator assigns every editor a **new** batch equal to `weekly_capacity_reels`, independent of videos still in their queue. Capacity `0` is valid: the person stays in the roster, but that week's autonomous ingest is skipped. If that Monday run is missed, later days do **not** catch up. Work comes from **unassigned** `2. Translation done` rows of the matching `preferred_video_type` (translator `preferred_editor` still wins and ignores type).
 
 When the unassigned pool is short, or has the wrong type, the rest of that week's batch is ingested directly into Translation done, assigned to that editor, with Translator **Sir Translatesalot**. Editors who already received this week's batch are not given another one mid-week even if they finish early.
 

@@ -14,9 +14,7 @@ LOCAL_WORKFLOW_CONFIG = Path("workflow_config.json")
 class PersonProfile:
     name: str
     weekly_capacity_reels: int
-    preferred_translation_type: str | None = None
-    preferred_editing_type: str | None = None
-    preferred_timing_type: str | None = None
+    preferred_video_type: str | None = None
     preferred_editor: str | None = None
     email: str | None = None
 
@@ -44,18 +42,9 @@ def _parse_person(item: object) -> PersonProfile | None:
     weekly_capacity_reels = int(item.get("weekly_capacity_reels", 0))
     if weekly_capacity_reels < 0:
         return None
-    preferred_translation_type = item.get("preferred_translation_type")
-    if preferred_translation_type is not None:
-        preferred_translation_type = str(preferred_translation_type).strip() or None
-    preferred_editing_type = item.get("preferred_editing_type")
-    if preferred_editing_type is not None:
-        preferred_editing_type = str(preferred_editing_type).strip() or None
-    preferred_timing_type = item.get("preferred_timing_type")
-    if preferred_timing_type is not None:
-        preferred_timing_type = str(preferred_timing_type).strip() or None
-    # Allow timing_editors profiles to reuse preferred_editing_type as an alias.
-    if preferred_timing_type is None and preferred_editing_type is not None:
-        preferred_timing_type = preferred_editing_type
+    preferred_video_type = item.get("preferred_video_type")
+    if preferred_video_type is not None:
+        preferred_video_type = str(preferred_video_type).strip() or None
     preferred_editor = item.get("preferred_editor")
     if preferred_editor is not None:
         preferred_editor = str(preferred_editor).strip() or None
@@ -67,9 +56,7 @@ def _parse_person(item: object) -> PersonProfile | None:
     return PersonProfile(
         name=name,
         weekly_capacity_reels=weekly_capacity_reels,
-        preferred_translation_type=preferred_translation_type,
-        preferred_editing_type=preferred_editing_type,
-        preferred_timing_type=preferred_timing_type,
+        preferred_video_type=preferred_video_type,
         preferred_editor=preferred_editor,
         email=email,
     )

@@ -140,7 +140,7 @@ class TimingEditorCorpusHookTests(unittest.TestCase):
                 SimpleNamespace(
                     name="Timing Free",
                     weekly_capacity_reels=20,
-                    preferred_timing_type=None,
+                    preferred_video_type=None,
                 )
             ]
             config.work_dir = root / "_tmp"

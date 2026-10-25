@@ -122,11 +122,11 @@ def run_workflow(
         planned_actions.extend(plan_record_actions(record))
 
     translator_slots = [
-        (profile.name, profile.weekly_capacity_reels, profile.preferred_translation_type)
+        (profile.name, profile.weekly_capacity_reels, profile.preferred_video_type)
         for profile in config.translators
     ]
     editor_slots = [
-        (profile.name, profile.weekly_capacity_reels, profile.preferred_editing_type)
+        (profile.name, profile.weekly_capacity_reels, profile.preferred_video_type)
         for profile in config.editors
     ]
     preferred_editors_by_translator = {
@@ -135,7 +135,7 @@ def run_workflow(
         if profile.preferred_editor
     }
     timing_editor_slots = [
-        (profile.name, profile.weekly_capacity_reels, profile.preferred_timing_type)
+        (profile.name, profile.weekly_capacity_reels, profile.preferred_video_type)
         for profile in config.timing_editors
     ]
     editor_names = frozenset(profile.name for profile in config.editors)
