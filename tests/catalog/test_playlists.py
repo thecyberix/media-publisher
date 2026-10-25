@@ -186,7 +186,7 @@ class YoutubePlaylistTests(unittest.TestCase):
             path.write_text(
                 json.dumps(
                     {
-                        "playlists": [{"name": "Always"}],
+                        "video_playlists": [{"name": "Always"}],
                         "publish_priority": ["Only in Airtable"],
                     }
                 ),
@@ -201,7 +201,7 @@ class YoutubePlaylistTests(unittest.TestCase):
             path.write_text(
                 json.dumps(
                     {
-                        "playlists": [],
+                        "video_playlists": [],
                         "quote_playlist": "",
                         "ekadashi_playlist": None,
                     }
@@ -219,7 +219,7 @@ class YoutubePlaylistTests(unittest.TestCase):
             path.write_text(
                 json.dumps(
                     {
-                        "playlists": [
+                        "video_playlists": [
                             {"name": "Inner", "end_card": "inner_engineering"},
                         ]
                     }
@@ -238,7 +238,7 @@ class YoutubePlaylistTests(unittest.TestCase):
             path = Path(tmpdir) / "playlists.json"
             path.write_text(
                 json.dumps(
-                    {"playlists": [{"name": "Always"}, {"name": "Other", "end_card": "nope"}]}
+                    {"video_playlists": [{"name": "Always"}, {"name": "Other", "end_card": "nope"}]}
                 ),
                 encoding="utf-8",
             )

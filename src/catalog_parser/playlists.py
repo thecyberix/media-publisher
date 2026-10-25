@@ -4,7 +4,7 @@ Catalog publish adds the uploaded video to the names stored on that record.
 Names and when they apply live in ``config/playlists.json``. A rule with no
 ``end_card`` is added to every video. A rule with ``end_card`` is added when
 that ending is found on the reference video. Either kind can be omitted, and
-the ``playlists`` array itself can be empty. ``comment`` is the Instagram
+the ``video_playlists`` array itself can be empty. ``comment`` is the Instagram
 comment posted on that video. ``keyword``, ``reply``, and ``dm`` answer a
 later comment that contains the keyword. ``quote_playlist`` is the title
 of the playlist that receives quote videos only. ``ekadashi_playlist`` is the
@@ -70,11 +70,11 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
     payload = json.loads(config_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError(f"{config_path.as_posix()} must contain a JSON object")
-    raw_rules = payload.get("playlists", [])
+    raw_rules = payload.get("video_playlists", [])
     if raw_rules is None:
         raw_rules = []
     if not isinstance(raw_rules, list):
-        raise RuntimeError(f"{config_path.as_posix()} playlists must be an array")
+        raise RuntimeError(f"{config_path.as_posix()} video_playlists must be an array")
 
     rules: list[PlaylistRule] = []
     seen: set[str] = set()
@@ -82,7 +82,7 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
         rules.append(_parse_rule(item, index=index, source=config_path.as_posix()))
         if rules[-1].name in seen:
             raise RuntimeError(
-                f"{config_path.as_posix()} playlists[{index}] duplicates {rules[-1].name!r}"
+                f"{config_path.as_posix()} video_playlists[{index}] duplicates {rules[-1].name!r}"
             )
         seen.add(rules[-1].name)
     return PlaylistConfig(
@@ -243,7 +243,7 @@ def _parse_optional_playlist_title(
 
 
 def _parse_rule(item: object, *, index: int, source: str) -> PlaylistRule:
-    label = f"{source} playlists[{index}]"
+    label = f"{source} video_playlists[{index}]"
     if not isinstance(item, dict):
         raise RuntimeError(f"{label} must be an object")
     name = item.get("name")

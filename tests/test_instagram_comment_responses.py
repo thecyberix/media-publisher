@@ -84,7 +84,7 @@ class CommentResponseTests(unittest.TestCase):
             path.write_text(
                 json.dumps(
                     {
-                        "playlists": [
+                        "video_playlists": [
                             {"name": "Always"},
                             {"name": "IE", "keyword": "hello"},
                         ]
