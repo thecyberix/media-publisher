@@ -1,4 +1,4 @@
-name: Daily catalog workflow
+name: Orchestration
 
 # Primary schedule: external cron (cron-job.org) → workflow_dispatch at 00:00 local time.
 # GitHub schedule below is a fallback; remove it once external cron is verified (see docs/catalog-github-actions.md).

@@ -53,7 +53,7 @@ Invoke-RestMethod `
   -ContentType "application/json"
 ```
 
-Expected: HTTP **204 No Content** (empty response). Then open **Actions → Daily catalog workflow** — a new run should appear within seconds, triggered by `workflow_dispatch`, with **dry_run** enabled.
+Expected: HTTP **204 No Content** (empty response). Then open **Actions → Orchestration** — a new run should appear within seconds, triggered by `workflow_dispatch`, with **dry_run** enabled.
 
 #### 3. Create the cron-job.org job
 
@@ -116,7 +116,7 @@ Push to the branch cron-job uses in `"ref"` (`master` for this repo).
 
 ### Manual run
 
-**Actions → Daily catalog workflow → Run workflow**
+**Actions → Orchestration → Run workflow**
 
 - **mode `full`** (default) — editor assignment, mixing, ingest, quote translation prep, and the rest of the daily orchestrator.
   - Leave **dry_run** unchecked for a real run.
