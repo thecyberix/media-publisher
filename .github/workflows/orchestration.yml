@@ -203,7 +203,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           python -u scripts/catalog/restore_workflow_state.py \
-            --workflow catalog-daily-workflow.yml \
+            --workflow orchestration.yml \
             --exclude-run-id "${{ github.run_id }}" \
             --max-run-age-hours 72 \
             --required backups/airtable-latest.json \
@@ -229,7 +229,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           python -u scripts/catalog/restore_workflow_state.py \
-            --workflow catalog-daily-workflow.yml \
+            --workflow orchestration.yml \
             --exclude-run-id "${{ github.run_id }}" \
             --required backups/airtable-archive-titles.json
 

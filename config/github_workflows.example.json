@@ -50,7 +50,7 @@
     },
     "catalog-daily-dry-run": {
       "description": "Catalog orchestrator dry run (no Airtable/Drive writes)",
-      "workflow": "catalog-daily-workflow.yml",
+      "workflow": "orchestration.yml",
       "inputs": {
         "dry_run": "true",
         "mode": "full"
@@ -58,7 +58,7 @@
     },
     "catalog-daily-production": {
       "description": "Catalog orchestrator production run",
-      "workflow": "catalog-daily-workflow.yml",
+      "workflow": "orchestration.yml",
       "inputs": {
         "dry_run": "false",
         "mode": "full"
@@ -66,7 +66,7 @@
     },
     "catalog-ingest-unassigned": {
       "description": "Ingest unassigned catalog rows (no translator assignment)",
-      "workflow": "catalog-daily-workflow.yml",
+      "workflow": "orchestration.yml",
       "inputs": {
         "dry_run": "false",
         "mode": "ingest",

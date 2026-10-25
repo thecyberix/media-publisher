@@ -142,7 +142,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           python -u scripts/catalog/restore_workflow_state.py \
-            --workflow catalog-daily-workflow.yml \
+            --workflow orchestration.yml \
             --required workflow/status_history.json \
             --optional backups/airtable-latest.json
 

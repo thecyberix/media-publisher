@@ -47,7 +47,7 @@ Workflows live under `.github/workflows/`:
 |----------|---------|
 | `ci.yml` | Runs unit tests on push/PR |
 | `publish.yml` | Manual + external cron publishing (`workflow_dispatch`) |
-| `catalog-daily-workflow.yml` | Daily ingest, editor assignment, media mixing, Airtable sync; quote text prep on full runs or mode `quotes` |
+| `orchestration.yml` | Daily ingest, editor assignment, media mixing, Airtable sync; quote text prep on full runs or mode `quotes` |
 | `reporting.yml` | Snapshots, weekly email, monthly KPIs, prune past events |
 | `publish-event.yml` | Announce a programme and update the events GitHub Pages site |
 
@@ -193,7 +193,7 @@ config/workflow_config.example.json
 .github/workflows/
   ci.yml
   publish.yml
-  catalog-daily-workflow.yml
+  orchestration.yml
   reporting.yml
   publish-event.yml
 .github/workflow-backups/   inactive workflow YAML (not run)

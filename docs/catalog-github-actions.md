@@ -1,6 +1,6 @@
 # GitHub Actions — daily workflow
 
-The [daily workflow](../.github/workflows/catalog-daily-workflow.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, and catalog ingest from Google Sheets. A parallel job prepares quote translations (English → Bulgarian Ready/AI text) for the current and next month. That job runs on **full** daily runs and when **mode** is `quotes` (quote prep only). It is skipped for **ingest-only** and **dry_run** catalog runs. When quote prep adds or updates quote rows, it emails `NOTIFY_EMAIL` (same SMTP secrets as other catalog alerts). Humans update **Status** and translated fields in Airtable; the bot does not read or write comments. Combined media cleanup runs in the **publish** workflow after a video is successfully published. The catalog job has a **90-minute** timeout so a hung run is cancelled instead of sitting for hours.
+The [daily workflow](../.github/workflows/orchestration.yml) runs the Airtable production orchestrator (`python -m catalog_parser`): editor assignment, Drive media mixing, and catalog ingest from Google Sheets. A parallel job prepares quote translations (English → Bulgarian Ready/AI text) for the current and next month. That job runs on **full** daily runs and when **mode** is `quotes` (quote prep only). It is skipped for **ingest-only** and **dry_run** catalog runs. When quote prep adds or updates quote rows, it emails `NOTIFY_EMAIL` (same SMTP secrets as other catalog alerts). Humans update **Status** and translated fields in Airtable; the bot does not read or write comments. Combined media cleanup runs in the **publish** workflow after a video is successfully published. The catalog job has a **90-minute** timeout so a hung run is cancelled instead of sitting for hours.
 
 ## Schedule and timezone
 
@@ -9,7 +9,7 @@ GitHub Actions **always runs `cron` in UTC**. You **cannot** put the schedule ti
 | Local time (UTC+3) | UTC cron minute/hour | Workflow line |
 |------------------|----------------------|---------------|
 | Midnight         | `0 21 * * *`         | Default in repo |
-| 06:00            | `0 3 * * *`          | Edit `.github/workflows/catalog-daily-workflow.yml` |
+| 06:00            | `0 3 * * *`          | Edit `.github/workflows/orchestration.yml` |
 
 To change the run time, edit the `cron:` line and push. Use [crontab.guru](https://crontab.guru/#0_21_*_*_*) to validate expressions (remember: UTC, not your local zone).
 
@@ -47,7 +47,7 @@ $body = @{
 
 Invoke-RestMethod `
   -Method POST `
-  -Uri "https://api.github.com/repos/OWNER/REPO/actions/workflows/catalog-daily-workflow.yml/dispatches" `
+  -Uri "https://api.github.com/repos/OWNER/REPO/actions/workflows/orchestration.yml/dispatches" `
   -Headers $headers `
   -Body $body `
   -ContentType "application/json"
@@ -60,7 +60,7 @@ Expected: HTTP **204 No Content** (empty response). Then open **Actions → Dail
 1. Sign up at [cron-job.org](https://console.cron-job.org/signup).
 2. **Cronjobs → Create cronjob**.
 3. **Title:** `catalog daily workflow`
-4. **URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/catalog-daily-workflow.yml/dispatches`
+4. **URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/orchestration.yml/dispatches`
 5. **Schedule:** enable **Custom** → crontab `0 0 * * *` → **Time zone: Europe/Sofia** (midnight local).
 6. **Request method:** `POST`
 7. **Request body** (JSON):
@@ -90,7 +90,7 @@ Expected: HTTP **204 No Content** (empty response). Then open **Actions → Dail
 1. In GitHub Actions, confirm the run starts within ~10 seconds of **Run now** (not hours later).
 2. Check logs: dry run should print planned actions without writing to Airtable/Drive.
 3. In cron-job.org, change `"dry_run": "true"` → `"false"`.
-4. **Disable the GitHub `schedule` block** in `.github/workflows/catalog-daily-workflow.yml` so you do not get two runs per night (external cron + GitHub cron). Keep `workflow_dispatch` for manual runs.
+4. **Disable the GitHub `schedule` block** in `.github/workflows/orchestration.yml` so you do not get two runs per night (external cron + GitHub cron). Keep `workflow_dispatch` for manual runs.
 
 #### 5. Optional: remove GitHub schedule in git
 

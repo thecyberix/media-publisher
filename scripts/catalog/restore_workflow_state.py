@@ -20,7 +20,7 @@ from catalog_parser.workflow.github_state import (
     run_ids_from_artifact_list,
 )
 
-DEFAULT_WORKFLOW = "catalog-daily-workflow.yml"
+DEFAULT_WORKFLOW = "orchestration.yml"
 DEFAULT_ARTIFACT = "workflow-state"
 DEFAULT_LIST_LIMIT = 20
 

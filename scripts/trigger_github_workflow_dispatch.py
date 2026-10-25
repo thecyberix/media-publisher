@@ -8,7 +8,7 @@ Environment:
 Examples:
   python scripts/trigger_github_workflow_dispatch.py publish.yml --timing scheduled
   python scripts/trigger_github_workflow_dispatch.py publish.yml --mode videos
-  python scripts/trigger_github_workflow_dispatch.py catalog-daily-workflow.yml --input dry_run=true
+  python scripts/trigger_github_workflow_dispatch.py orchestration.yml --input dry_run=true
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def main() -> int:
     )
     parser.add_argument(
         "workflow",
-        help="Workflow file name, e.g. publish.yml or catalog-daily-workflow.yml",
+        help="Workflow file name, e.g. publish.yml or orchestration.yml",
     )
     parser.add_argument(
         "--repo",

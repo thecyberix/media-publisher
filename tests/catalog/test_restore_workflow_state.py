@@ -224,7 +224,7 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
         tried: list[int] = []
 
         def fake_list(workflow: str, *, limit: int) -> list[dict]:
-            self.assertEqual(workflow, "catalog-daily-workflow.yml")
+            self.assertEqual(workflow, "orchestration.yml")
             self.assertGreaterEqual(limit, 2)
             return payloads
 
@@ -255,7 +255,7 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
                 history.write_text("[]", encoding="utf-8")
 
             selected = restore_workflow_state(
-                workflow="catalog-daily-workflow.yml",
+                workflow="orchestration.yml",
                 exclude_run_id=19,
                 artifact="workflow-state",
                 extract_dir=extract_dir,
@@ -317,7 +317,7 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
             tmp = Path(tmpdir)
             with self.assertRaises(WorkflowStateError) as ctx:
                 restore_workflow_state(
-                    workflow="catalog-daily-workflow.yml",
+                    workflow="orchestration.yml",
                     exclude_run_id=19,
                     artifact="workflow-state",
                     extract_dir=tmp / "extract",
@@ -373,7 +373,7 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
                 history.write_text("[]", encoding="utf-8")
 
             selected = restore_workflow_state(
-                workflow="catalog-daily-workflow.yml",
+                workflow="orchestration.yml",
                 exclude_run_id=19,
                 artifact="workflow-state",
                 extract_dir=extract_dir,
@@ -444,7 +444,7 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             selected = restore_workflow_state(
-                workflow="catalog-daily-workflow.yml",
+                workflow="orchestration.yml",
                 exclude_run_id=114,
                 artifact="workflow-state",
                 extract_dir=tmp / "extract",
@@ -479,7 +479,7 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
 
         with self.assertRaises(WorkflowStateError) as ctx:
             restore_workflow_state(
-                workflow="catalog-daily-workflow.yml",
+                workflow="orchestration.yml",
                 exclude_run_id=114,
                 artifact="workflow-state",
                 extract_dir=Path("unused"),
@@ -503,7 +503,7 @@ class RestoreWorkflowStateScriptTests(unittest.TestCase):
 
         with self.assertRaises(WorkflowStateError) as ctx:
             restore_workflow_state(
-                workflow="catalog-daily-workflow.yml",
+                workflow="orchestration.yml",
                 exclude_run_id=19,
                 artifact="workflow-state",
                 extract_dir=Path("unused"),
