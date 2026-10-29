@@ -676,16 +676,27 @@ class DialogueAudioPickTests(unittest.TestCase):
 
             self.assertEqual(pick_dialogue_audio_path([extra, dialogue]), dialogue)
 
-    def test_returns_none_when_multiple_non_dialogue(self) -> None:
+    def test_uses_available_audio_when_none_named_dialogue(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            a = root / "a.wav"
-            b = root / "b.wav"
-            a.write_bytes(b"x")
-            b.write_bytes(b"y")
+            music = root / "All Music.wav"
+            voice = root / "Voice.wav"
+            music.write_bytes(b"x")
+            voice.write_bytes(b"y")
             from catalog_parser.drive_mix import pick_dialogue_audio_path
 
-            self.assertIsNone(pick_dialogue_audio_path([a, b]))
+            self.assertEqual(pick_dialogue_audio_path([music, voice]), voice)
+
+    def test_uses_music_when_that_is_all_that_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            music = root / "All Music.wav"
+            sfx = root / "SFX.wav"
+            music.write_bytes(b"x")
+            sfx.write_bytes(b"y")
+            from catalog_parser.drive_mix import pick_dialogue_audio_path
+
+            self.assertEqual(pick_dialogue_audio_path([sfx, music]), music)
 
 
 if __name__ == "__main__":

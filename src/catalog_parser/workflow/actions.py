@@ -248,8 +248,10 @@ def _combine_media(
     dialogue = pick_dialogue_audio_path(audio_paths)
     if dialogue is None:
         if audio_paths:
+            names = ", ".join(path.name for path in audio_paths)
             messages.append(
-                "Aligned subtitles failed: mixed stems have no dialogue audio file"
+                "Aligned subtitles failed: mixed stems have no audio file on disk"
+                + (f" ({names})" if names else "")
             )
             return ActionResult(action=action, success=False, message="; ".join(messages))
         from catalog_parser.drive_combine import download_drive_file, find_stems_media

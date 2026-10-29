@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -101,25 +102,65 @@ def _drive_file(
     )
 
 
+_SPEECH_AUDIO_TOKENS = frozenset(
+    {
+        "voice",
+        "voices",
+        "vocal",
+        "vocals",
+        "speech",
+        "narration",
+        "narrator",
+        "vo",
+        "dx",
+    }
+)
+_NON_SPEECH_AUDIO_TOKENS = frozenset(
+    {
+        "music",
+        "mx",
+        "sfx",
+        "fx",
+        "ambience",
+        "ambient",
+        "atmos",
+        "atmosphere",
+        "bed",
+        "underscore",
+    }
+)
+
+
+def _audio_name_tokens(name: str) -> set[str]:
+    stem = Path(name).stem.casefold()
+    return {token for token in re.split(r"[^a-z0-9]+", stem) if token}
+
+
+def audio_alignment_rank(name: str) -> tuple[int, str]:
+    """Sort key for the audio file to align subtitles against. Lower is better.
+
+    Dialogue names win. Otherwise a speech-like stem beats a generic file, and
+    a generic file beats music or effects. A package with only music or effects
+    still ranks those files so alignment can use what is on disk.
+    """
+    folded = name.casefold()
+    if folded in ("all dialogue.wav", "all dialogue.mp3"):
+        return (0, folded)
+    if "dialogue" in folded or "dialog" in folded:
+        return (1, folded)
+    tokens = _audio_name_tokens(name)
+    if tokens & _SPEECH_AUDIO_TOKENS:
+        return (2, folded)
+    if tokens & _NON_SPEECH_AUDIO_TOKENS:
+        return (4, folded)
+    return (3, folded)
+
+
 def _pick_audio_file(files: list[DriveMediaFile]) -> DriveMediaFile | None:
     audio_files = [item for item in files if is_audio_mime_type(item.mime_type)]
     if not audio_files:
         return None
-
-    for preferred_name in (DEFAULT_DIALOGUE_AUDIO_NAME,):
-        for item in audio_files:
-            if item.name.casefold() == preferred_name.casefold():
-                return item
-
-    dialogue_matches = [
-        item for item in audio_files if "dialogue" in item.name.casefold()
-    ]
-    if len(dialogue_matches) == 1:
-        return dialogue_matches[0]
-    if dialogue_matches:
-        return sorted(dialogue_matches, key=lambda item: item.name.casefold())[0]
-
-    return sorted(audio_files, key=lambda item: item.name.casefold())[0]
+    return min(audio_files, key=lambda item: audio_alignment_rank(item.name))
 
 
 def _pick_video_file(files: list[DriveMediaFile]) -> DriveMediaFile | None:

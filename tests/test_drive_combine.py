@@ -31,6 +31,16 @@ class DriveCombineSelectionTests(unittest.TestCase):
         assert picked is not None
         self.assertEqual(picked.name, "All Dialogue.wav")
 
+    def test_pick_audio_uses_voice_when_dialogue_is_missing(self) -> None:
+        files = [
+            DriveMediaFile("1", "All Music.wav", "audio/x-wav", "parent"),
+            DriveMediaFile("2", "Voice.wav", "audio/x-wav", "parent"),
+        ]
+        picked = _pick_audio_file(files)
+        self.assertIsNotNone(picked)
+        assert picked is not None
+        self.assertEqual(picked.name, "Voice.wav")
+
     def test_pick_video_prefers_all_video(self) -> None:
         files = [
             DriveMediaFile("1", "OCD-30392.mp4", "video/mp4", "parent"),

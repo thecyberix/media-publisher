@@ -11,6 +11,7 @@ from googleapiclient.discovery import Resource
 from catalog_parser.drive_combine import (
     DriveCombineError,
     DriveMediaFile,
+    audio_alignment_rank,
     download_drive_file,
     resolve_ffmpeg_path,
     upload_drive_file,
@@ -126,20 +127,15 @@ def _playlists_after_end_cards(
 
 
 def pick_dialogue_audio_path(paths: list[Path]) -> Path | None:
-    """Prefer All Dialogue; otherwise the only speech-like audio file."""
+    """Pick the best on-disk stem for subtitle alignment.
+
+    Prefers an All Dialogue file, then any dialogue or speech-like name, then
+    any other stem. Music and effects are used only when nothing else is present.
+    """
     existing = [path for path in paths if path.is_file()]
     if not existing:
         return None
-    for preferred in ("all dialogue.wav", "all dialogue.mp3"):
-        for path in existing:
-            if path.name.casefold() == preferred:
-                return path
-    dialogue = [path for path in existing if "dialogue" in path.name.casefold()]
-    if dialogue:
-        return sorted(dialogue, key=lambda item: item.name.casefold())[0]
-    if len(existing) == 1:
-        return existing[0]
-    return None
+    return min(existing, key=lambda path: audio_alignment_rank(path.name))
 
 
 def _drive_file(item: dict[str, Any], *, parent_id: str) -> DriveMediaFile | None:
