@@ -22,6 +22,7 @@ from catalog_parser.drive_media import (
     list_folder_children,
     resolve_drive_item,
 )
+from media_publisher.transient_retry import call_with_transient_retry
 
 DEFAULT_COMBINED_VIDEO_NAME = "All Video (combined).mp4"
 DEFAULT_DIALOGUE_AUDIO_NAME = "All Dialogue.wav"
@@ -326,17 +327,17 @@ def upload_drive_file(
 ) -> DriveMediaFile:
     metadata = {"name": name, "parents": [parent_id]}
     media = MediaFileUpload(str(source_path), mimetype=mime_type, resumable=True)
+    # Keep one resumable request. googleapiclient does not retry an SSL drop
+    # mid-chunk; it marks that request in error. The next execute() asks Drive
+    # how far the upload got and continues it, instead of creating a second file.
+    request = drive_service.files().create(
+        body=metadata,
+        media_body=media,
+        fields="id,name,mimeType,parents",
+        supportsAllDrives=True,
+    )
     try:
-        created = (
-            drive_service.files()
-            .create(
-                body=metadata,
-                media_body=media,
-                fields="id,name,mimeType,parents",
-                supportsAllDrives=True,
-            )
-            .execute()
-        )
+        created = call_with_transient_retry(request.execute)
     except HttpError as exc:
         if exc.resp.status == 404:
             raise DriveCombineError(_drive_folder_access_message(parent_id)) from exc
