@@ -30,6 +30,10 @@ INSTAGRAM_PUBLISH_NOT_READY_SUBCODE = 2207027
 FACEBOOK_OBJECT_NOT_VISIBLE_CODE = 100
 FACEBOOK_OBJECT_NOT_VISIBLE_SUBCODE = 33
 INSTAGRAM_PUBLISH_RETRY_DELAYS_SECONDS = (5.0, 10.0, 20.0)
+# rupload can reject a fresh container with "not in the status to upload a video".
+# That container will not accept bytes; create a new one, then host via Facebook.
+INSTAGRAM_CONTAINER_UPLOAD_ATTEMPTS = 3
+INSTAGRAM_CONTAINER_RETRY_DELAYS_SECONDS = (2.0, 5.0)
 MIN_SCHEDULE_LEAD_SECONDS = 600
 MAX_SCHEDULE_LEAD_SECONDS = 60 * 60 * 24 * 75
 UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
@@ -90,6 +94,16 @@ def is_facebook_object_not_visible(exc: MetaError) -> bool:
         payload.get("code") == FACEBOOK_OBJECT_NOT_VISIBLE_CODE
         and payload.get("error_subcode") == FACEBOOK_OBJECT_NOT_VISIBLE_SUBCODE
     )
+
+
+def is_instagram_container_not_uploadable(exc: BaseException) -> bool:
+    """True when rupload rejects a container that is not waiting for a video.
+
+    Meta returns HTTP 400 ProcessingFailedError, retriable false, and
+    "The ig container is not in the status to upload a video". Uploading to
+    that same container again fails the same way.
+    """
+    return "not in the status to upload a video" in str(exc).casefold()
 
 
 def is_instagram_media_not_ready(exc: MetaError) -> bool:
@@ -821,6 +835,8 @@ class MetaClient:
                 )
             except MetaError as exc:
                 last_error = exc
+                if is_instagram_container_not_uploadable(exc):
+                    raise
             except requests.RequestException as exc:
                 last_error = MetaError(f"{error_prefix}: {exc}")
 
@@ -1525,6 +1541,53 @@ class MetaClient:
             f"Meta Facebook video {video_id!r} source URL was not ready within the polling window"
         )
 
+    def _publish_resumable_instagram_reel(
+        self,
+        *,
+        instagram_account_id: str,
+        caption: str,
+        video_path: Path,
+        publish_at: datetime | None,
+        trial_reel: bool,
+        cover_url: str | None,
+    ) -> str:
+        """Upload a local Reel, replacing a container Meta will not accept."""
+        last_error: MetaError | None = None
+        attempts = INSTAGRAM_CONTAINER_UPLOAD_ATTEMPTS
+        for attempt in range(1, attempts + 1):
+            try:
+                container_id, upload_uri = self.create_instagram_resumable_reel_container(
+                    instagram_account_id=instagram_account_id,
+                    caption=caption,
+                    publish_at=publish_at,
+                    trial_reel=trial_reel,
+                    cover_url=cover_url,
+                )
+                self.upload_instagram_resumable_video(
+                    container_id=container_id,
+                    video_path=video_path,
+                    upload_uri=upload_uri,
+                )
+                self.wait_for_container(container_id)
+                return self.publish_instagram_container(
+                    instagram_account_id=instagram_account_id,
+                    container_id=container_id,
+                )
+            except MetaError as exc:
+                last_error = exc
+                if not is_instagram_container_not_uploadable(exc) or attempt >= attempts:
+                    raise
+                delay = INSTAGRAM_CONTAINER_RETRY_DELAYS_SECONDS[attempt - 1]
+                print(
+                    "Instagram container was not accepting a video upload "
+                    f"(attempt {attempt}/{attempts}); "
+                    f"creating a new container in {delay:.0f}s"
+                )
+                time.sleep(delay)
+
+        assert last_error is not None
+        raise last_error
+
     def schedule_instagram_reel(
         self,
         *,
@@ -1557,39 +1620,43 @@ class MetaClient:
             )
 
         if use_resumable_local:
+            assert video_path is not None
+            fallback_to_hosted_video = False
             try:
-                container_id, upload_uri = self.create_instagram_resumable_reel_container(
+                return self._publish_resumable_instagram_reel(
                     instagram_account_id=instagram_account_id,
                     caption=caption,
+                    video_path=video_path,
                     publish_at=publish_at,
                     trial_reel=trial_reel,
                     cover_url=resolved_cover_url,
                 )
-                self.upload_instagram_resumable_video(
-                    container_id=container_id,
-                    video_path=video_path,
-                    upload_uri=upload_uri,
+            except MetaError as exc:
+                fallback_to_hosted_video = (
+                    page_id is not None and is_instagram_container_not_uploadable(exc)
                 )
-                self.wait_for_container(container_id)
-                return self.publish_instagram_container(
-                    instagram_account_id=instagram_account_id,
-                    container_id=container_id,
+                if not fallback_to_hosted_video:
+                    raise
+                print(
+                    "Instagram resumable upload rejected the container; "
+                    "hosting the video on Facebook instead."
                 )
             finally:
-                self.cleanup_hosting_assets(cover_asset)
+                if not fallback_to_hosted_video:
+                    self.cleanup_hosting_assets(cover_asset)
 
         video_asset: FacebookHostingAsset | None = None
         hosted_url = video_url
-        if hosted_url is None and video_path is not None and page_id:
-            video_asset = self.upload_unpublished_video_url(page_id, video_path)
-            hosted_url = video_asset.url
-        if hosted_url is None:
-            raise MetaError(
-                "A public video URL, resumable local upload, or page_id for hosting "
-                "is required to publish an Instagram Reel"
-            )
-
         try:
+            if hosted_url is None and video_path is not None and page_id:
+                video_asset = self.upload_unpublished_video_url(page_id, video_path)
+                hosted_url = video_asset.url
+            if hosted_url is None:
+                raise MetaError(
+                    "A public video URL, resumable local upload, or page_id for hosting "
+                    "is required to publish an Instagram Reel"
+                )
+
             container_id = self.create_instagram_media_container(
                 instagram_account_id=instagram_account_id,
                 caption=caption,

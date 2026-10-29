@@ -17,6 +17,7 @@ from media_publisher.publishers.instagram import (
 from media_publisher.publishers.meta import (
     FacebookHostingAsset,
     MetaClient,
+    MetaContainerStatus,
     MetaError,
     extract_facebook_video_id,
     normalize_facebook_page_username,
@@ -599,6 +600,228 @@ class MetaClientTests(unittest.TestCase):
                 error_prefix="Meta Instagram resumable upload failed",
                 max_attempts=5,
             )
+
+    def test_post_instagram_video_file_does_not_retry_dead_container(self) -> None:
+        from media_publisher.publishers.meta import is_instagram_container_not_uploadable
+
+        client = MetaClient("token-test")
+        body = (
+            '{"debug_info":{"retriable":false,"type":"ProcessingFailedError",'
+            '"message":"{\\"success\\":false,\\"error\\":{\\"message\\":'
+            '\\"The ig container is not in the status to upload a video\\"}}"}}'
+        )
+        response = MagicMock(ok=False, status_code=400, text=body)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video = Path(tmpdir) / "quote.mp4"
+            video.write_bytes(b"0123456789")
+            with (
+                patch(
+                    "media_publisher.publishers.meta.requests.post",
+                    return_value=response,
+                ) as post_mock,
+                patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+                self.assertRaises(MetaError) as raised,
+            ):
+                client._post_instagram_video_file(
+                    "https://rupload.example/upload",
+                    video_path=video,
+                    file_size=10,
+                    error_prefix="Meta Instagram resumable upload failed",
+                )
+
+        self.assertTrue(is_instagram_container_not_uploadable(raised.exception))
+        post_mock.assert_called_once()
+        sleep_mock.assert_not_called()
+
+    def test_post_instagram_video_file_retries_server_errors(self) -> None:
+        client = MetaClient("token-test")
+        rejected = MagicMock(ok=False, status_code=500, text="unavailable")
+        accepted = MagicMock(ok=True, status_code=200, text="")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video = Path(tmpdir) / "quote.mp4"
+            video.write_bytes(b"0123456789")
+            with (
+                patch(
+                    "media_publisher.publishers.meta.requests.post",
+                    side_effect=[rejected, accepted],
+                ) as post_mock,
+                patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+            ):
+                client._post_instagram_video_file(
+                    "https://rupload.example/upload",
+                    video_path=video,
+                    file_size=10,
+                    error_prefix="Meta Instagram resumable upload failed",
+                    max_attempts=2,
+                )
+
+        self.assertEqual(post_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(2)
+
+    def test_schedule_instagram_reel_recreates_container_when_upload_is_rejected(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        rejected = MetaError(
+            "Meta Instagram resumable upload failed with HTTP 400: "
+            "The ig container is not in the status to upload a video"
+        )
+        finished = MetaContainerStatus(id="ctr_2", status_code="FINISHED")
+        with (
+            patch.object(
+                client,
+                "create_instagram_resumable_reel_container",
+                side_effect=[
+                    ("ctr_1", "https://rupload.example/ctr_1"),
+                    ("ctr_2", "https://rupload.example/ctr_2"),
+                ],
+            ) as create_mock,
+            patch.object(
+                client,
+                "upload_instagram_resumable_video",
+                side_effect=[rejected, None],
+            ) as upload_mock,
+            patch.object(client, "wait_for_container", return_value=finished),
+            patch.object(client, "publish_instagram_container", return_value="ig_media_1"),
+            patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+            patch.object(client, "upload_unpublished_video_url") as host_mock,
+        ):
+            media_id = client.schedule_instagram_reel(
+                instagram_account_id="ig123",
+                caption="Caption",
+                video_path=Path("quote.mp4"),
+                page_id="page123",
+                prefer_resumable_upload=True,
+            )
+
+        self.assertEqual(media_id, "ig_media_1")
+        self.assertEqual(create_mock.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["container_id"] for call in upload_mock.call_args_list],
+            ["ctr_1", "ctr_2"],
+        )
+        sleep_mock.assert_called_once_with(2.0)
+        host_mock.assert_not_called()
+
+    def test_schedule_instagram_reel_hosts_video_after_containers_are_rejected(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+
+        def reject_upload(**_kwargs: object) -> None:
+            raise MetaError(
+                "Meta Instagram resumable upload failed with HTTP 400: "
+                "The ig container is not in the status to upload a video"
+            )
+
+        hosted = FacebookHostingAsset(
+            asset_id="fb_video_1",
+            url="https://cdn.example.com/hosted.mp4",
+            kind="video",
+        )
+        with (
+            patch.object(
+                client,
+                "create_instagram_resumable_reel_container",
+                side_effect=[
+                    ("ctr_1", "https://rupload.example/ctr_1"),
+                    ("ctr_2", "https://rupload.example/ctr_2"),
+                    ("ctr_3", "https://rupload.example/ctr_3"),
+                ],
+            ) as resumable_mock,
+            patch.object(
+                client,
+                "upload_instagram_resumable_video",
+                side_effect=reject_upload,
+            ),
+            patch.object(client, "upload_unpublished_video_url", return_value=hosted) as host_mock,
+            patch.object(
+                client,
+                "create_instagram_media_container",
+                return_value="ctr_hosted",
+            ) as container_mock,
+            patch.object(
+                client,
+                "wait_for_container",
+                return_value=MetaContainerStatus(id="ctr_hosted", status_code="FINISHED"),
+            ),
+            patch.object(client, "publish_instagram_container", return_value="ig_media_1"),
+            patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+            patch.object(client, "cleanup_hosting_assets") as cleanup_mock,
+        ):
+            media_id = client.schedule_instagram_reel(
+                instagram_account_id="ig123",
+                caption="Caption",
+                video_path=Path("quote.mp4"),
+                page_id="page123",
+                prefer_resumable_upload=True,
+            )
+
+        self.assertEqual(media_id, "ig_media_1")
+        self.assertEqual(resumable_mock.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep_mock.call_args_list], [2.0, 5.0])
+        host_mock.assert_called_once_with("page123", Path("quote.mp4"))
+        self.assertEqual(
+            container_mock.call_args.kwargs["video_url"],
+            "https://cdn.example.com/hosted.mp4",
+        )
+        cleanup_mock.assert_called_once()
+
+    def test_schedule_instagram_reel_does_not_host_when_page_is_missing(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+
+        def reject_upload(**_kwargs: object) -> None:
+            raise MetaError(
+                "Meta Instagram resumable upload failed with HTTP 400: "
+                "The ig container is not in the status to upload a video"
+            )
+
+        with (
+            patch.object(
+                client,
+                "create_instagram_resumable_reel_container",
+                side_effect=[
+                    ("ctr_1", "https://rupload.example/ctr_1"),
+                    ("ctr_2", "https://rupload.example/ctr_2"),
+                    ("ctr_3", "https://rupload.example/ctr_3"),
+                ],
+            ) as resumable_mock,
+            patch.object(client, "upload_instagram_resumable_video", side_effect=reject_upload),
+            patch.object(client, "upload_unpublished_video_url") as host_mock,
+            patch("media_publisher.publishers.meta.time.sleep"),
+            self.assertRaises(MetaError),
+        ):
+            client.schedule_instagram_reel(
+                instagram_account_id="ig123",
+                caption="Caption",
+                video_path=Path("quote.mp4"),
+            )
+
+        self.assertEqual(resumable_mock.call_count, 3)
+        host_mock.assert_not_called()
+
+    def test_schedule_instagram_reel_does_not_replace_container_for_other_errors(self) -> None:
+        client = MetaClient("token-test", app_id="app123")
+        other = MetaError("Video file not found: quote.mp4")
+        with (
+            patch.object(
+                client,
+                "create_instagram_resumable_reel_container",
+                return_value=("ctr_1", "https://rupload.example/ctr_1"),
+            ) as resumable_mock,
+            patch.object(client, "upload_instagram_resumable_video", side_effect=other),
+            patch.object(client, "upload_unpublished_video_url") as host_mock,
+            patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+            self.assertRaises(MetaError) as raised,
+        ):
+            client.schedule_instagram_reel(
+                instagram_account_id="ig123",
+                caption="Caption",
+                video_path=Path("quote.mp4"),
+                page_id="page123",
+                prefer_resumable_upload=True,
+            )
+
+        self.assertIs(raised.exception, other)
+        resumable_mock.assert_called_once()
+        host_mock.assert_not_called()
+        sleep_mock.assert_not_called()
 
 
 class PublisherWrapperTests(unittest.TestCase):
