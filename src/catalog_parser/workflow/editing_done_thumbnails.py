@@ -11,7 +11,7 @@ from catalog_parser.airtable import (
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TYPE,
-    FIELD_VIDEO_NAME_TRANSLATED,
+    FIELD_VIDEO_CAPTION_TRANSLATED,
     STATUS_EDITING_DONE,
 )
 from catalog_parser.parser import TYPE_REEL, TYPE_VIDEO
@@ -35,9 +35,21 @@ def _field_text(value: Any) -> str | None:
 class EditingDoneThumbCandidate:
     record_id: str
     title: str
-    translated: str | None
+    caption: str | None
     canva_design: str | None
     tn_template: str | None
+
+
+def _caption_email_lines(caption: str) -> list[str]:
+    """Format a translated caption, keeping designed line breaks indented."""
+    parts = [part.strip() for part in caption.splitlines() if part.strip()]
+    if not parts:
+        return []
+    prefix = "   Caption: "
+    lines = [f"{prefix}{parts[0]}"]
+    pad = " " * len(prefix)
+    lines.extend(f"{pad}{part}" for part in parts[1:])
+    return lines
 
 
 @dataclass(frozen=True)
@@ -98,8 +110,8 @@ def format_editing_done_missing_prepared_thumbnails_email(
     ]
     for index, item in enumerate(candidates, start=1):
         lines.append(f"{index}. {item.title}")
-        if item.translated:
-            lines.append(f"   Translated: {item.translated}")
+        if item.caption:
+            lines.extend(_caption_email_lines(item.caption))
         append_template_links(
             lines,
             canva_design=item.canva_design,
@@ -163,7 +175,7 @@ def collect_editing_done_missing_prepared_thumbnails(
             EditingDoneThumbCandidate(
                 record_id=record_id,
                 title=_field_text(fields.get(FIELD_TITLE)) or record_id,
-                translated=_field_text(fields.get(FIELD_VIDEO_NAME_TRANSLATED)),
+                caption=_field_text(fields.get(FIELD_VIDEO_CAPTION_TRANSLATED)),
                 canva_design=resolve_canva_design_drive_url(
                     drive_service,
                     fields,

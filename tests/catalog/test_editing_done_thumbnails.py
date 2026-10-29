@@ -8,8 +8,8 @@ from catalog_parser.airtable import (
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TYPE,
+    FIELD_VIDEO_CAPTION_TRANSLATED,
     FIELD_VIDEO_FOLDER,
-    FIELD_VIDEO_NAME_TRANSLATED,
     STATUS_EDITING_DONE,
     STATUS_TRANSLATION_DONE,
 )
@@ -80,14 +80,14 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
                 EditingDoneThumbCandidate(
                     record_id="rec1",
                     title="Stand Firmly",
-                    translated="Здраво",
+                    caption="Здраво\nСТОЙ",
                     canva_design="https://www.canva.com/design/ABC",
                     tn_template=None,
                 ),
                 EditingDoneThumbCandidate(
                     record_id="rec2",
                     title="Another",
-                    translated=None,
+                    caption=None,
                     canva_design=None,
                     tn_template="https://drive.google.com/file/d/file123/view",
                 ),
@@ -95,6 +95,9 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
         )
         self.assertIn("2 video(s) with original thumbnail", subject)
         self.assertIn("Stand Firmly", body)
+        self.assertIn("Caption: Здраво", body)
+        self.assertIn("            СТОЙ", body)
+        self.assertNotIn("Translated:", body)
         self.assertIn("Canva design: https://www.canva.com/design/ABC", body)
         self.assertIn(
             "Drive TN template: https://drive.google.com/file/d/file123/view",
@@ -130,7 +133,7 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
                     FIELD_STATUS: STATUS_EDITING_DONE,
                     FIELD_TYPE: TYPE_REEL,
                     FIELD_TITLE: "Needs thumb",
-                    FIELD_VIDEO_NAME_TRANSLATED: "Трябва",
+                    FIELD_VIDEO_CAPTION_TRANSLATED: "Трябва\nТУК",
                     FIELD_VIDEO_FOLDER: "https://drive.google.com/drive/folders/abc",
                     "Original Video Thumbnail": [{"url": "https://example/thumb.jpg"}],
                 },
@@ -161,6 +164,7 @@ class EditingDoneThumbnailsTests(unittest.TestCase):
         send_mock.assert_called_once()
         candidates = send_mock.call_args.args[0]
         self.assertEqual(candidates[0].title, "Needs thumb")
+        self.assertEqual(candidates[0].caption, "Трябва\nТУК")
         self.assertEqual(candidates[0].canva_design, "https://www.canva.com/design/XYZ")
         self.assertEqual(
             candidates[0].tn_template,

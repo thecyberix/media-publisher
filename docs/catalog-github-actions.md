@@ -283,8 +283,9 @@ When the daily orchestrator detects videos that newly entered **Editing done**
 and have an **Original Video Thumbnail** but no matching design/file in the Canva
 catalog or Drive override **Thumbnails** folder, it sends one digest email to
 `NOTIFY_EMAIL` for all such videos in that run. Each entry includes the title,
-translated name, and a Canva design link and/or Drive **TN template** file link
-when found (live lookup in the Video Folder package docs / root images).
+translated caption (already on the daily table snapshot), and a Canva design
+link and/or Drive **TN template** file link when found (live lookup in the
+Video Folder package docs / root images).
 
 ### Missing prepared thumbnail on publish schedule
 
