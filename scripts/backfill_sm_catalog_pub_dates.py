@@ -5,8 +5,9 @@ the ``7. Archived`` pointer rows). Dry run by default; pass ``--apply`` to write
 
 Airtable usage is kept small: one filtered, field-limited listing per table,
 plus a one-off schema lookup for the archives. Everything is cached under
-``_tmp_sm_backfill/`` so repeat runs make no Airtable calls unless ``--refresh``
-is given. The sheet is read with three requests and written in one batch.
+``_tmp_sm_backfill/`` so repeat runs make no Airtable calls. Use ``--refresh``
+to pick up videos published since (live table only, about 3 calls); archives
+only need ``--refresh-archives`` if they change. The sheet is read with three requests and written in one batch.
 """
 from __future__ import annotations
 
@@ -170,7 +171,16 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="write to the sheet")
-    parser.add_argument("--refresh", action="store_true", help="re-fetch Airtable")
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="re-read the live Airtable table (about 3 API calls) to pick up new videos",
+    )
+    parser.add_argument(
+        "--refresh-archives",
+        action="store_true",
+        help="also re-read the yearly archives and their schema (about 13 API calls)",
+    )
     parser.add_argument(
         "--new-only",
         action="store_true",
@@ -186,7 +196,7 @@ def main() -> int:
         return 1
 
     current = [{**row, "_source": "current"} for row in load_current_rows(settings, refresh=args.refresh)]
-    archived = load_archive_rows(settings, refresh=args.refresh)
+    archived = load_archive_rows(settings, refresh=args.refresh_archives)
 
     print("Status by source:")
     by_status = Counter(
