@@ -63,6 +63,13 @@ class LanguageDefinition:
     events: EventLanguageConfig | None = None
     ingest: IngestLanguageConfig | None = None
     publish: PublishLanguageConfig | None = None
+    catalog_code: str = ""
+
+    @property
+    def catalog_pub_date_header(self) -> str | None:
+        """SM catalog column header holding this language's publishing date."""
+        code = self.catalog_code.strip()
+        return f"{code}PubDate" if code else None
 
     def month_name(self, month: int) -> str:
         if month < 1 or month > len(self.months):
@@ -295,6 +302,7 @@ def load_languages(path: str | None = None) -> dict[str, LanguageDefinition]:
             events=_parse_events_config(name.strip(), raw.get("events")),
             ingest=_parse_ingest_config(name.strip(), raw.get("ingest")),
             publish=_parse_publish_config(name.strip(), raw.get("publish")),
+            catalog_code=str(raw.get("catalog_code") or "").strip(),
         )
         languages[definition.name.casefold()] = definition
         languages[definition.alias] = definition

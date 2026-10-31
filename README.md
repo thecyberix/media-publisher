@@ -180,6 +180,8 @@ In GitHub: **Actions → Publish videos and quotes → Run workflow**.
 
 Long-form catalog rows with Type=Video still skip Instagram even when the Instagram checkbox is on.
 
+After a YouTube publish, the video's YouTube date is written to the SM catalog (`English` tab) in the target language's `<catalog_code>PubDate` column (`bgrPubDate` for Bulgarian; `catalog_code` is set per language in `config/languages.json`). The row is matched by `ctLink` = Airtable `Original Video`. A date already in the cell is overwritten, a link matching several rows is skipped, and failures only log a warning. The Google service account needs **Editor** access to the SM catalog spreadsheet.
+
 To trigger the same way as cron-job.org (API / script), see `docs/publish-github-actions.md`.
 
 ## Project layout

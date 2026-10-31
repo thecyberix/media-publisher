@@ -1,6 +1,7 @@
 {
   "Bulgarian": {
     "alias": "bg",
+    "catalog_code": "bgr",
     "country": "България",
     "months": [
       "януари",

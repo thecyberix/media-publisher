@@ -25,7 +25,11 @@ from media_publisher.scheduling import (
     next_catalog_publish_at,
     publish_local_date,
 )
-from media_publisher.pipeline import PublishPipelineSettings, run_publish_pipeline
+from media_publisher.pipeline import (
+    PublishPipelineSettings,
+    record_youtube_date_in_sm_catalog,
+    run_publish_pipeline,
+)
 from media_publisher.sources.publish_media import (
     PublishMediaCleanup,
     apply_publish_media_cleanup,
@@ -2826,6 +2830,13 @@ def main() -> int:
                 record_fields=task.record_fields,
                 platform="youtube",
                 permalink=permalink,
+            )
+            record_youtube_date_in_sm_catalog(
+                task.record_fields,
+                project_root=PROJECT_ROOT,
+                service_account_path=PROJECT_ROOT / settings.google_sheets_service_account,
+                publish_timezone=settings.publish_timezone,
+                publish_at=task.publish_at,
             )
             finalize_record_after_platform_publish(
                 settings,

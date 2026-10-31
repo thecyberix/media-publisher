@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
+from media_publisher.languages import selected_language
 from media_publisher.models import PlatformName, PlatformScheduleTask
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import (
@@ -23,6 +24,8 @@ from media_publisher.publishers.youtube import (
 from media_publisher.sources.airtable import (
     AirtableClient,
     AirtableError,
+    DEFAULT_PUBLISH_TIMEZONE,
+    FIELD_ORIGINAL_VIDEO,
     FIELD_STATUS,
     FIELD_TITLE,
     FIELD_TRANSLATION_RESOURCES,
@@ -64,9 +67,12 @@ from media_publisher.sources.publish_media import (
 from media_publisher.scheduling import (
     PublishMode,
     prepare_job_for_immediate_publish,
+    publish_local_date,
     select_tasks_for_run,
     task_uses_immediate_publish,
 )
+from media_publisher.sources.sm_catalog import try_record_publish_date
+from media_publisher.timezones import get_timezone
 from media_publisher.sources.happyscribe_web import HappyScribeWebError
 
 
@@ -205,6 +211,42 @@ def publish_platform_task(
         return meta_client.get_instagram_media_permalink(media_id)
 
     raise ValueError(f"Unsupported platform {task.platform!r}")
+
+
+def record_youtube_date_in_sm_catalog(
+    record_fields: dict,
+    *,
+    project_root: Path,
+    service_account_path: Path | None,
+    publish_timezone: str | None,
+    publish_at: datetime,
+    immediate: bool = False,
+    log: Callable[[str], None] = print,
+) -> None:
+    """Fill the SM catalog's per-language publishing date after a YouTube publish.
+
+    Immediate uploads go public today; scheduled ones on ``publish_at``'s local day.
+    Best effort: the video is already published, so this never raises.
+    """
+    try:
+        timezone_name = publish_timezone or DEFAULT_PUBLISH_TIMEZONE
+        if immediate:
+            publish_date = datetime.now(get_timezone(timezone_name)).date()
+        else:
+            publish_date = publish_local_date(publish_at, timezone_name)
+        try_record_publish_date(
+            project_root=project_root,
+            service_account_path=service_account_path,
+            language=selected_language(),
+            video_url=record_fields.get(FIELD_ORIGINAL_VIDEO),
+            publish_date=publish_date,
+            log=log,
+        )
+    except Exception as exc:  # noqa: BLE001 - never fail a publish over the catalog
+        try:
+            log(f"  SM catalog: publishing date not recorded: {exc}")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def run_publish_pipeline(
@@ -663,6 +705,16 @@ def run_publish_pipeline(
                     permalink=permalink,
                 )
                 record_fields = {**record_fields, **updated.fields}
+                if task.platform == "youtube":
+                    record_youtube_date_in_sm_catalog(
+                        record_fields,
+                        project_root=settings.project_root,
+                        service_account_path=settings.google_drive_service_account,
+                        publish_timezone=settings.publish_timezone,
+                        publish_at=catalog_publish_at,
+                        immediate=uses_immediate,
+                        log=print_line,
+                    )
 
                 def combined_media_editor_url() -> str | None:
                     try:

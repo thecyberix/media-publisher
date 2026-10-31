@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from media_publisher.transient_retry import (
+    DEFAULT_ATTEMPTS as DEFAULT_RETRY_ATTEMPTS,
     call_with_transient_retry,
     is_transient_exception,
     is_transient_http_status,
@@ -61,10 +62,11 @@ def _is_transient_sheets_error(exc: BaseException) -> bool:
     return is_transient_exception(exc)
 
 
-def _read_sheets_response(request: urllib.request.Request) -> bytes:
-    with urllib.request.urlopen(
-        request, timeout=SHEETS_REQUEST_TIMEOUT_SECONDS
-    ) as response:
+def _read_sheets_response(
+    request: urllib.request.Request,
+    timeout: float = SHEETS_REQUEST_TIMEOUT_SECONDS,
+) -> bytes:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
 
 
@@ -160,13 +162,21 @@ def _parse_value_rows(values: Any) -> list[list[str]]:
 
 
 class GoogleSheetsClient:
-    def __init__(self, *, access_token: str) -> None:
+    def __init__(
+        self,
+        *,
+        access_token: str,
+        request_timeout: float = SHEETS_REQUEST_TIMEOUT_SECONDS,
+        retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+    ) -> None:
         self.access_token = access_token
+        self.request_timeout = request_timeout
+        self.retry_attempts = retry_attempts
 
     @classmethod
-    def from_service_account(cls, path: Path) -> GoogleSheetsClient:
+    def from_service_account(cls, path: Path, **options: Any) -> GoogleSheetsClient:
         token = _service_account_access_token(_load_service_account(path))
-        return cls(access_token=token)
+        return cls(access_token=token, **options)
 
     def _request(
         self,
@@ -183,7 +193,8 @@ class GoogleSheetsClient:
                 request.add_header(key, value)
         try:
             body = call_with_transient_retry(
-                lambda: _read_sheets_response(request),
+                lambda: _read_sheets_response(request, self.request_timeout),
+                attempts=self.retry_attempts,
                 is_transient=_is_transient_sheets_error,
             )
         except urllib.error.HTTPError as exc:
@@ -272,9 +283,19 @@ class GoogleSheetsClient:
             sheet_title=sheet_title,
         ).title
 
-    def get_values(self, spreadsheet_id: str, range_a1: str) -> list[list[str]]:
+    def get_values(
+        self,
+        spreadsheet_id: str,
+        range_a1: str,
+        *,
+        value_render_option: str | None = None,
+    ) -> list[list[str]]:
         encoded_range = urllib.parse.quote(range_a1, safe="")
         url = f"{SHEETS_API_BASE}/{spreadsheet_id}/values/{encoded_range}"
+        if value_render_option:
+            url += "?" + urllib.parse.urlencode(
+                {"valueRenderOption": value_render_option}
+            )
         payload = self._request("GET", url)
         return _parse_value_rows(payload.get("values", []))
 
