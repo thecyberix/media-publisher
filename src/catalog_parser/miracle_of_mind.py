@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from googleapiclient.discovery import Resource
 from PIL import Image
 
-from catalog_parser.drive_combine import DriveMediaFile, download_drive_file
+from catalog_parser.drive_combine import (
+    DriveCombineError,
+    DriveMediaFile,
+    download_drive_file,
+    resolve_ffmpeg_path,
+)
 from catalog_parser.drive_media import (
     FOLDER_MIME_TYPE,
+    is_video_mime_type,
     list_folder_children,
     resolve_drive_item,
 )
@@ -23,6 +30,8 @@ from catalog_parser.save_soil import (
 )
 from media_publisher.sources.drive_layout import FOLDER_IMAGES, resolve_save_soil_folder_id
 from media_publisher.video_duration import probe_local_video_size
+
+_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
 
 MIRACLE_OF_MIND_REEL_STEM = "miracleofmindreel"
 MIRACLE_OF_MIND_VIDEO_STEM = "miracleofmindvideo"
@@ -43,6 +52,12 @@ def miracle_of_mind_image_kind(name: str) -> VideoOrientation | None:
     return None
 
 
+def _is_video_asset(asset: DriveMediaFile) -> bool:
+    if is_video_mime_type(asset.mime_type):
+        return True
+    return Path(asset.name).suffix.casefold() in _VIDEO_SUFFIXES
+
+
 def pick_miracle_of_mind_image(
     images: list[DriveMediaFile],
     *,
@@ -53,7 +68,9 @@ def pick_miracle_of_mind_image(
     ]
     if not matching:
         return None
-    return sorted(matching, key=lambda item: item.name.casefold())[0]
+    videos = [item for item in matching if _is_video_asset(item)]
+    chosen = videos or matching
+    return sorted(chosen, key=lambda item: item.name.casefold())[0]
 
 
 def _centered_starfield_icon(pixels, width: int, height: int) -> bool:
@@ -183,7 +200,7 @@ def frame_looks_like_miracle_of_mind(image_path: Path) -> bool:
     return False
 
 
-def _drive_image(item: dict, *, parent_id: str) -> DriveMediaFile | None:
+def _drive_asset(item: dict, *, parent_id: str) -> DriveMediaFile | None:
     file_id = item.get("id")
     name = item.get("name")
     mime_type = item.get("mimeType")
@@ -191,7 +208,9 @@ def _drive_image(item: dict, *, parent_id: str) -> DriveMediaFile | None:
         return None
     if not isinstance(name, str) or not name.strip():
         return None
-    if not isinstance(mime_type, str) or not mime_type.startswith("image/"):
+    if not isinstance(mime_type, str):
+        return None
+    if not mime_type.startswith("image/") and not is_video_mime_type(mime_type):
         return None
     return DriveMediaFile(
         id=file_id,
@@ -223,9 +242,7 @@ def list_miracle_of_mind_images(
         mime_type = resolved.get("mimeType")
         if not isinstance(mime_type, str) or mime_type == FOLDER_MIME_TYPE:
             continue
-        if not mime_type.startswith("image/"):
-            continue
-        media = _drive_image(resolved, parent_id=folder_id)
+        media = _drive_asset(resolved, parent_id=folder_id)
         if media is not None and miracle_of_mind_image_kind(media.name) is not None:
             images.append(media)
     return images
@@ -242,6 +259,107 @@ def find_miracle_of_mind_image(
     return pick_miracle_of_mind_image(images, orientation=orientation)
 
 
+def overlay_end_card_video_command(
+    *,
+    ffmpeg: str,
+    video_path: Path,
+    clip_path: Path,
+    output_path: Path,
+    start_seconds: float,
+    width: int,
+    height: int,
+) -> list[str]:
+    even_w = width - (width % 2)
+    even_h = height - (height % 2)
+    start = f"{start_seconds:.3f}"
+    filter_complex = (
+        f"[1:v]scale={even_w}:{even_h}:force_original_aspect_ratio=decrease,"
+        f"pad={even_w}:{even_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+        f"setpts=PTS+{start}/TB,format=yuv420p[ov];"
+        f"[0:v][ov]overlay=0:0:enable='gte(t,{start})':eof_action=repeat[vout]"
+    )
+    return [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(clip_path),
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[vout]",
+        "-map",
+        "0:a:0?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+
+
+def overlay_miracle_of_mind_video(
+    video_path: Path,
+    clip_path: Path,
+    start_seconds: float,
+    output_path: Path,
+    *,
+    ffmpeg_path: str | None = None,
+) -> Path:
+    size = probe_local_video_size(video_path)
+    if size is None:
+        raise DriveCombineError(
+            f"Could not probe video size for Miracle of Mind overlay: {video_path}"
+        )
+    ffmpeg = resolve_ffmpeg_path(ffmpeg_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists() and output_path.resolve() != video_path.resolve():
+        output_path.unlink()
+    command = overlay_end_card_video_command(
+        ffmpeg=ffmpeg,
+        video_path=video_path,
+        clip_path=clip_path,
+        output_path=output_path,
+        start_seconds=start_seconds,
+        width=size[0],
+        height=size[1],
+    )
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise DriveCombineError(
+            f"Failed to run ffmpeg Miracle of Mind video overlay: {exc}"
+        ) from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "unknown ffmpeg error").strip()
+        raise DriveCombineError(f"ffmpeg Miracle of Mind video overlay failed: {detail}")
+    if not output_path.exists():
+        raise DriveCombineError(
+            f"ffmpeg did not create Miracle of Mind overlay file: {output_path}"
+        )
+    return output_path
+
+
+def _needed_asset_name(orientation: VideoOrientation) -> str:
+    if orientation == "horizontal":
+        return "MiracleOfMindVideo.mp4 or MiracleOfMindVideo.jpeg"
+    return "MiracleOfMindReel.mp4 or MiracleOfMindReel.jpg"
+
+
 def miracle_of_mind_end_card_if_present(
     drive_service: Resource,
     video_path: Path,
@@ -251,14 +369,15 @@ def miracle_of_mind_end_card_if_present(
     video_type: str | None = None,
     reference_path: Path | None = None,
 ) -> EndCardOverlay:
-    """Overlay the translated Miracle of Mind still when the video ends on that card.
+    """Overlay the translated Miracle of Mind clip or still when the video ends on that card.
 
-    Detection uses ``reference_path`` when a package REF video is available,
-    because the mixed file often has that card removed. The still is placed on
-    ``video_path``. Missing image / no end card leaves ``video_path`` unchanged.
-    ``detected`` is true when the English card is found, even if the translated
-    still is missing. Overlay ffmpeg failures raise so Combined Media generation
-    does not silently keep English.
+    Prefers ``MiracleOfMindReel.mp4`` / ``MiracleOfMindVideo.mp4`` when present,
+    and falls back to the still. Detection uses ``reference_path`` when a
+    package REF video is available, because the mixed file often has that card
+    removed. The overlay is placed on ``video_path``. Missing asset / no end
+    card leaves ``video_path`` unchanged. ``detected`` is true when the English
+    card is found, even if the translated asset is missing. Overlay ffmpeg
+    failures raise so Combined Media generation does not silently keep English.
     """
     if not video_path.is_file():
         return EndCardOverlay(video_path, False)
@@ -294,34 +413,40 @@ def miracle_of_mind_end_card_if_present(
         print(f"Miracle of Mind image lookup failed: {exc}")
         return EndCardOverlay(video_path, True)
     if image is None:
-        needed = (
-            "MiracleOfMindVideo.jpeg"
-            if orientation == "horizontal"
-            else "MiracleOfMindReel.jpg"
-        )
         print(
-            "Miracle of Mind end card found, but no translated image "
-            f"(need {needed}) in Overrides/{FOLDER_IMAGES!r}"
+            "Miracle of Mind end card found, but no translated image or video "
+            f"(need {_needed_asset_name(orientation)}) in Overrides/{FOLDER_IMAGES!r}"
         )
         return EndCardOverlay(video_path, True)
 
-    image_path = download_drive_file(
+    asset_path = download_drive_file(
         drive_service,
         image.id,
         work_dir / image.name,
     )
     replaced = work_dir / f"{video_path.stem}.miracle{video_path.suffix}"
-    overlay_save_soil_end_card(
-        video_path,
-        image_path,
-        start,
-        replaced,
-        ffmpeg_path=ffmpeg_path,
-    )
+    if _is_video_asset(image):
+        overlay_miracle_of_mind_video(
+            video_path,
+            asset_path,
+            start,
+            replaced,
+            ffmpeg_path=ffmpeg_path,
+        )
+        kind = "video"
+    else:
+        overlay_save_soil_end_card(
+            video_path,
+            asset_path,
+            start,
+            replaced,
+            ffmpeg_path=ffmpeg_path,
+        )
+        kind = "still"
     video_path.unlink()
     replaced.replace(video_path)
     print(
         f"Replaced Miracle of Mind end card from {start:.2f}s using {image.name!r} "
-        f"({orientation}, detected on {detect_on.name})"
+        f"({kind}, {orientation}, detected on {detect_on.name})"
     )
     return EndCardOverlay(video_path, True)

@@ -13,6 +13,7 @@ from catalog_parser.miracle_of_mind import (
     frame_looks_like_miracle_of_mind,
     miracle_of_mind_end_card_if_present,
     miracle_of_mind_image_kind,
+    overlay_end_card_video_command,
     pick_miracle_of_mind_image,
 )
 from catalog_parser.save_soil import EndCardOverlay, frame_looks_like_save_soil
@@ -210,6 +211,7 @@ class MiracleOfMindFingerprintTests(unittest.TestCase):
 
     def test_image_kind_follows_the_filename(self) -> None:
         self.assertEqual(miracle_of_mind_image_kind("MiracleOfMindReel.jpg"), "vertical")
+        self.assertEqual(miracle_of_mind_image_kind("MiracleOfMindReel.mp4"), "vertical")
         self.assertEqual(
             miracle_of_mind_image_kind("MiracleOfMindVideo.jpeg"),
             "horizontal",
@@ -224,6 +226,87 @@ class MiracleOfMindFingerprintTests(unittest.TestCase):
         self.assertIsNone(
             pick_miracle_of_mind_image([reel], orientation="horizontal"),
         )
+
+    def test_pick_prefers_the_video_over_the_still(self) -> None:
+        still = DriveMediaFile("jpg", "MiracleOfMindReel.jpg", "image/jpeg", "folder")
+        clip = DriveMediaFile("mp4", "MiracleOfMindReel.mp4", "video/mp4", "folder")
+        self.assertEqual(
+            pick_miracle_of_mind_image([still, clip], orientation="vertical"),
+            clip,
+        )
+
+    def test_detection_uses_the_reference_and_overlays_the_video(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            video = root / "clip.mp4"
+            video.write_bytes(b"original")
+            reference = root / "REF.mp4"
+            reference.write_bytes(b"reference")
+            clip = DriveMediaFile(
+                id="clip",
+                name="MiracleOfMindReel.mp4",
+                mime_type="video/mp4",
+                parent_id="folder",
+            )
+
+            def download(_drive, _file_id, dest: Path) -> Path:
+                dest.write_bytes(b"mp4")
+                return dest
+
+            def overlay(_video, _clip, _start, replaced: Path, ffmpeg_path=None) -> Path:
+                del ffmpeg_path
+                replaced.write_bytes(b"replaced-video")
+                return replaced
+
+            with (
+                patch(
+                    "catalog_parser.miracle_of_mind.detect_ending_card",
+                    return_value=40.5,
+                ),
+                patch(
+                    "catalog_parser.miracle_of_mind.find_miracle_of_mind_image",
+                    return_value=clip,
+                ),
+                patch(
+                    "catalog_parser.miracle_of_mind.download_drive_file",
+                    side_effect=download,
+                ),
+                patch(
+                    "catalog_parser.miracle_of_mind.overlay_miracle_of_mind_video",
+                    side_effect=overlay,
+                ) as overlay_mock,
+                patch(
+                    "catalog_parser.miracle_of_mind.overlay_save_soil_end_card",
+                ) as still_mock,
+            ):
+                result = miracle_of_mind_end_card_if_present(
+                    object(),
+                    video,
+                    work_dir=root,
+                    video_type="Reel",
+                    reference_path=reference,
+                )
+            self.assertEqual(result, EndCardOverlay(video, True))
+            self.assertEqual(video.read_bytes(), b"replaced-video")
+            overlay_mock.assert_called_once()
+            still_mock.assert_not_called()
+            self.assertEqual(overlay_mock.call_args.args[2], 40.5)
+
+    def test_video_overlay_command_holds_the_last_frame(self) -> None:
+        command = overlay_end_card_video_command(
+            ffmpeg="ffmpeg",
+            video_path=Path("clip.mp4"),
+            clip_path=Path("MiracleOfMindReel.mp4"),
+            output_path=Path("out.mp4"),
+            start_seconds=28.8,
+            width=1080,
+            height=1920,
+        )
+        joined = " ".join(command)
+        self.assertIn("gte(t,28.800)", joined)
+        self.assertIn("eof_action=repeat", joined)
+        self.assertIn("setpts=PTS+28.800/TB", joined)
+        self.assertIn("MiracleOfMindReel.mp4", command)
 
     def test_missing_video_is_not_detected(self) -> None:
         result = miracle_of_mind_end_card_if_present(
