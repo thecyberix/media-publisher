@@ -1089,6 +1089,86 @@ class PublisherWrapperTests(unittest.TestCase):
             )
         )
 
+    def test_upload_temporary_page_photo_retries_transient_unknown_error(self) -> None:
+        client = MetaClient("token-test")
+        transient = MetaError(
+            "Meta multipart POST page123/photos failed with HTTP 500",
+            http_status=500,
+            payload={"code": 1, "message": "An unknown error has occurred."},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "2026-11-02.jpg"
+            image.write_bytes(b"jpeg-bytes")
+            with (
+                patch.object(
+                    client,
+                    "_multipart_request",
+                    side_effect=[transient, {"id": "photo_1"}],
+                ) as upload_mock,
+                patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+            ):
+                photo_id = client.upload_temporary_page_photo("page123", image)
+
+        self.assertEqual(photo_id, "photo_1")
+        self.assertEqual(upload_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(5.0)
+        fields = upload_mock.call_args.kwargs["fields"]
+        self.assertEqual(fields["published"], "false")
+        self.assertEqual(fields["temporary"], "true")
+
+    def test_upload_temporary_page_photo_does_not_retry_non_transient_error(self) -> None:
+        client = MetaClient("token-test")
+        permanent = MetaError(
+            "Meta multipart POST page123/photos failed with HTTP 400",
+            http_status=400,
+            payload={"code": 100, "message": "Invalid parameter"},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "2026-11-02.jpg"
+            image.write_bytes(b"jpeg-bytes")
+            with (
+                patch.object(
+                    client,
+                    "_multipart_request",
+                    side_effect=permanent,
+                ) as upload_mock,
+                patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+                self.assertRaises(MetaError) as raised,
+            ):
+                client.upload_temporary_page_photo("page123", image)
+
+        self.assertIs(raised.exception, permanent)
+        self.assertEqual(upload_mock.call_count, 1)
+        sleep_mock.assert_not_called()
+
+    def test_upload_temporary_page_photo_reraises_after_transient_retries(self) -> None:
+        client = MetaClient("token-test")
+        transient = MetaError(
+            "Meta multipart POST page123/photos failed with HTTP 500",
+            http_status=500,
+            payload={"code": 1, "message": "An unknown error has occurred."},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "2026-11-02.jpg"
+            image.write_bytes(b"jpeg-bytes")
+            with (
+                patch.object(
+                    client,
+                    "_multipart_request",
+                    side_effect=[transient, transient, transient, transient],
+                ) as upload_mock,
+                patch("media_publisher.publishers.meta.time.sleep") as sleep_mock,
+                self.assertRaises(MetaError) as raised,
+            ):
+                client.upload_temporary_page_photo("page123", image)
+
+        self.assertIs(raised.exception, transient)
+        self.assertEqual(upload_mock.call_count, 4)
+        self.assertEqual(
+            [call.args[0] for call in sleep_mock.call_args_list],
+            [5.0, 15.0, 30.0],
+        )
+
     def test_publish_instagram_container_retries_when_media_is_not_ready(self) -> None:
         from media_publisher.publishers.meta import is_instagram_media_not_ready
 

@@ -30,6 +30,9 @@ INSTAGRAM_PUBLISH_NOT_READY_SUBCODE = 2207027
 FACEBOOK_OBJECT_NOT_VISIBLE_CODE = 100
 FACEBOOK_OBJECT_NOT_VISIBLE_SUBCODE = 33
 INSTAGRAM_PUBLISH_RETRY_DELAYS_SECONDS = (5.0, 10.0, 20.0)
+# Unpublished Page photo uploads can fail with Meta's intermittent HTTP 500 /
+# code 1. A repeat creates another unpublished photo; the first one is unused.
+FACEBOOK_PHOTO_UPLOAD_RETRY_DELAYS_SECONDS = (5.0, 15.0, 30.0)
 # rupload can reject a fresh container with "not in the status to upload a video".
 # That container will not accept bytes; create a new one, then host via Facebook.
 INSTAGRAM_CONTAINER_UPLOAD_ATTEMPTS = 3
@@ -1688,18 +1691,58 @@ class MetaClient:
             publish_at=publish_at,
         )
 
-    def upload_unpublished_photo(self, page_id: str, image_path: Path) -> FacebookHostingAsset:
+    def _upload_unpublished_page_photo(
+        self,
+        page_id: str,
+        image_path: Path,
+        *,
+        fields: dict[str, str],
+        operation: str,
+    ) -> dict[str, Any]:
+        """Upload a Page photo that stays unpublished, retrying Meta's HTTP 500s.
+
+        Only call this when ``published`` is false. Repeating a published photo
+        post can create a duplicate on the Page.
+        """
         path = image_path.resolve()
         if not path.is_file():
             raise MetaError(f"Image file not found: {path}")
+        if fields.get("published", "").casefold() != "false":
+            raise MetaError("Unpublished Facebook photo upload must set published=false")
 
         content = path.read_bytes()
-        response = self._multipart_request(
-            f"{page_id}/photos",
+        files = {"source": (path.name, content, _guess_image_mime(path))}
+        delays = FACEBOOK_PHOTO_UPLOAD_RETRY_DELAYS_SECONDS
+        max_attempts = len(delays) + 1
+        for attempt in range(max_attempts):
+            try:
+                response = self._multipart_request(
+                    f"{page_id}/photos",
+                    fields=fields,
+                    files=files,
+                )
+            except MetaError as exc:
+                if not is_meta_transient_unknown_error(exc) or attempt >= max_attempts - 1:
+                    raise
+                delay = delays[attempt]
+                print(
+                    f"{operation} hit a transient Meta error "
+                    f"(attempt {attempt + 1}/{max_attempts}); retrying in {delay:.0f}s"
+                )
+                time.sleep(delay)
+                continue
+            if not isinstance(response, dict):
+                raise MetaError("Meta Facebook photo upload response is invalid")
+            return response
+        raise MetaError("Meta Facebook photo upload failed")
+
+    def upload_unpublished_photo(self, page_id: str, image_path: Path) -> FacebookHostingAsset:
+        path = image_path.resolve()
+        response = self._upload_unpublished_page_photo(
+            page_id,
+            path,
             fields={"published": "false"},
-            files={
-                "source": (path.name, content, _guess_image_mime(path)),
-            },
+            operation="Facebook photo upload",
         )
         photo_id = response.get("id")
         if not isinstance(photo_id, str) or not photo_id:
@@ -1737,20 +1780,14 @@ class MetaClient:
 
     def upload_temporary_page_photo(self, page_id: str, image_path: Path) -> str:
         """Upload an unpublished temporary photo for use in a scheduled feed post."""
-        path = image_path.resolve()
-        if not path.is_file():
-            raise MetaError(f"Image file not found: {path}")
-
-        content = path.read_bytes()
-        response = self._multipart_request(
-            f"{page_id}/photos",
+        response = self._upload_unpublished_page_photo(
+            page_id,
+            image_path,
             fields={
                 "published": "false",
                 "temporary": "true",
             },
-            files={
-                "source": (path.name, content, _guess_image_mime(path)),
-            },
+            operation="Facebook temporary photo upload",
         )
         photo_id = response.get("id")
         if not isinstance(photo_id, str) or not photo_id:
