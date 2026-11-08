@@ -56,7 +56,6 @@ class Settings:
     target_language: str = "bg"
     target_language_name: str = "Bulgarian"
     target_country: str = "България"
-    youtube_short_cover_intro_seconds: float = 5.0
     youtube_daily_playlist_id: str | None = None
     youtube_daily_playlist_slots: str = ""
     channel_report_mapping: str = "config/channel_report.json"
@@ -147,11 +146,6 @@ def load_settings(project_root: Path | None = None) -> Settings:
             return None
         return int(raw)
 
-    intro_seconds_raw = (
-        os.getenv("YOUTUBE_SHORT_COVER_INTRO_SECONDS", "").strip()
-        or os.getenv("YOUTUBE_SHORT_COVER_END_SECONDS", "5").strip()
-        or "5"
-    )
     language = selected_language()
     daily_playlist_id, daily_playlist_slots = _youtube_daily_playlist_settings(root)
     publish_timing = load_publish_timing()
@@ -223,7 +217,6 @@ def load_settings(project_root: Path | None = None) -> Settings:
         target_language=language.alias,
         target_language_name=language.name,
         target_country=language.country,
-        youtube_short_cover_intro_seconds=float(intro_seconds_raw),
         youtube_daily_playlist_id=daily_playlist_id,
         youtube_daily_playlist_slots=daily_playlist_slots,
         channel_report_mapping=os.getenv(

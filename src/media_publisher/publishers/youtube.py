@@ -19,11 +19,6 @@ from typing import Any, Literal
 
 from media_publisher.models import PublishJob
 from media_publisher.runtime_env import DAILY_PLAYLIST_JSON_VARIABLE
-from media_publisher.sources.image_video import (
-    ImageVideoError,
-    SHORT_COVER_INTRO_SECONDS,
-    ensure_short_with_cover_intro,
-)
 
 API_BASE = "https://www.googleapis.com/youtube/v3"
 UPLOAD_BASE = "https://www.googleapis.com/upload/youtube/v3"
@@ -147,13 +142,26 @@ def format_channel_list(channels: list[YouTubeChannel]) -> str:
     return ", ".join(parts)
 
 
-def _video_is_ready_for_thumbnail(item: dict[str, Any]) -> bool:
+def _video_is_ready_for_thumbnail(
+    item: dict[str, Any],
+    *,
+    short_form: bool = False,
+) -> bool:
+    """True when a custom thumbnail can be applied.
+
+    Long-form uploads are ready once ``uploadStatus`` is ``processed`` or
+    ``processingStatus`` is ``succeeded``. A Short ignores a custom thumbnail
+    unless ``processingDetails.processingStatus`` is already ``succeeded``;
+    ``uploadStatus=processed`` can arrive before that.
+    """
     status = item.get("status")
     processing = item.get("processingDetails")
     upload_status = status.get("uploadStatus") if isinstance(status, dict) else None
     processing_status = (
         processing.get("processingStatus") if isinstance(processing, dict) else None
     )
+    if short_form:
+        return processing_status == "succeeded"
     if upload_status == "processed":
         return True
     if processing_status == "succeeded":
@@ -1131,12 +1139,19 @@ class YouTubeClient:
         item = items[0]
         return item if isinstance(item, dict) else None
 
-    def wait_for_video_processed(self, video_id: str, *, purpose: str) -> None:
+    def wait_for_video_processed(
+        self,
+        video_id: str,
+        *,
+        purpose: str,
+        short_form: bool = False,
+    ) -> None:
         """Poll videos.list until upload processing succeeded or failed.
 
         ``uploadStatus=processed`` or ``processingStatus=succeeded`` means the
-        file is ready. Playlist insert can still return ``videoNotFound`` for a
-        short time after that, so callers retry the insert separately.
+        file is ready. For a Short thumbnail, only ``processingStatus=succeeded``
+        counts. Playlist insert can still return ``videoNotFound`` for a short
+        time after that, so callers retry the insert separately.
         """
         for _ in range(VIDEO_PROCESSING_POLL_MAX_ATTEMPTS):
             item = self.get_video_status_item(video_id)
@@ -1146,7 +1161,7 @@ class YouTubeClient:
                     raise YouTubePublishError(
                         f"YouTube video {video_id!r} processing failed: {failure}"
                     )
-                if _video_is_ready_for_thumbnail(item):
+                if _video_is_ready_for_thumbnail(item, short_form=short_form):
                     return
             time.sleep(VIDEO_PROCESSING_POLL_INTERVAL_SECONDS)
 
@@ -1155,14 +1170,29 @@ class YouTubeClient:
             f"{purpose}"
         )
 
-    def wait_for_video_ready_for_thumbnail(self, video_id: str) -> None:
-        self.wait_for_video_processed(video_id, purpose="thumbnail upload")
+    def wait_for_video_ready_for_thumbnail(
+        self,
+        video_id: str,
+        *,
+        short_form: bool = False,
+    ) -> None:
+        self.wait_for_video_processed(
+            video_id,
+            purpose="thumbnail upload",
+            short_form=short_form,
+        )
 
-    def set_thumbnail(self, video_id: str, thumbnail_path: Path) -> None:
+    def set_thumbnail(
+        self,
+        video_id: str,
+        thumbnail_path: Path,
+        *,
+        short_form: bool = False,
+    ) -> None:
         if not thumbnail_path.exists():
             raise YouTubePublishError(f"Thumbnail file not found: {thumbnail_path}")
 
-        self.wait_for_video_ready_for_thumbnail(video_id)
+        self.wait_for_video_ready_for_thumbnail(video_id, short_form=short_form)
 
         content_type = mimetypes.guess_type(thumbnail_path.name)[0] or "image/jpeg"
         query = urllib.parse.urlencode({"videoId": video_id})
@@ -1560,7 +1590,6 @@ def publish_to_youtube(
     instagram_url: str | None = None,
     youtube_channel_url: str | None = None,
     ffmpeg_path: str | None = None,
-    cover_intro_seconds: float | None = None,
     playlist_titles: Sequence[str] | None = None,
     daily_playlist_id: str | None = None,
     daily_playlist_slots_path: Path | None = None,
@@ -1583,26 +1612,6 @@ def publish_to_youtube(
         youtube_channel_url=youtube_channel_url or "",
     )
     video_path = Path(job.video_path)
-    upload_path = video_path
-    if (
-        job.video_format == "short_form"
-        and job.thumbnail_path
-        and job.content_kind != "image"
-    ):
-        thumbnail = prepare_youtube_thumbnail(
-            Path(job.thumbnail_path),
-            short_form=True,
-            ffmpeg_path=ffmpeg_path,
-        )
-        try:
-            upload_path = ensure_short_with_cover_intro(
-                video_path,
-                thumbnail,
-                ffmpeg_path=ffmpeg_path,
-                intro_seconds=cover_intro_seconds or SHORT_COVER_INTRO_SECONDS,
-            )
-        except ImageVideoError as exc:
-            raise YouTubePublishError(str(exc)) from exc
 
     client = YouTubeClient(
         client_secrets_path,
@@ -1610,7 +1619,7 @@ def publish_to_youtube(
         expected_channel_handle=expected_channel_handle,
     )
     video_id = client.upload_video(
-        upload_path,
+        video_path,
         title=job.title,
         description=job.description,
         tags=job.tags,
@@ -1636,12 +1645,11 @@ def publish_to_youtube(
             short_form=job.video_format == "short_form",
             ffmpeg_path=ffmpeg_path,
         )
-        try:
-            client.set_thumbnail(video_id, thumbnail)
-        except YouTubePublishError as exc:
-            if job.video_format != "short_form":
-                raise
-            # Shorts often reject API thumbnails; upload still succeeds.
+        client.set_thumbnail(
+            video_id,
+            thumbnail,
+            short_form=job.video_format == "short_form",
+        )
 
     quote_title = quote_playlist_title.strip() if quote_playlist_title else ""
     named_titles = _unique_playlist_titles(

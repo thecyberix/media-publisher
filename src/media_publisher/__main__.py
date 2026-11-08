@@ -2021,7 +2021,6 @@ def build_publish_pipeline_settings(
         happyscribe_api_key=settings.happyscribe_api_key,
         happyscribe_headless=headless,
         ffmpeg_path=settings.happyscribe_ffmpeg,
-        youtube_short_cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
         youtube_client_secrets=PROJECT_ROOT / settings.youtube_client_secrets,
         youtube_token=PROJECT_ROOT / settings.youtube_token,
         youtube_channel_handle=settings.youtube_channel_handle,
@@ -2910,7 +2909,6 @@ def main() -> int:
                 token_path=PROJECT_ROOT / settings.youtube_token,
                 expected_channel_handle=settings.youtube_channel_handle,
                 ffmpeg_path=settings.happyscribe_ffmpeg,
-                cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
                 playlist_titles=playlist_names_from_fields(task.record_fields),
                 daily_playlist_id=settings.youtube_daily_playlist_id,
                 daily_playlist_slots_path=daily_playlist_slots_path_from_settings(

@@ -123,7 +123,6 @@ class PublishPipelineSettings:
     happyscribe_published_folder_id: str | None = None
     happyscribe_library_url: str = ""
     happyscribe_review_url: str = ""
-    youtube_short_cover_intro_seconds: float = 5.0
     youtube_daily_playlist_id: str | None = None
     youtube_daily_playlist_slots_path: Path | None = None
     skip_thumbnails: bool = False
@@ -169,7 +168,6 @@ def publish_platform_task(
             token_path=settings.youtube_token,
             expected_channel_handle=settings.youtube_channel_handle,
             ffmpeg_path=settings.ffmpeg_path,
-            cover_intro_seconds=settings.youtube_short_cover_intro_seconds,
             playlist_titles=playlist_names_from_fields(task.record_fields),
             daily_playlist_id=settings.youtube_daily_playlist_id,
             daily_playlist_slots_path=settings.youtube_daily_playlist_slots_path,
