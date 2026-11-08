@@ -243,6 +243,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Preferred browser for --facebook-browser-login (default: Chrome locally, Chromium in CI).",
     )
     parser.add_argument(
+        "--youtube-browser-login",
+        action="store_true",
+        help=(
+            "Open YouTube in Chrome/Edge, sign in as the channel, and save a "
+            "Playwright session for community-post scheduling."
+        ),
+    )
+    parser.add_argument(
+        "--youtube-browser-import-session",
+        metavar="PATH",
+        help=(
+            "Import a Playwright storage-state or Cookie-Editor JSON file "
+            "for YouTube community posts."
+        ),
+    )
+    parser.add_argument(
+        "--youtube-browser-channel",
+        choices=("chrome", "msedge", "edge", "chromium"),
+        help=(
+            "Preferred browser for --youtube-browser-login "
+            "(default: Chrome locally, Chromium in CI)."
+        ),
+    )
+    parser.add_argument(
         "--burn-happyscribe-video",
         metavar="TRANSCRIPTION_ID",
         help=(
@@ -1290,6 +1314,24 @@ def daily_playlist_slots_path_from_settings(settings) -> Path | None:
     return PROJECT_ROOT / relative
 
 
+# These commands only save a browser session. They do not refresh API tokens,
+# so the exit-hook secret sync must not overwrite GitHub with local files.
+BROWSER_SESSION_ARGS = (
+    "--youtube-browser-login",
+    "--youtube-browser-import-session",
+    "--facebook-browser-login",
+    "--facebook-browser-import-session",
+    "--happyscribe-save-session",
+    "--happyscribe-import-session",
+)
+
+
+def skip_github_credential_sync(argv: list[str] | None = None) -> bool:
+    """True when this process is only saving or importing a browser session."""
+    args = sys.argv[1:] if argv is None else argv
+    return any(flag in args for flag in BROWSER_SESSION_ARGS)
+
+
 def cli_requested_action(args) -> bool:
     return any(
         (
@@ -1304,6 +1346,8 @@ def cli_requested_action(args) -> bool:
             args.facebook_browser_login,
             args.facebook_browser_import_session,
             args.facebook_browser_proxy_check,
+            args.youtube_browser_login,
+            args.youtube_browser_import_session,
             args.burn_happyscribe_video,
             args.canva_auth,
             args.canva_auth_code is not None,
@@ -2405,6 +2449,57 @@ def main() -> int:
         print(f"Imported Facebook browser session to {state_path}.")
         return 0
 
+    if args.youtube_browser_login:
+        from media_publisher.publishers.youtube_web import (
+            YouTubeWebError,
+            resolve_youtube_browser_channel,
+            resolve_youtube_browser_profile_dir,
+            resolve_youtube_browser_state_path,
+            save_browser_session_interactive as save_youtube_browser_session,
+        )
+
+        if not settings.youtube_channel_handle:
+            print("YOUTUBE_CHANNEL_HANDLE is required for YouTube browser login.")
+            return 1
+        channel = args.youtube_browser_channel or resolve_youtube_browser_channel()
+        if channel == "edge":
+            channel = "msedge"
+        if channel == "chromium":
+            channel = None
+        state_path = resolve_youtube_browser_state_path(project_root=PROJECT_ROOT)
+        try:
+            save_youtube_browser_session(
+                state_path,
+                browser_profile_dir=resolve_youtube_browser_profile_dir(
+                    project_root=PROJECT_ROOT
+                ),
+                channel_handle=settings.youtube_channel_handle,
+                browser_channel=channel,
+            )
+        except YouTubeWebError as exc:
+            print(f"YouTube browser login failed: {exc}")
+            return 1
+        return 0
+
+    if args.youtube_browser_import_session:
+        from media_publisher.publishers.youtube_web import (
+            YouTubeWebError,
+            import_browser_session as import_youtube_browser_session,
+            resolve_youtube_browser_state_path,
+        )
+
+        state_path = resolve_youtube_browser_state_path(project_root=PROJECT_ROOT)
+        try:
+            import_youtube_browser_session(
+                Path(args.youtube_browser_import_session),
+                state_path,
+            )
+        except YouTubeWebError as exc:
+            print(f"YouTube browser session import failed: {exc}")
+            return 1
+        print(f"Imported YouTube browser session to {state_path}.")
+        return 0
+
     if args.export_happyscribe_web:
         missing = happyscribe_web_settings_missing(settings)
         if missing:
@@ -3019,6 +3114,7 @@ def main() -> int:
         "--happyscribe-save-session, --happyscribe-import-session, --export-happyscribe-web, --burn-happyscribe-video, "
         "--facebook-browser-login, --facebook-browser-import-session, "
         "--facebook-browser-proxy-check, "
+        "--youtube-browser-login, --youtube-browser-import-session, "
         "--canva-auth, --canva-download, --canva-resolve, --test-canva, --youtube-auth, --test-youtube, "
         "--test-meta, --check-event-meta, --publish-event, --prune-past-events, "
         "--resolve-meta, "
@@ -3032,16 +3128,17 @@ def main() -> int:
 
 if __name__ == "__main__":
     exit_code = main()
-    try:
-        message = maybe_persist_canva_token(PROJECT_ROOT)
-        if message:
-            print_console(message)
-        yt_message = maybe_persist_youtube_token(PROJECT_ROOT)
-        if yt_message:
-            print_console(yt_message)
-        slots_message = maybe_persist_daily_playlist_slots(PROJECT_ROOT)
-        if slots_message:
-            print_console(slots_message)
-    except RuntimeError as exc:
-        print_console(f"Warning: {exc}")
+    if not skip_github_credential_sync():
+        try:
+            message = maybe_persist_canva_token(PROJECT_ROOT)
+            if message:
+                print_console(message)
+            yt_message = maybe_persist_youtube_token(PROJECT_ROOT)
+            if yt_message:
+                print_console(yt_message)
+            slots_message = maybe_persist_daily_playlist_slots(PROJECT_ROOT)
+            if slots_message:
+                print_console(slots_message)
+        except RuntimeError as exc:
+            print_console(f"Warning: {exc}")
     sys.exit(exit_code)

@@ -163,6 +163,7 @@ Facebook quote photos use the Graph API (same as before Playwright). Development
 **Local Playwright (while Development mode limits Graph visibility)**
 
 - Quotes (Facebook only): `python scripts/schedule_prepared_quotes_facebook.py --year 2026 --month 10`
+- Quotes (YouTube community posts): `python scripts/schedule_prepared_quotes_youtube.py --year 2026 --month 10`. YouTube has no community-post API, so this signs in through Chrome once (`python -m media_publisher --youtube-browser-login`) and schedules image posts on the channel Community tab. Quote videos stay on the normal YouTube upload path.
 - Events (Facebook only): `python scripts/schedule_event_facebook.py --event-type surya_kriya …`
 - Ekadashi (Facebook only): `python scripts/schedule_ekadashi_facebook.py --year 2026 --month 10`. Instagram is published by the `publish-ekadashi` workflow.
 

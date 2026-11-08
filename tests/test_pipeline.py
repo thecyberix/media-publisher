@@ -1575,6 +1575,23 @@ class CliParserTests(unittest.TestCase):
         self.assertTrue(event.prune_past_events)
         self.assertTrue(event.dry_run)
 
+    def test_browser_login_skips_github_credential_sync(self) -> None:
+        from media_publisher.__main__ import skip_github_credential_sync
+
+        self.assertTrue(
+            skip_github_credential_sync(["--youtube-browser-login"])
+        )
+        self.assertTrue(
+            skip_github_credential_sync(
+                ["--facebook-browser-import-session", "cookies.json"]
+            )
+        )
+        self.assertTrue(
+            skip_github_credential_sync(["--happyscribe-save-session"])
+        )
+        self.assertFalse(skip_github_credential_sync(["--youtube-auth"]))
+        self.assertFalse(skip_github_credential_sync(["--quotes"]))
+
 
 if __name__ == "__main__":
     unittest.main()
