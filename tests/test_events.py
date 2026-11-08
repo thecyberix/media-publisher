@@ -540,6 +540,10 @@ class EventPageTests(unittest.TestCase):
 
 
 class EventPublishTests(unittest.TestCase):
+    def _future_date_text(self) -> str:
+        # Duplicate detection prunes events that have already started.
+        return (date.today() + timedelta(days=40)).isoformat()
+
     def test_dry_run_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
@@ -548,7 +552,7 @@ class EventPublishTests(unittest.TestCase):
                 event_type="surya_kriya",
                 city="Варна",
                 country="България",
-                date_text="2026-11-02",
+                date_text=self._future_date_text(),
                 time_text="17:00",
                 registration_link="https://example.com/varna",
                 project_root=project,
@@ -566,7 +570,7 @@ class EventPublishTests(unittest.TestCase):
                 event_type="surya_kriya",
                 city="Варна",
                 country="България",
-                date_text="2026-11-02",
+                date_text=self._future_date_text(),
                 time_text="17:00",
                 registration_link="https://example.com/varna",
                 project_root=project,
@@ -581,7 +585,7 @@ class EventPublishTests(unittest.TestCase):
                 event_type="surya_kriya",
                 city="Варна",
                 country="България",
-                date_text="2026-11-02",
+                date_text=self._future_date_text(),
                 time_text="17:00",
                 registration_link="https://example.com/varna",
                 project_root=project,
