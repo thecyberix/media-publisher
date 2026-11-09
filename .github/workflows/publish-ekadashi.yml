@@ -1,8 +1,10 @@
 name: Publish Ekadashi
 
 # Primary schedule: external cron (cron-job.org) → workflow_dispatch at 12:30 Europe/Sofia.
-# The day before an Ekadashi, this publishes the photo to Facebook and Instagram
-# and a 10-second video to YouTube. Other days it exits without posting.
+# The day before an Ekadashi, this publishes the photo to Instagram and a
+# 10-second video to YouTube. Facebook follows POST_QUOTES_TO_FACEBOOK in the
+# publish step, the same local switch as daily quotes. Other days it exits
+# without posting.
 on:
   workflow_dispatch:
 
@@ -43,7 +45,16 @@ jobs:
         id: publish
         env:
           PYTHONUNBUFFERED: "1"
-        run: python -m media_publisher --ekadashi
+        run: |
+          # Same local switch as the quotes job in publish.yml.
+          POST_QUOTES_TO_FACEBOOK=false
+          PLATFORM_ARGS="--platform youtube --platform instagram"
+          if [ "$POST_QUOTES_TO_FACEBOOK" = "true" ]; then
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform facebook"
+          else
+            echo "Skipping Facebook Ekadashi posts (POST_QUOTES_TO_FACEBOOK=false)."
+          fi
+          python -m media_publisher --ekadashi ${PLATFORM_ARGS}
 
       - name: Commit Ekadashi publish state
         if: steps.publish.outcome == 'success' || steps.publish.outcome == 'failure'

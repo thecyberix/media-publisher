@@ -133,7 +133,8 @@ jobs:
           if [ "${{ inputs.timing }}" = "scheduled" ]; then
             EXTRA_ARGS="--private"
           fi
-          # Local switch for this job only. Flip to true to post quotes to Facebook again.
+          # Local switch, also used by publish-ekadashi.yml. Flip both to true
+          # to post quotes and Ekadashi stills to Facebook again.
           POST_QUOTES_TO_FACEBOOK=false
           PLATFORM_ARGS=""
           REQUESTED_ANY=false

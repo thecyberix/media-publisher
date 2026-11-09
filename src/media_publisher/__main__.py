@@ -531,7 +531,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Publish only to PLATFORM (youtube, facebook, or instagram). "
             "Repeat for multiple platforms. Default: all still-pending platforms. "
-            "Applies to the default video pipeline, --watch, --list-pending, and --quotes."
+            "Applies to the default video pipeline, --watch, --list-pending, --quotes, and --ekadashi."
         ),
     )
     parser.add_argument(
