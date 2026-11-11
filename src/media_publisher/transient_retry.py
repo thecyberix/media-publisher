@@ -7,6 +7,7 @@ clearly safe to repeat.
 
 from __future__ import annotations
 
+import http.client
 import random
 import time
 import urllib.error
@@ -84,7 +85,10 @@ def retry_after_seconds(exc: BaseException) -> float | None:
 
 
 def is_transient_exception(exc: BaseException) -> bool:
-    if isinstance(exc, (TimeoutError, ConnectionError, BrokenPipeError)):
+    if isinstance(
+        exc,
+        (TimeoutError, ConnectionError, BrokenPipeError, http.client.IncompleteRead),
+    ):
         return True
     if isinstance(
         exc,
@@ -191,8 +195,8 @@ def execute_urllib_request(
 
     ``build_request`` is called on every attempt so the body can be sent again.
     Only use this when repeating the request is safe. HTTP 408, 429, 500, 502,
-    503, and 504 are retried, as are network ``URLError`` failures. Other HTTP
-    statuses fail immediately.
+    503, and 504 are retried, as are network ``URLError`` failures and truncated
+    bodies (``http.client.IncompleteRead``). Other HTTP statuses fail immediately.
 
     On the final ``HTTPError``, the body has already been read and is stored on
     ``exc.detail_text``.
@@ -239,6 +243,22 @@ def execute_urllib_request(
             if log is not None:
                 log(
                     f"{operation} failed: {exc.reason}; "
+                    f"retrying in {delay:.0f}s (attempt {attempt}/{attempts})"
+                )
+            sleeper(delay)
+        except http.client.IncompleteRead as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                raise
+            delay = delay_before_retry(
+                attempt,
+                base_delay_seconds=base_delay_seconds,
+                max_delay_seconds=max_delay_seconds,
+                rng=rng,
+            )
+            if log is not None:
+                log(
+                    f"{operation} failed: truncated response ({exc}); "
                     f"retrying in {delay:.0f}s (attempt {attempt}/{attempts})"
                 )
             sleeper(delay)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import unittest
@@ -47,6 +48,10 @@ class TransientRetryTests(unittest.TestCase):
     def test_is_transient_for_internal_error_text(self) -> None:
         self.assertTrue(is_transient_exception(RuntimeError("Internal Error")))
         self.assertFalse(is_transient_exception(RuntimeError("permission denied")))
+
+    def test_incomplete_read_is_transient(self) -> None:
+        exc = http.client.IncompleteRead(b"x" * 62682, 201927)
+        self.assertTrue(is_transient_exception(exc))
 
     def test_call_retries_transient_then_succeeds(self) -> None:
         sleeps: list[float] = []
@@ -158,6 +163,34 @@ class ExecuteUrllibRequestTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 400)
         self.assertEqual(getattr(ctx.exception, "detail_text"), '{"error":"invalid_grant"}')
         self.assertEqual(calls["n"], 1)
+
+    def test_retries_incomplete_read_then_returns_body(self) -> None:
+        calls = {"n": 0}
+        logs: list[str] = []
+
+        def urlopen(request: urllib.request.Request, timeout: float = 60) -> Mock:
+            calls["n"] += 1
+            response = _ok_body({"ok": True})
+            if calls["n"] < 2:
+                response.read.side_effect = http.client.IncompleteRead(b"partial", 20)
+            return response
+
+        with patch(
+            "media_publisher.transient_retry.urllib.request.urlopen",
+            side_effect=urlopen,
+        ):
+            raw = execute_urllib_request(
+                lambda: urllib.request.Request("https://api.example/file"),
+                timeout=60,
+                attempts=3,
+                sleep=lambda _delay: None,
+                log=logs.append,
+                operation="Drive download",
+            )
+        self.assertEqual(json.loads(raw), {"ok": True})
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(len(logs), 1)
+        self.assertIn("truncated response", logs[0])
 
 
 if __name__ == "__main__":
