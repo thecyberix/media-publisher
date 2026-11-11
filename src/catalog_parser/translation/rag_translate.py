@@ -130,8 +130,11 @@ def metadata_caption_system_prompt() -> str:
         "matches the tone and phrasing of the provided example title translations. "
         "Keep the same subject as the English. If the English asks about a named "
         "person, the translation asks about that person. Address the reader only "
-        "when the English addresses the reader. Keep proper names. "
-        "Preserve the same number of lines and line breaks as the English source. "
+        "when the English addresses the reader. Keep proper names. A name split "
+        "across rows is still one name: translate it once. Do not add words or "
+        "lines just so the translation has the same number of lines as the "
+        "English. Rows \"Experience\" / \"Living\" / \"Mukti\" are "
+        "\"Изживейте\" / \"Мукти\". "
         "Do not add credits, hashtags, logos, or explanations. Return only the "
         f"{name} caption text."
     )
@@ -142,18 +145,24 @@ CAPTION_EXTRACT_PROMPT = (
     "Do not return every string on the image.\n"
     "Return ONLY JSON: "
     '{"caption": ["Line one", "Line two"], "ignored": ["other overlay"]}.\n'
-    "caption: lines that belong to that one designed caption block, top to "
-    "bottom. A multi-line title is still the caption; keep those lines together. "
+    "caption: one entry per visually separate row of that caption block, top to "
+    "bottom. A multi-line title is still the caption. Keep each row as its own "
+    "entry. Do not join stacked rows into one line, even when they form a "
+    "single phrase or sentence. A row break on the design is a line break in "
+    "the output. "
     "A proper name inside the headline is part of the caption. Keep it in "
     "caption. Do not move it to ignored.\n"
     "ignored: additional overlay that is not the caption (speaker or guest "
     "credits that sit apart from the headline, dates, locations, campaign "
     "slogans or stamps, quotes that are not the caption, lower-thirds, "
     "burned-in subtitles, logos, watermarks, channel names, UI chrome). A "
-    "vertical series label along the side edge is ignored, not caption: the "
-    "series name (for example \"Wisdom Bomb\") and its episode number (for "
-    "example \"09\", \"11\", \"12\"), including when dots or a rotation "
-    "separate them.\n"
+    "standalone Sadhguru signature is ignored, not caption: a line that only "
+    "says Sadhguru, with optional punctuation. A question such as "
+    "\"Sadhguru?\" and any longer line that mentions Sadhguru stay in "
+    "caption. A vertical series label along the side edge is ignored, not "
+    "caption: the series name (for example \"Wisdom Bomb\") and its episode "
+    "number (for example \"09\", \"11\", \"12\"), including when dots or a "
+    "rotation separate them.\n"
     "Copy the capitalization of each caption line exactly as printed. If a "
     "line is entirely in capital letters, return that line entirely in capital "
     "letters. Do not rewrite it in title case.\n"
@@ -165,11 +174,18 @@ CANVA_COVER_EXTRACT_PROMPT = (
     "bottom.\n"
     "Include the full title, every subtitle, and any other wording that is part "
     "of the design. Do not omit smaller, secondary, or differently styled lines.\n"
+    "Each visually separate row is its own caption entry. Do not join stacked "
+    "rows into one line, even when they form a single phrase or sentence. A "
+    "row break on the design is a line break in the output.\n"
     "Skip non-design chrome (browser UI, buttons, share-page labels such as "
     '"View template" or "Designed with Canva"). Also skip a vertical series '
     "label along the side edge: the series name (for example \"Wisdom Bomb\") "
     "and its episode number (for example \"09\", \"11\", \"12\"). Put that "
-    "side text in ignored. It is not part of the caption.\n"
+    "side text in ignored. It is not part of the caption. Also skip a "
+    "standalone Sadhguru signature: a line that only says Sadhguru, with "
+    "optional punctuation. Put that signature in ignored. A question such as "
+    "\"Sadhguru?\" and any longer line that mentions Sadhguru stay in "
+    "caption.\n"
     "Return ONLY JSON: "
     '{"caption": ["Line one", "Line two"], "ignored": []}.\n'
     "caption: all designed cover lines in visual order. Copy the capitalization "
@@ -333,11 +349,6 @@ def chat_config_from_env() -> ChatConfig:
     )
 
 
-# Re-split translation lines to match English length ratios only when the
-# current break is clearly off (line-count mismatch or char-ratio L1 above this).
-_LINE_RATIO_L1_GATE = 0.10
-
-
 def _caption_nonempty_lines(text: str) -> list[str]:
     return [
         line.strip()
@@ -346,102 +357,21 @@ def _caption_nonempty_lines(text: str) -> list[str]:
     ]
 
 
-def _line_char_ratios(lines: list[str]) -> list[float]:
-    lengths = [max(1, len(line)) for line in lines]
-    total = sum(lengths)
-    return [length / total for length in lengths]
-
-
-def _line_word_ratios(lines: list[str]) -> list[float]:
-    lengths = [max(1, len(line.split())) for line in lines]
-    total = sum(lengths)
-    return [length / total for length in lengths]
-
-
-def _ratio_l1(left: list[float], right: list[float]) -> float:
-    size = max(len(left), len(right))
-    if size == 0:
-        return 0.0
-    padded_left = left + [0.0] * (size - len(left))
-    padded_right = right + [0.0] * (size - len(right))
-    return sum(abs(a - b) for a, b in zip(padded_left, padded_right, strict=True)) / 2
-
-
-def _split_words_by_ratios(words: list[str], ratios: list[float]) -> list[str]:
-    """Partition words into len(ratios) lines by cumulative word-share weights."""
-    if not words:
-        return []
-    if not ratios:
-        return [" ".join(words)]
-    # Never invent more lines than there are words (avoids empty/orphan rows).
-    target_n = min(len(ratios), len(words))
-    if target_n == 1:
-        return [" ".join(words)]
-    if target_n < len(ratios):
-        # Collapse trailing ratio mass so weights still sum to ~1.
-        head = list(ratios[: target_n - 1])
-        tail = sum(ratios[target_n - 1 :])
-        ratios = head + [tail if tail > 0 else ratios[-1]]
-    cuts: list[int] = []
-    cursor = 0
-    for index, ratio in enumerate(ratios[:-1]):
-        share = max(1, round(len(words) * ratio))
-        max_take = len(words) - cursor - (target_n - index - 1)
-        take = min(max(1, share), max_take)
-        cursor += take
-        cuts.append(cursor)
-    out: list[str] = []
-    start = 0
-    for cut in cuts + [len(words)]:
-        out.append(" ".join(words[start:cut]))
-        start = cut
-    return out
-
-
-def _has_orphan_function_line(lines: list[str]) -> bool:
-    """True when a break left a line that is only a short preposition/particle."""
-    for line in lines:
-        tokens = [tok for tok in line.split() if _alpha_fold(tok)]
-        if len(tokens) == 1 and _alpha_fold(tokens[0]) in _title_case_small_words():
-            return True
-    return False
-
-
 def match_source_newlines(source: str, translation: str) -> str:
-    """Keep translation line breaks aligned with the English source.
+    """Keep the translation's line breaks.
 
-    For multi-line captions, optionally re-split the translation so line-length
-    ratios track the English word shares — but only when line counts disagree or
-    char-ratio distance is large, so already-good breaks are left alone.
+    A single-line English source is joined into one line. When the English has
+    several lines, the translation's own breaks stay. Words are not moved
+    between lines to match the English word count.
     """
     src = (source or "").replace("\r\n", "\n").replace("\r", "\n")
     tr = (translation or "").replace("\r\n", "\n").replace("\r", "\n")
-    if "\n" not in src.strip():
-        return " ".join(tr.split())
-    src_lines = _caption_nonempty_lines(src)
     tr_lines = _caption_nonempty_lines(tr)
     if not tr_lines:
         return ""
-    if len(src_lines) <= 1:
+    if len(_caption_nonempty_lines(src)) <= 1:
         return " ".join(tr_lines)
-
-    words = " ".join(tr_lines).split()
-    # Too few words to fill the English layout — keep model breaks (no orphans).
-    if len(words) < len(src_lines):
-        return "\n".join(tr_lines)
-
-    need_resplit = len(tr_lines) != len(src_lines) or (
-        _ratio_l1(_line_char_ratios(tr_lines), _line_char_ratios(src_lines))
-        > _LINE_RATIO_L1_GATE
-    )
-    if not need_resplit:
-        return "\n".join(tr_lines)
-
-    resplit = _split_words_by_ratios(words, _line_word_ratios(src_lines))
-    # Reject layouts that park a lone "на"/"of"/"with" on its own line.
-    if _has_orphan_function_line(resplit):
-        return "\n".join(tr_lines)
-    return "\n".join(resplit)
+    return "\n".join(tr_lines)
 
 
 def _line_is_all_caps(line: str) -> bool:
@@ -514,7 +444,11 @@ def _lower_alpha_token(word: str) -> str:
 
 
 def _to_title_case_words(line: str) -> str:
-    """Title-case words; keep short mid-line prepositions/articles lowercase."""
+    """Title-case words; keep short prepositions/articles lowercase.
+
+    A function word stays lowercase everywhere except the first word of the
+    line, including when it is the last word ("An Ideal Place to").
+    """
     raw_parts = re.split(r"(\s+)", line)
     token_indexes = [
         index
@@ -522,7 +456,6 @@ def _to_title_case_words(line: str) -> str:
         if part and not part.isspace()
     ]
     first_token = token_indexes[0] if token_indexes else None
-    last_token = token_indexes[-1] if token_indexes else None
 
     parts: list[str] = []
     for index, word in enumerate(raw_parts):
@@ -534,13 +467,9 @@ def _to_title_case_words(line: str) -> str:
             continue
         titled = _title_case_token(word)
         fold = _alpha_fold(titled)
-        # Lowercase short function words except first/last tokens
-        # (so "in 2024" / "на Ръба" stay lowercase mid-line).
-        if (
-            fold in _title_case_small_words()
-            and index != first_token
-            and index != last_token
-        ):
+        # Lowercase short function words after the first token
+        # (so "in 2024" / "на Ръба" / "Място за" stay lowercase).
+        if fold in _title_case_small_words() and index != first_token:
             parts.append(_lower_alpha_token(titled))
         else:
             parts.append(titled)
@@ -556,18 +485,14 @@ def match_source_line_casing(source: str, translation: str) -> str:
     if not src_lines or not tr_lines:
         return tr.strip()
 
-    # Align counts to the English layout (word-share split when needed).
-    if len(tr_lines) != len(src_lines):
-        words = " ".join(tr_lines).split()
-        if words:
-            tr_lines = _split_words_by_ratios(words, _line_word_ratios(src_lines))
-        else:
-            tr_lines = []
-
     out: list[str] = []
-    for src_line, tr_line in zip(src_lines, tr_lines, strict=True):
+    for index, tr_line in enumerate(tr_lines):
         if not tr_line:
             continue
+        if index >= len(src_lines):
+            out.append(tr_line)
+            continue
+        src_line = src_lines[index]
         if _line_is_all_caps(src_line):
             out.append(tr_line.upper())
         elif _line_is_title_case(src_line):
@@ -1109,6 +1034,23 @@ def without_side_series_lines(lines: list[str]) -> list[str]:
     return [line for line in lines if not is_side_series_line(line)]
 
 
+def is_signature_line(line: str) -> bool:
+    """True for a standalone Sadhguru signature, not a caption that names him.
+
+    Covers print a cursive Sadhguru mark under the headline. That mark stays
+    on the design and is not translated. A question such as ``Sadhguru?`` is
+    caption text, as is any longer line (``with Sadhguru``).
+    """
+    if "?" in line:
+        return False
+    key = re.sub(r"[^0-9A-Za-z]+", " ", line).strip().casefold()
+    return key == "sadhguru"
+
+
+def without_signature_lines(lines: list[str]) -> list[str]:
+    return [line for line in lines if not is_signature_line(line)]
+
+
 def parse_caption_lines_json(raw: str, *, include_ignored: bool = False) -> list[str]:
     """Parse vision caption extraction output into non-empty caption lines."""
     cleaned = _strip_code_fence(raw)
@@ -1152,7 +1094,7 @@ def extract_caption_lines_from_image(
         session=session,
     )
     lines = parse_caption_lines_json(raw, include_ignored=include_all_overlay)
-    return without_side_series_lines(lines)
+    return without_signature_lines(without_side_series_lines(lines))
 
 
 def extract_caption_lines_from_image_path(
@@ -1411,10 +1353,13 @@ def build_metadata_messages(
         field_label = "caption"
         instructions = (
             f"Translate the English thumbnail caption into {name}.\n"
-            "Preserve the exact number of lines and line breaks.\n"
             "Keep the same subject. A question about a named person stays about "
             "that person. Address the reader only when the English addresses "
-            "the reader. Keep proper names.\n"
+            "the reader. Keep proper names. A name split across rows is still "
+            "one name: translate it once. Do not add words or lines just so the "
+            "translation has the same number of lines as the English. "
+            "Rows \"Experience\" / \"Living\" / \"Mukti\" are "
+            "\"Изживейте\" / \"Мукти\".\n"
             "Do not add credits, hashtags, or logos.\n\n"
         )
     else:

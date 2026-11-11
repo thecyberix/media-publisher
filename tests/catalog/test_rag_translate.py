@@ -240,6 +240,28 @@ class RagTranslateTests(unittest.TestCase):
         self.assertIn("every designed English text overlay", CANVA_COVER_EXTRACT_PROMPT)
         self.assertIn("Wisdom Bomb", CAPTION_EXTRACT_PROMPT)
         self.assertIn("Wisdom Bomb", CANVA_COVER_EXTRACT_PROMPT)
+        self.assertIn("standalone Sadhguru signature", CAPTION_EXTRACT_PROMPT)
+        self.assertIn("standalone Sadhguru signature", CANVA_COVER_EXTRACT_PROMPT)
+        self.assertIn("Do not join stacked rows into one line", CAPTION_EXTRACT_PROMPT)
+        self.assertIn("Do not join stacked rows into one line", CANVA_COVER_EXTRACT_PROMPT)
+        self.assertNotIn("keep those lines together", CAPTION_EXTRACT_PROMPT)
+        from catalog_parser.translation.rag_translate import (
+            build_metadata_messages,
+            metadata_caption_system_prompt,
+        )
+
+        caption_prompt = metadata_caption_system_prompt()
+        self.assertIn("Do not add words or lines", caption_prompt)
+        self.assertIn("Изживейте", caption_prompt)
+        self.assertNotIn("one-word English line", caption_prompt)
+        self.assertNotIn("same number of lines and line breaks", caption_prompt)
+        messages = build_metadata_messages(
+            "Experience\nLiving\nMukti",
+            [],
+            kind="caption",
+        )
+        self.assertIn("Изживейте", messages[1]["content"])
+        self.assertNotIn("exact number of lines", messages[1]["content"])
         self.assertIn("proper name inside the headline", CAPTION_EXTRACT_PROMPT)
         self.assertIn("entirely in capital letters", CAPTION_EXTRACT_PROMPT)
         self.assertIn("entirely in capital letters", CANVA_COVER_EXTRACT_PROMPT)
@@ -307,6 +329,41 @@ class RagTranslateTests(unittest.TestCase):
             )
         self.assertEqual(lines, ["A Simple Way", "to Beat", "Compulsions"])
 
+    def test_signature_line_is_not_translated(self) -> None:
+        from catalog_parser.translation.rag_translate import (
+            extract_caption_lines_from_image,
+            is_signature_line,
+            without_signature_lines,
+        )
+
+        self.assertTrue(is_signature_line("Sadhguru"))
+        self.assertTrue(is_signature_line("Sadhguru."))
+        self.assertTrue(is_signature_line("- Sadhguru"))
+        self.assertTrue(is_signature_line("SADHGURU"))
+        self.assertFalse(is_signature_line("Sadhguru?"))
+        self.assertFalse(is_signature_line("with Sadhguru"))
+        self.assertFalse(is_signature_line("Shiva"))
+        self.assertEqual(
+            without_signature_lines(
+                ["Shiva", "A Compulsive", "Lover", "Sadhguru"]
+            ),
+            ["Shiva", "A Compulsive", "Lover"],
+        )
+        raw = (
+            '{"caption": ["Shiva", "A Compulsive", "Lover", "Sadhguru"], '
+            '"ignored": []}'
+        )
+        with patch(
+            "catalog_parser.translation.rag_translate.chat_completion_with_image",
+            return_value=raw,
+        ):
+            lines = extract_caption_lines_from_image(
+                b"jpeg",
+                ChatConfig(api_key="test", provider="openai"),
+                include_all_overlay=True,
+            )
+        self.assertEqual(lines, ["Shiva", "A Compulsive", "Lover"])
+
     def test_match_source_newlines_and_quote_repair(self) -> None:
         from catalog_parser.translation.rag_translate import (
             match_source_newlines,
@@ -322,7 +379,7 @@ class RagTranslateTests(unittest.TestCase):
             match_source_newlines("LINE ONE\nLINE TWO", "РЕД ЕДИН\n\nРЕД ДВА"),
             "РЕД ЕДИН\nРЕД ДВА",
         )
-        # Already-close ratios: leave the model breaks alone.
+        # Model breaks stay, including when English word counts differ.
         self.assertEqual(
             match_source_newlines(
                 "HOW TO LIVE\nA JOYFUL LIFE",
@@ -330,15 +387,20 @@ class RagTranslateTests(unittest.TestCase):
             ),
             "КАК ДА ЖИВЕЕМ\nРадостен Живот",
         )
-        # Line-count mismatch: re-split by English word shares.
+        self.assertEqual(
+            match_source_newlines(
+                "Living Fully\nVS HOLDING BACK",
+                "Да живееш пълноценно\nсрещу сдържането",
+            ),
+            "Да живееш пълноценно\nсрещу сдържането",
+        )
         self.assertEqual(
             match_source_newlines(
                 "Hello\nNamaskar\nWhat do you choose?",
                 "Здравей Намаскар Какво избирате?",
             ),
-            "Здравей\nНамаскар\nКакво избирате?",
+            "Здравей Намаскар Какво избирате?",
         )
-        # Too few BG words for the English line count: do not invent orphans.
         self.assertEqual(
             match_source_newlines(
                 "Soak in\nEcstasy of\nENLIGHTENMENT\nwith Sadhguru",
@@ -382,6 +444,20 @@ class RagTranslateTests(unittest.TestCase):
         )
         self.assertEqual(
             match_source_line_casing(
+                "An Ideal Place to",
+                "Идеалното Място За",
+            ),
+            "Идеалното Място за",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "To Celebrate Mahashivratri",
+                "за празнуване на махашиваратри",
+            ),
+            "За Празнуване на Махашиваратри",
+        )
+        self.assertEqual(
+            match_source_line_casing(
                 "Sadhguru in 2024\nLife on the Edge",
                 "Садгуру През 2024\nЖивот На Ръба",
             ),
@@ -400,6 +476,20 @@ class RagTranslateTests(unittest.TestCase):
                 "Можем ли да Върнем\nмъртвите\nОбратно към Живота?",
             ),
             "Можем ли да Върнем\nМъртвите\nОбратно към Живота?",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "Living Fully\nVS HOLDING BACK",
+                "Да живееш пълноценно\nсрещу сдържането",
+            ),
+            "Да Живееш Пълноценно\nСРЕЩУ СДЪРЖАНЕТО",
+        )
+        self.assertEqual(
+            match_source_line_casing(
+                "Shiva\nA Compulsive\nLover\nSadhguru",
+                "Шива\nКомпулсивен\nЛюбовник",
+            ),
+            "Шива\nКомпулсивен\nЛюбовник",
         )
         self.assertEqual(
             parse_caption_lines_json('["Line one", "Line two"]'),
