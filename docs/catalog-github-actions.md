@@ -134,7 +134,7 @@ python -m catalog_parser ingest --unassigned --type reel --count 4
 python -m catalog_parser ingest --unassigned --type video --title "Exact Catalog Title"
 ```
 
-Ingest reads the catalog spreadsheet id from `config/workflow_config.json` (`catalog_id`). The first sheet tab is used.
+Ingest reads the catalog spreadsheet id from `config/workflow_config.json` (`catalog_id`). It reads the **English** tab.
 
 ## Airtable backups and status history
 

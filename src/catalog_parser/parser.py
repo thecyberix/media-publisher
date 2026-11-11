@@ -27,6 +27,8 @@ TYPE_REEL = "Reel"
 TYPE_SHORT = "Short"
 TYPE_VIDEO = "Video"
 VIDEO_TYPES = (TYPE_REEL, TYPE_SHORT, TYPE_VIDEO)
+# SM catalog rows live on this tab. Tab order is not significant.
+CATALOG_TAB = "English"
 
 REEL_MAX_DURATION = 90
 SHORT_MAX_DURATION = 180
@@ -308,24 +310,13 @@ def _quote_sheet_name(sheet_name: str) -> str:
     return f"'{escaped}'"
 
 
-def get_first_sheet_title(service: Resource, sheet_id: str) -> str:
-    response = (
-        service.spreadsheets()
-        .get(spreadsheetId=sheet_id, fields="sheets.properties.title")
-        .execute()
-    )
-    sheets = response.get("sheets", [])
-    if not sheets:
-        raise ValueError("The spreadsheet has no tabs.")
-    return sheets[0]["properties"]["title"]
-
-
-def resolve_range(service: Resource, catalog_id: str) -> str:
-    return _quote_sheet_name(get_first_sheet_title(service, catalog_id))
+def resolve_range() -> str:
+    """A1 range for the English catalog tab."""
+    return _quote_sheet_name(CATALOG_TAB)
 
 
 def fetch_catalog_values(service: Resource, catalog_id: str) -> list[list[Any]]:
-    range_notation = resolve_range(service, catalog_id)
+    range_notation = resolve_range()
     try:
         response = (
             service.spreadsheets()
@@ -334,11 +325,11 @@ def fetch_catalog_values(service: Resource, catalog_id: str) -> list[list[Any]]:
             .execute()
         )
     except HttpError as exc:
-        if exc.resp.status in {403, 404}:
+        if exc.resp.status in {400, 403, 404}:
             raise ValueError(
                 f"Could not read catalog spreadsheet {catalog_id!r} "
-                f"(range {range_notation!r}). Check config/workflow_config.json catalog_id "
-                "and that the Google account can open the sheet."
+                f"(tab {CATALOG_TAB!r}). Check config/workflow_config.json catalog_id "
+                f"and that the Google account can open the {CATALOG_TAB} tab."
             ) from exc
         raise
     return response.get("values", [])

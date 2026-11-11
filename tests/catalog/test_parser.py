@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from catalog_parser.parser import (
+    CATALOG_TAB,
     TYPE_REEL,
     TYPE_SHORT,
     TYPE_VIDEO,
@@ -16,6 +17,7 @@ from catalog_parser.parser import (
     sort_by_views_descending,
     parse_type_column_duration,
     parse_video_type,
+    resolve_range,
     sort_by_pub_date_newest_first,
     tn_is_marked,
     type_duration_bounds,
@@ -23,6 +25,10 @@ from catalog_parser.parser import (
 
 
 class VideoTypeTests(unittest.TestCase):
+    def test_resolve_range_uses_english_tab(self) -> None:
+        self.assertEqual(CATALOG_TAB, "English")
+        self.assertEqual(resolve_range(), "'English'")
+
     def test_duration_to_type_boundaries(self) -> None:
         self.assertEqual(duration_to_type(90), TYPE_REEL)
         self.assertEqual(duration_to_type(91), TYPE_SHORT)

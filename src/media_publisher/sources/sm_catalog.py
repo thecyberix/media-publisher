@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
+from catalog_parser.parser import CATALOG_TAB
 from media_publisher.languages import LanguageDefinition
 from media_publisher.sources.google_sheets import (
     GoogleSheetsClient,
@@ -22,7 +23,7 @@ from media_publisher.sources.google_sheets import (
     column_index_to_a1,
 )
 
-SM_CATALOG_TAB = "English"
+SM_CATALOG_TAB = CATALOG_TAB
 SM_CATALOG_LINK_HEADER = "ctLink"
 SM_CATALOG_HEADER_ROW = 1
 SAFE_REQUEST_TIMEOUT_SECONDS = 30
