@@ -19,6 +19,7 @@ from catalog_parser.canva_selection import (
     dedupe_canva_urls,
     extract_canva_links_from_docx,
     extract_canva_links_from_google_document,
+    ordered_canva_urls,
     select_canva_url,
 )
 from catalog_parser.drive_docs import (
@@ -267,14 +268,12 @@ def _canva_url_from_drive_file_id(
     return None
 
 
-def _discover_canva_url(
+def _candidate_canva_urls(
     drive_service: Resource,
     docs_service: Resource | None,
     folder_id: str,
     fields: dict[str, str | None],
-    *,
-    original_video_url: str | None = None,
-) -> str | None:
+) -> list[str]:
     all_urls = collect_canva_urls_from_values(list(fields.values()))
     all_urls.extend(
         _collect_canva_urls_from_folder_documents(
@@ -283,21 +282,52 @@ def _discover_canva_url(
             folder_id,
         )
     )
-
-    canva_url = select_canva_url(
-        all_urls,
-        target_size=video_size_from_pkg_folder(drive_service, folder_id),
-        original_video_url=original_video_url,
-    )
-    if canva_url:
-        return canva_url
-
     thumbnail_value = fields.get(DEFAULT_YT_THUMBNAIL_FIELD)
     if isinstance(thumbnail_value, str):
         file_id = extract_drive_file_id(thumbnail_value)
         if file_id:
-            return _canva_url_from_drive_file_id(drive_service, file_id)
-    return None
+            try:
+                file_url = _canva_url_from_drive_file_id(drive_service, file_id)
+            except Exception:
+                file_url = None
+            if file_url:
+                all_urls.append(file_url)
+    return dedupe_canva_urls(all_urls)
+
+
+def _discover_canva_urls(
+    drive_service: Resource,
+    docs_service: Resource | None,
+    folder_id: str,
+    fields: dict[str, str | None],
+    *,
+    original_video_url: str | None = None,
+    target_size: tuple[int, int] | None = None,
+    target_size_resolved: bool = False,
+) -> list[str]:
+    """Every Canva design in the package, matching video aspect first."""
+    if not target_size_resolved:
+        target_size = video_size_from_pkg_folder(drive_service, folder_id)
+    return ordered_canva_urls(
+        _candidate_canva_urls(drive_service, docs_service, folder_id, fields),
+        target_size=target_size,
+        original_video_url=original_video_url,
+    )
+
+
+def _discover_canva_url(
+    drive_service: Resource,
+    docs_service: Resource | None,
+    folder_id: str,
+    fields: dict[str, str | None],
+    *,
+    original_video_url: str | None = None,
+) -> str | None:
+    return select_canva_url(
+        _candidate_canva_urls(drive_service, docs_service, folder_id, fields),
+        target_size=video_size_from_pkg_folder(drive_service, folder_id),
+        original_video_url=original_video_url,
+    )
 
 
 def resolve_canva_design_drive_url(
@@ -599,6 +629,36 @@ def _original_thumbnail_matches_video_aspect(
     return aspects_match(width, height, video_size[0], video_size[1])
 
 
+def _thumbnail_aspect_mismatches_video(
+    drive_service: Resource,
+    folder_id: str,
+    thumbnail_path: Path,
+    *,
+    video_size: tuple[int, int] | None = None,
+    video_size_resolved: bool = False,
+) -> bool:
+    """True only when the video size is known and the image aspect differs.
+
+    An unknown video size is not a mismatch: the thumbnail is kept.
+    """
+    from media_publisher.sources.source_thumbnail import aspects_match
+    from PIL import Image
+
+    if not video_size_resolved:
+        try:
+            video_size = video_size_from_pkg_folder(drive_service, folder_id)
+        except Exception:
+            return False
+    if video_size is None:
+        return False
+    try:
+        with Image.open(thumbnail_path) as image:
+            width, height = image.size
+    except OSError:
+        return False
+    return not aspects_match(width, height, video_size[0], video_size[1])
+
+
 def _looks_like_drive_psd(name: str, mime_type: str) -> bool:
     suffix = Path(name).suffix.casefold()
     if suffix == ".psd":
@@ -721,9 +781,11 @@ def _stage_original_thumbnail_for_ingest(
     """Stage original thumbnail for Airtable upload or Drive review.
 
     Priority:
-    1. Canva link → Canva API design export (direct Airtable upload)
-    2. Canva link + design-level API failure → flattened public /screen preview
-    3. Empty or failed preview → manual-download placeholder for review
+    1. Canva design whose aspect matches the video (API export, otherwise the
+       public /screen preview). When several designs are linked, try the
+       matching aspect first and then the others.
+    2. Original video thumbnail, only when no Canva design has that aspect.
+    3. Every Canva download failed → manual-download placeholder for review
     4. No Canva → Video Folder PSD composite (English text included) uploaded
        to Original Video Thumbnail when an artboard matches the video aspect
     5. Otherwise matching-aspect original-platform thumbs are queued for review
@@ -738,38 +800,101 @@ def _stage_original_thumbnail_for_ingest(
         fields = read_drive_fields_from_folder(drive_service, docs_service, folder_id)
     except Exception:
         fields = {}
-    canva_url = _discover_canva_url(
+    try:
+        video_size = video_size_from_pkg_folder(drive_service, folder_id)
+    except Exception:
+        video_size = None
+    canva_urls = _discover_canva_urls(
         drive_service,
         docs_service,
         folder_id,
         fields,
         original_video_url=source_url,
+        target_size=video_size,
+        target_size_resolved=True,
     )
-    if canva_url is not None:
-        try:
-            source = download_canva_thumbnail(
-                canva_url,
+    if not canva_urls:
+        single_url = _discover_canva_url(
+            drive_service,
+            docs_service,
+            folder_id,
+            fields,
+            original_video_url=source_url,
+        )
+        if single_url:
+            canva_urls = [single_url]
+    if canva_urls:
+        saw_aspect_mismatch = False
+        last_error_url = canva_urls[0]
+        for canva_url in canva_urls:
+            try:
+                source = download_canva_thumbnail(
+                    canva_url,
+                    destination,
+                    canva_client=canva_client,
+                    canva_web_client=canva_web_client,
+                )
+            except Exception as exc:
+                if is_canva_auth_error(exc):
+                    raise DriveThumbnailError(str(exc)) from exc
+                print(f"  -> Canva export failed: {exc}")
+                last_error_url = canva_url
+                destination.unlink(missing_ok=True)
+                continue
+            if _thumbnail_aspect_mismatches_video(
+                drive_service,
+                folder_id,
                 destination,
-                canva_client=canva_client,
-                canva_web_client=canva_web_client,
+                video_size=video_size,
+                video_size_resolved=True,
+            ):
+                print(
+                    "  -> Canva design aspect does not match the video; "
+                    "trying the next design"
+                )
+                destination.unlink(missing_ok=True)
+                saw_aspect_mismatch = True
+                continue
+            updated["_originalThumbnailPath"] = str(destination)
+            updated.pop("_thumbnailReviewPath", None)
+            updated[f"{thumbnail_field}Source"] = source
+            print(f"  -> staged Canva design for Airtable upload: {destination.name}")
+            return
+        if saw_aspect_mismatch:
+            print(
+                "  -> no Canva design matches the video aspect; "
+                "using the original video thumbnail"
             )
-        except Exception as exc:
-            if is_canva_auth_error(exc):
-                raise DriveThumbnailError(str(exc)) from exc
-            print(f"  -> Canva export failed (manual review): {exc}")
-            _stage_manual_canva_review_placeholder(
-                destination,
-                canva_url=canva_url,
-                drive_service=drive_service,
-                folder_id=folder_id,
-                updated=updated,
-                thumbnail_field=thumbnail_field,
+            try:
+                download_original_platform_thumbnail(source_url, destination)
+            except DriveThumbnailError as exc:
+                print(f"  -> original video thumbnail failed (manual review): {exc}")
+                _stage_manual_canva_review_placeholder(
+                    destination,
+                    canva_url=last_error_url,
+                    drive_service=drive_service,
+                    folder_id=folder_id,
+                    updated=updated,
+                    thumbnail_field=thumbnail_field,
+                )
+                return
+            updated["_originalThumbnailPath"] = str(destination)
+            updated.pop("_thumbnailReviewPath", None)
+            updated[f"{thumbnail_field}Source"] = "original-platform"
+            print(
+                "  -> staged original video thumbnail for Airtable upload: "
+                f"{destination.name}"
             )
             return
-        updated["_originalThumbnailPath"] = str(destination)
-        updated.pop("_thumbnailReviewPath", None)
-        updated[f"{thumbnail_field}Source"] = source
-        print(f"  -> staged Canva design for Airtable upload: {destination.name}")
+        print("  -> Canva export failed (manual review)")
+        _stage_manual_canva_review_placeholder(
+            destination,
+            canva_url=last_error_url,
+            drive_service=drive_service,
+            folder_id=folder_id,
+            updated=updated,
+            thumbnail_field=thumbnail_field,
+        )
         return
 
     if _try_stage_drive_psd_original(

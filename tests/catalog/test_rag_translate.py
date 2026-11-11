@@ -253,6 +253,7 @@ class RagTranslateTests(unittest.TestCase):
         caption_prompt = metadata_caption_system_prompt()
         self.assertIn("Do not add words or lines", caption_prompt)
         self.assertIn("Изживейте", caption_prompt)
+        self.assertIn("Ферментирали", caption_prompt)
         self.assertNotIn("one-word English line", caption_prompt)
         self.assertNotIn("same number of lines and line breaks", caption_prompt)
         messages = build_metadata_messages(
@@ -393,6 +394,34 @@ class RagTranslateTests(unittest.TestCase):
                 "Да живееш пълноценно\nсрещу сдържането",
             ),
             "Да живееш пълноценно\nсрещу сдържането",
+        )
+        self.assertEqual(
+            match_source_newlines(
+                "Living Fully\nVS HOLDING BACK",
+                "Да живееш пълноценно срещу сдържането",
+            ),
+            "Да живееш пълноценно срещу сдържането",
+        )
+        self.assertEqual(
+            match_source_newlines(
+                "Best & Worst\nFermented\nFoods",
+                "Най-добрите и Най-лошите\nФерментирали Храни",
+            ),
+            "Най-добрите и Най-лошите\nФерментирали\nХрани",
+        )
+        self.assertEqual(
+            match_source_newlines(
+                "Best & Worst\nFermented\nFoods",
+                "Най-добрите и Най-лошите Ферментирали Храни",
+            ),
+            "Най-добрите и Най-лошите\nФерментирали\nХрани",
+        )
+        self.assertEqual(
+            match_source_newlines(
+                "Experience\nLiving\nMukti",
+                "Изживейте\nМукти",
+            ),
+            "Изживейте\nМукти",
         )
         self.assertEqual(
             match_source_newlines(

@@ -354,6 +354,80 @@ def extract_canva_links_from_google_document(
     return dedupe_canva_urls(all_urls), dedupe_canva_urls(below_tn_urls)
 
 
+def _resolved_target_size(
+    target_size: tuple[int, int] | None,
+    original_video_url: str | None,
+) -> tuple[int, int] | None:
+    if target_size is not None:
+        return target_size
+    source_url = str(original_video_url or "").strip()
+    if not source_url:
+        return None
+    try:
+        return video_size_from_source_url(source_url)
+    except SourceThumbnailError:
+        return None
+
+
+def _split_canva_urls_by_aspect(
+    candidates: list[str],
+    target_size: tuple[int, int],
+) -> tuple[list[str], list[str], list[str]]:
+    """Split designs into aspect matches, unknown sizes, and mismatches.
+
+    Matches are ordered by how close they are to ``target_size``. A known
+    mismatch is never treated as close enough.
+    """
+    target_width, target_height = target_size
+    dimension_cache: dict[str, tuple[int, int] | None] = {}
+
+    def design_size(url: str) -> tuple[int, int] | None:
+        if url not in dimension_cache:
+            try:
+                dimension_cache[url] = probe_canva_design_dimensions(url)
+            except Exception:
+                dimension_cache[url] = None
+        return dimension_cache[url]
+
+    matching: list[str] = []
+    unknown: list[str] = []
+    mismatched: list[str] = []
+    for url in candidates:
+        size = design_size(url)
+        if size is None:
+            unknown.append(url)
+        elif aspects_match(target_width, target_height, size[0], size[1]):
+            matching.append(url)
+        else:
+            mismatched.append(url)
+    matching.sort(key=lambda url: _aspect_distance(target_size, design_size(url)))
+    return matching, unknown, mismatched
+
+
+def ordered_canva_urls(
+    urls: list[str],
+    *,
+    target_size: tuple[int, int] | None = None,
+    original_video_url: str | None = None,
+) -> list[str]:
+    """Canva URLs to try, matching aspect first.
+
+    Known mismatches stay in the list so a downloaded image can still be
+    checked, but they are attempted only after matches and unknown sizes.
+    """
+    candidates = dedupe_canva_urls(urls)
+    if not candidates:
+        return []
+    resolved_size = _resolved_target_size(target_size, original_video_url)
+    if resolved_size is None:
+        return candidates
+    matching, unknown, mismatched = _split_canva_urls_by_aspect(
+        candidates,
+        resolved_size,
+    )
+    return matching + unknown + mismatched
+
+
 def select_canva_url(
     urls: list[str],
     *,
@@ -366,50 +440,19 @@ def select_canva_url(
     if len(candidates) == 1:
         return candidates[0]
 
-    resolved_size = target_size
-    if resolved_size is None:
-        source_url = str(original_video_url or "").strip()
-        if source_url:
-            try:
-                resolved_size = video_size_from_source_url(source_url)
-            except SourceThumbnailError:
-                resolved_size = None
+    resolved_size = _resolved_target_size(target_size, original_video_url)
     if resolved_size is None:
         return candidates[0]
 
-    dimension_cache: dict[str, tuple[int, int] | None] = {}
-
-    def design_size(url: str) -> tuple[int, int] | None:
-        if url not in dimension_cache:
-            try:
-                dimension_cache[url] = probe_canva_design_dimensions(url)
-            except Exception:
-                dimension_cache[url] = None
-        return dimension_cache[url]
-
-    target_width, target_height = resolved_size
-    matching = [
-        url
-        for url in candidates
-        if (size := design_size(url)) is not None
-        and aspects_match(target_width, target_height, size[0], size[1])
-    ]
-    if len(matching) == 1:
-        return matching[0]
+    matching, unknown, _mismatched = _split_canva_urls_by_aspect(
+        candidates,
+        resolved_size,
+    )
     if matching:
-        return sorted(
-            matching,
-            key=lambda url: _aspect_distance(resolved_size, design_size(url)),
-        )[0]
-
-    sized = [(url, design_size(url)) for url in candidates]
-    sized_with_dims = [item for item in sized if item[1] is not None]
-    if sized_with_dims:
-        return min(
-            sized_with_dims,
-            key=lambda item: _aspect_distance(resolved_size, item[1]),
-        )[0]
-    return candidates[0]
+        return matching[0]
+    if unknown:
+        return unknown[0]
+    return None
 
 
 def _aspect_distance(

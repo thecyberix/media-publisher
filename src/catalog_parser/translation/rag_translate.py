@@ -134,7 +134,9 @@ def metadata_caption_system_prompt() -> str:
         "across rows is still one name: translate it once. Do not add words or "
         "lines just so the translation has the same number of lines as the "
         "English. Rows \"Experience\" / \"Living\" / \"Mukti\" are "
-        "\"Изживейте\" / \"Мукти\". "
+        "\"Изживейте\" / \"Мукти\". When a source row is translated, keep "
+        "that translation on its own line. Rows \"Fermented\" / \"Foods\" stay "
+        "\"Ферментирали\" / \"Храни\". "
         "Do not add credits, hashtags, logos, or explanations. Return only the "
         f"{name} caption text."
     )
@@ -357,21 +359,61 @@ def _caption_nonempty_lines(text: str) -> list[str]:
     ]
 
 
+def _separate_matching_source_lines(
+    src_lines: list[str],
+    tr_lines: list[str],
+) -> list[str]:
+    """Split a merged translation so one-word source rows get their own line.
+
+    Only words already in the translation are used. A row that was not
+    translated on its own, such as \"Living\" inside \"Living Mukti\", does not
+    gain a line. Lines whose word counts differ from the English are left as
+    the model wrote them.
+    """
+    if len(tr_lines) >= len(src_lines):
+        return tr_lines
+    head = tr_lines[:-1]
+    covered = src_lines[len(head) :]
+    tail_words = tr_lines[-1].split()
+    if not covered or not tail_words:
+        return tr_lines
+
+    split_at = len(covered)
+    while split_at > 0 and len(covered[split_at - 1].split()) == 1:
+        split_at -= 1
+    single_count = len(covered) - split_at
+    if single_count == 0:
+        return tr_lines
+    prefix_lines = covered[:split_at]
+    if len(prefix_lines) > 1:
+        return tr_lines
+    if prefix_lines:
+        if len(tail_words) <= single_count:
+            return tr_lines
+        prefix = " ".join(tail_words[:-single_count])
+        return head + [prefix, *tail_words[-single_count:]]
+    if len(tail_words) != single_count:
+        return tr_lines
+    return head + tail_words
+
+
 def match_source_newlines(source: str, translation: str) -> str:
-    """Keep the translation's line breaks.
+    """Keep the translation's line breaks, then restore source rows when possible.
 
     A single-line English source is joined into one line. When the English has
-    several lines, the translation's own breaks stay. Words are not moved
-    between lines to match the English word count.
+    several lines, translated rows that correspond to separate one-word source
+    rows are split apart. Words are not added, and lines are not reflowed to
+    match the English word count.
     """
     src = (source or "").replace("\r\n", "\n").replace("\r", "\n")
     tr = (translation or "").replace("\r\n", "\n").replace("\r", "\n")
     tr_lines = _caption_nonempty_lines(tr)
     if not tr_lines:
         return ""
-    if len(_caption_nonempty_lines(src)) <= 1:
+    src_lines = _caption_nonempty_lines(src)
+    if len(src_lines) <= 1:
         return " ".join(tr_lines)
-    return "\n".join(tr_lines)
+    return "\n".join(_separate_matching_source_lines(src_lines, tr_lines))
 
 
 def _line_is_all_caps(line: str) -> bool:
@@ -1359,7 +1401,9 @@ def build_metadata_messages(
             "one name: translate it once. Do not add words or lines just so the "
             "translation has the same number of lines as the English. "
             "Rows \"Experience\" / \"Living\" / \"Mukti\" are "
-            "\"Изживейте\" / \"Мукти\".\n"
+            "\"Изживейте\" / \"Мукти\". When a source row is translated, keep "
+            "that translation on its own line. Rows \"Fermented\" / \"Foods\" "
+            "stay \"Ферментирали\" / \"Храни\".\n"
             "Do not add credits, hashtags, or logos.\n\n"
         )
     else:

@@ -14,6 +14,7 @@ from catalog_parser.canva_selection import (
     dedupe_canva_urls,
     extract_canva_links_from_docx,
     extract_canva_links_from_google_document,
+    ordered_canva_urls,
     select_canva_url,
 )
 from catalog_parser.drive_video_size import (
@@ -229,6 +230,54 @@ class CanvaSelectionTests(unittest.TestCase):
                     original_video_url="https://instagram.com/reel/short",
                 )
         self.assertEqual(selected, "https://www.canva.com/design/LAND/view")
+
+    def test_select_rejects_designs_when_none_match_aspect(self) -> None:
+        wide = "https://www.canva.com/design/WIDE/view"
+        wider = "https://www.canva.com/design/WIDER/view"
+        with patch(
+            "catalog_parser.canva_selection.probe_canva_design_dimensions",
+            side_effect=lambda url: {
+                wide: (1920, 1080),
+                wider: (1280, 720),
+            }[url],
+        ):
+            selected = select_canva_url(
+                [wide, wider],
+                target_size=(1080, 1920),
+            )
+        self.assertIsNone(selected)
+
+    def test_select_prefers_unknown_size_over_known_mismatch(self) -> None:
+        landscape = "https://www.canva.com/design/LAND/view"
+        unknown = "https://www.canva.com/design/UNKNOWN/view"
+        with patch(
+            "catalog_parser.canva_selection.probe_canva_design_dimensions",
+            side_effect=lambda url: (1920, 1080) if url == landscape else None,
+        ):
+            selected = select_canva_url(
+                [landscape, unknown],
+                target_size=(1080, 1920),
+            )
+        self.assertEqual(selected, unknown)
+
+    def test_ordered_canva_urls_tries_matching_aspect_first(self) -> None:
+        landscape = "https://www.canva.com/design/LAND/view"
+        portrait = "https://www.canva.com/design/PORT/view"
+        with patch(
+            "catalog_parser.canva_selection.probe_canva_design_dimensions",
+            side_effect=lambda url: {
+                landscape: (1920, 1080),
+                portrait: (1080, 1920),
+            }[url],
+        ):
+            ordered = ordered_canva_urls(
+                [landscape, portrait],
+                target_size=(1080, 1920),
+            )
+        self.assertEqual(
+            ordered,
+            [portrait, landscape],
+        )
 
 
 class DriveVideoSizeTests(unittest.TestCase):

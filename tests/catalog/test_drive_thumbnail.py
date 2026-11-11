@@ -445,6 +445,175 @@ class DriveThumbnailTests(unittest.TestCase):
         self.assertNotIn("_thumbnailReviewPath", enriched[0])
         self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-share-preview")
 
+    def test_enrich_records_replaces_mismatched_share_preview_with_video_thumbnail(
+        self,
+    ) -> None:
+        import tempfile
+        from PIL import Image
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+
+        def write_portrait_preview(_url, dest, canva_client=None, canva_web_client=None):
+            del canva_client, canva_web_client
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (335, 596), (20, 40, 60)).save(dest, "JPEG", quality=90)
+            return "canva-share-preview"
+
+        def write_landscape_thumb(_url, dest):
+            Image.new("RGB", (1280, 720), (10, 80, 20)).save(dest, "JPEG", quality=90)
+            return dest
+
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_url",
+            return_value="https://www.canva.com/design/DAHKeU3tjc0/view",
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_thumbnail",
+                side_effect=write_portrait_preview,
+            ):
+                with patch(
+                    "catalog_parser.drive_thumbnail.video_size_from_pkg_folder",
+                    return_value=(1920, 1080),
+                ):
+                    with patch(
+                        "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                        side_effect=write_landscape_thumb,
+                    ) as platform_mock:
+                        enriched = enrich_records_with_original_video_thumbnails(
+                            records,
+                            drive_service,
+                            None,
+                            staging_dir=staging_dir,
+                            canva_client=MagicMock(),
+                        )
+
+        platform_mock.assert_called_once()
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "original-platform")
+        self.assertIn("_originalThumbnailPath", enriched[0])
+        self.assertNotIn("_thumbnailReviewPath", enriched[0])
+        with Image.open(enriched[0]["_originalThumbnailPath"]) as image:
+            self.assertEqual(image.size, (1280, 720))
+
+    def test_enrich_records_uses_matching_canva_before_original_thumbnail(
+        self,
+    ) -> None:
+        import tempfile
+        from PIL import Image
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+        landscape = "https://www.canva.com/design/LAND/view"
+        portrait = "https://www.canva.com/design/PORT/view"
+
+        def write_preview(url, dest, canva_client=None, canva_web_client=None):
+            del canva_client, canva_web_client
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            size = (1280, 720) if url == landscape else (1080, 1920)
+            Image.new("RGB", size, (20, 40, 60)).save(dest, "JPEG", quality=90)
+            return "canva-share-preview"
+
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_urls",
+            return_value=[landscape, portrait],
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_thumbnail",
+                side_effect=write_preview,
+            ) as canva_mock:
+                with patch(
+                    "catalog_parser.drive_thumbnail.video_size_from_pkg_folder",
+                    return_value=(1080, 1920),
+                ):
+                    with patch(
+                        "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                    ) as platform_mock:
+                        enriched = enrich_records_with_original_video_thumbnails(
+                            records,
+                            drive_service,
+                            None,
+                            staging_dir=staging_dir,
+                            canva_client=MagicMock(),
+                        )
+
+        self.assertEqual(canva_mock.call_count, 2)
+        platform_mock.assert_not_called()
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "canva-share-preview")
+        with Image.open(enriched[0]["_originalThumbnailPath"]) as image:
+            self.assertEqual(image.size, (1080, 1920))
+
+    def test_enrich_records_uses_original_when_every_canva_aspect_mismatches(
+        self,
+    ) -> None:
+        import tempfile
+        from PIL import Image
+
+        drive_service = MagicMock()
+        staging_dir = Path(tempfile.mkdtemp())
+        records = [
+            {
+                "ctTitle": "Sample",
+                "ctLink": "https://youtu.be/abc123",
+                "pkgLink": "https://drive.google.com/drive/folders/folder-1",
+            }
+        ]
+        first = "https://www.canva.com/design/ONE/view"
+        second = "https://www.canva.com/design/TWO/view"
+
+        def write_landscape(_url, dest, canva_client=None, canva_web_client=None):
+            del canva_client, canva_web_client
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (1280, 720), (20, 40, 60)).save(dest, "JPEG", quality=90)
+            return "canva-share-preview"
+
+        def write_portrait(_url, dest):
+            Image.new("RGB", (1080, 1920), (10, 80, 20)).save(dest, "JPEG", quality=90)
+            return dest
+
+        with patch(
+            "catalog_parser.drive_thumbnail._discover_canva_urls",
+            return_value=[first, second],
+        ):
+            with patch(
+                "catalog_parser.drive_thumbnail.download_canva_thumbnail",
+                side_effect=write_landscape,
+            ) as canva_mock:
+                with patch(
+                    "catalog_parser.drive_thumbnail.video_size_from_pkg_folder",
+                    return_value=(1080, 1920),
+                ):
+                    with patch(
+                        "catalog_parser.drive_thumbnail.download_original_platform_thumbnail",
+                        side_effect=write_portrait,
+                    ) as platform_mock:
+                        enriched = enrich_records_with_original_video_thumbnails(
+                            records,
+                            drive_service,
+                            None,
+                            staging_dir=staging_dir,
+                            canva_client=MagicMock(),
+                        )
+
+        self.assertEqual(canva_mock.call_count, 2)
+        platform_mock.assert_called_once()
+        self.assertEqual(enriched[0]["ytThumbnailSource"], "original-platform")
+        with Image.open(enriched[0]["_originalThumbnailPath"]) as image:
+            self.assertEqual(image.size, (1080, 1920))
+
     def test_enrich_records_queues_manual_canva_placeholder_on_design_access_error(
         self,
     ) -> None:
