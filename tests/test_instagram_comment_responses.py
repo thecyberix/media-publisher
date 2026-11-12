@@ -16,11 +16,16 @@ from catalog_parser.playlists import (
     load_playlist_config,
 )
 from media_publisher.instagram_comment_responses import (
+    CommentThread,
     InstagramComment,
+    SentDirectMessage,
+    backfill_instagram_comment_responses,
     comment_matches_keyword,
     commented_videos_from_report,
+    direct_message_ids,
     load_response_state,
     pending_responses,
+    public_reply_ids,
     remember_commented_video,
     run_instagram_comment_responses,
 )
@@ -308,6 +313,241 @@ class CommentResponseTests(unittest.TestCase):
             self.assertEqual(state_path.read_text(encoding="utf-8"), original)
 
 
+class ExistingResponseTests(unittest.TestCase):
+    def test_pairs_each_keyword_reply_with_the_next_page_reply(self) -> None:
+        start = datetime(2026, 10, 10, 12, tzinfo=timezone.utc)
+        thread = CommentThread(
+            parent=InstagramComment("cta", CTA, username="page", timestamp=start),
+            replies=(
+                InstagramComment(
+                    "early",
+                    "Благодарим ви.",
+                    username="page",
+                    timestamp=start + timedelta(minutes=1),
+                ),
+                InstagramComment(
+                    "fan1",
+                    "Вътрешно изграждане",
+                    username="fan1",
+                    timestamp=start + timedelta(minutes=2),
+                ),
+                InstagramComment(
+                    "reply1",
+                    "Благодарим ви.",
+                    username="page",
+                    timestamp=start + timedelta(minutes=3),
+                ),
+                InstagramComment(
+                    "fan2",
+                    "вътрешно изграждане",
+                    username="fan2",
+                    timestamp=start + timedelta(minutes=4),
+                ),
+                InstagramComment(
+                    "reply2",
+                    "Благодарим ви.",
+                    username="@page",
+                    timestamp=start + timedelta(minutes=5),
+                ),
+            ),
+        )
+        found = public_reply_ids(
+            thread,
+            comment_response_rules(_config()),
+            own_username="page",
+        )
+        self.assertEqual(
+            {comment_id: reply_id for comment_id, (_rule, reply_id) in found.items()},
+            {"fan1": "reply1", "fan2": "reply2"},
+        )
+
+    def test_direct_messages_pair_in_time_order(self) -> None:
+        start = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
+        rule = _rule()
+        comments = [
+            (
+                InstagramComment("old", "keyword", username="fan", timestamp=start),
+                rule,
+            ),
+            (
+                InstagramComment(
+                    "new",
+                    "keyword",
+                    username="fan",
+                    timestamp=start + timedelta(hours=2),
+                ),
+                rule,
+            ),
+        ]
+        messages = [
+            SentDirectMessage(
+                "too-early",
+                "fan",
+                rule.dm or "",
+                start - timedelta(minutes=5),
+            ),
+            SentDirectMessage(
+                "first",
+                "Fan",
+                rule.dm or "",
+                start + timedelta(minutes=1),
+            ),
+            SentDirectMessage(
+                "second",
+                "fan",
+                rule.dm or "",
+                start + timedelta(hours=3),
+            ),
+        ]
+        self.assertEqual(
+            direct_message_ids(comments, messages),
+            {"old": "first", "new": "second"},
+        )
+
+    def test_backfill_records_existing_reply_and_dm(self) -> None:
+        now = datetime(2026, 10, 15, 12, tzinfo=timezone.utc)
+        old = now - timedelta(days=8)
+        recent = now - timedelta(days=1)
+
+        class _Client:
+            def __init__(self) -> None:
+                self.inbox_calls = 0
+
+            def list_instagram_comment_threads(self, media_id: str) -> list[dict]:
+                return [
+                    {
+                        "id": "cta",
+                        "text": CTA,
+                        "username": "page",
+                        "timestamp": old.isoformat(),
+                        "replies": [
+                            {
+                                "id": "old-fan",
+                                "text": "Вътрешно изграждане",
+                                "username": "oldfan",
+                                "timestamp": old.isoformat(),
+                            },
+                            {
+                                "id": "old-reply",
+                                "text": "Благодарим ви.",
+                                "username": "page",
+                                "timestamp": (old + timedelta(minutes=1)).isoformat(),
+                            },
+                            {
+                                "id": "new-fan",
+                                "text": "Вътрешно изграждане",
+                                "username": "newfan",
+                                "timestamp": recent.isoformat(),
+                            },
+                            {
+                                "id": "new-reply",
+                                "text": "Благодарим ви.",
+                                "username": "page",
+                                "timestamp": (recent + timedelta(minutes=1)).isoformat(),
+                            },
+                            {
+                                "id": "open-fan",
+                                "text": "Вътрешно изграждане",
+                                "username": "openfan",
+                                "timestamp": (recent + timedelta(hours=1)).isoformat(),
+                            },
+                        ],
+                    }
+                ]
+
+            def list_instagram_outbound_messages(
+                self,
+                page_id: str,
+                *,
+                own_username: str,
+                since: datetime,
+            ) -> list[dict]:
+                self.inbox_calls += 1
+                return [
+                    {
+                        "id": "dm-new",
+                        "text": "Ето повече информация.",
+                        "username": "newfan",
+                        "timestamp": (recent + timedelta(minutes=2)).isoformat(),
+                    }
+                ]
+
+        client = _Client()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            state_path.write_text(json.dumps(_watch_list()), encoding="utf-8")
+            code = backfill_instagram_comment_responses(
+                client,  # type: ignore[arg-type]
+                page_id="page1",
+                own_username="page",
+                config=_config(),
+                state_path=state_path,
+                apply=True,
+                now=now,
+                log=lambda _line: None,
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(client.inbox_calls, 1)
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["comments"]["old-fan"]["reply_id"], "old-reply")
+            self.assertEqual(saved["comments"]["old-fan"]["dm_skipped"], "window")
+            self.assertNotIn("dm_id", saved["comments"]["old-fan"])
+            self.assertEqual(saved["comments"]["new-fan"]["reply_id"], "new-reply")
+            self.assertEqual(saved["comments"]["new-fan"]["dm_id"], "dm-new")
+            self.assertNotIn("open-fan", saved["comments"])
+
+            client.inbox_calls = 0
+            again = backfill_instagram_comment_responses(
+                client,  # type: ignore[arg-type]
+                page_id="page1",
+                own_username="page",
+                config=_config(),
+                state_path=state_path,
+                apply=False,
+                now=now,
+                log=lambda _line: None,
+            )
+            self.assertEqual(again, 0)
+            self.assertEqual(
+                json.loads(state_path.read_text(encoding="utf-8")),
+                saved,
+            )
+
+    def test_one_short_word_still_counts_as_our_reply(self) -> None:
+        start = datetime(2026, 10, 21, 15, tzinfo=timezone.utc)
+        configured = (
+            'Намаскарам! Линк към приложението "Чудото на ума" '
+            "ви беше изпратен на лично съобщение. 🙏"
+        )
+        posted = configured.replace(" на ", " в ", 1)
+        rule = PlaylistRule(
+            "Чудото на Ума",
+            "miracle_of_mind",
+            comment="prompt",
+            keyword="чудо",
+            reply=configured,
+            dm="dm",
+        )
+        thread = CommentThread(
+            parent=InstagramComment(
+                "fan",
+                "Чудото на ума",
+                username="fan",
+                timestamp=start,
+            ),
+            replies=(
+                InstagramComment(
+                    "reply",
+                    posted,
+                    username="page",
+                    timestamp=start + timedelta(minutes=1),
+                ),
+            ),
+        )
+        found = public_reply_ids(thread, (rule,), own_username="page")
+        self.assertEqual(found["fan"][1], "reply")
+
+
 class InstagramCommentApiTests(unittest.TestCase):
     def test_private_reply_posts_json_to_the_page(self) -> None:
         client = MetaClient("token-test")
@@ -329,6 +569,104 @@ class InstagramCommentApiTests(unittest.TestCase):
                 "recipient": {"comment_id": "c1"},
                 "message": {"text": "hello"},
             },
+        )
+
+    def test_comment_threads_keep_replies_nested(self) -> None:
+        client = MetaClient("token-test")
+
+        def request(method: str, path: str, **kwargs: object) -> dict:
+            if path == "media1/comments":
+                return {"data": [{"id": "parent", "text": "nice", "username": "fan"}]}
+            if path == "parent/replies":
+                return {
+                    "data": [
+                        {
+                            "id": "reply",
+                            "text": "Вътрешно изграждане",
+                            "username": "other",
+                        }
+                    ]
+                }
+            raise AssertionError(path)
+
+        with patch.object(client, "_request", side_effect=request):
+            threads = client.list_instagram_comment_threads("media1")
+        self.assertEqual(threads[0]["id"], "parent")
+        self.assertEqual([item["id"] for item in threads[0]["replies"]], ["reply"])
+
+    def test_outbound_messages_keep_page_messages_since(self) -> None:
+        client = MetaClient("token-test")
+        since = datetime(2026, 10, 14, tzinfo=timezone.utc)
+
+        def request(method: str, path: str, **kwargs: object) -> dict:
+            query = kwargs.get("query")
+            after = query.get("after") if isinstance(query, dict) else None
+            if path == "page/conversations" and not after:
+                return {
+                    "data": [
+                        {
+                            "id": "c1",
+                            "updated_time": "2026-10-15T12:00:00+0000",
+                            "participants": {
+                                "data": [
+                                    {"id": "p", "username": "page"},
+                                    {"id": "f", "username": "fan"},
+                                ]
+                            },
+                        },
+                        {
+                            "id": "c2",
+                            "updated_time": "2026-10-01T12:00:00+0000",
+                            "participants": {
+                                "data": [
+                                    {"id": "p", "username": "page"},
+                                    {"id": "o", "username": "other"},
+                                ]
+                            },
+                        },
+                    ]
+                }
+            if path == "c1/messages":
+                return {
+                    "data": [
+                        {
+                            "id": "m1",
+                            "message": "Ето",
+                            "from": {"id": "p", "username": "page"},
+                            "created_time": "2026-10-15T12:05:00+0000",
+                        },
+                        {
+                            "id": "m2",
+                            "message": "hi",
+                            "from": {"id": "f", "username": "fan"},
+                            "created_time": "2026-10-15T12:01:00+0000",
+                        },
+                        {
+                            "id": "m0",
+                            "message": "old",
+                            "from": {"id": "p", "username": "page"},
+                            "created_time": "2026-10-01T12:00:00+0000",
+                        },
+                    ]
+                }
+            raise AssertionError(path)
+
+        with patch.object(client, "_request", side_effect=request):
+            messages = client.list_instagram_outbound_messages(
+                "page",
+                own_username="@page",
+                since=since,
+            )
+        self.assertEqual(
+            messages,
+            [
+                {
+                    "id": "m1",
+                    "text": "Ето",
+                    "username": "fan",
+                    "timestamp": "2026-10-15T12:05:00+0000",
+                }
+            ],
         )
 
     def test_comment_list_includes_replies(self) -> None:

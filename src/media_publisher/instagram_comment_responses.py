@@ -134,6 +134,135 @@ def pending_responses(
     return pending
 
 
+@dataclass(frozen=True)
+class CommentThread:
+    parent: InstagramComment
+    replies: tuple[InstagramComment, ...]
+
+
+@dataclass(frozen=True)
+class SentDirectMessage:
+    message_id: str
+    username: str
+    text: str
+    timestamp: datetime | None = None
+
+
+def comment_thread_from_api(raw: dict[str, Any]) -> CommentThread | None:
+    parent = parse_instagram_comment(raw)
+    if parent is None:
+        return None
+    replies: list[InstagramComment] = []
+    nested = raw.get("replies")
+    if isinstance(nested, list):
+        for item in nested:
+            if not isinstance(item, dict):
+                continue
+            parsed = parse_instagram_comment(item)
+            if parsed is not None:
+                replies.append(parsed)
+    return CommentThread(parent=parent, replies=tuple(replies))
+
+
+def sent_message_from_api(raw: dict[str, Any]) -> SentDirectMessage | None:
+    message_id = raw.get("id")
+    text = raw.get("text")
+    username = raw.get("username")
+    if not isinstance(message_id, str) or not message_id.strip():
+        return None
+    if not isinstance(text, str) or not text.strip():
+        return None
+    if not isinstance(username, str) or not username.strip():
+        return None
+    timestamp = raw.get("timestamp")
+    parsed = timestamp if isinstance(timestamp, datetime) else _parse_timestamp(timestamp)
+    return SentDirectMessage(
+        message_id=message_id.strip(),
+        username=username.strip(),
+        text=text,
+        timestamp=parsed,
+    )
+
+
+def public_reply_ids(
+    thread: CommentThread,
+    rules: Sequence[PlaylistRule],
+    *,
+    own_username: str,
+) -> dict[str, tuple[PlaylistRule, str]]:
+    """Keyword comments in one thread that already have this account's reply.
+
+    Instagram keeps replies on the top-level comment, so a reply to a keyword
+    comment and the keyword comment itself are siblings. Each keyword comment
+    is paired with the earliest later reply that uses that rule's reply text.
+    """
+    found: dict[str, tuple[PlaylistRule, str]] = {}
+    own = _account_name(own_username)
+    for rule in rules:
+        if not rule.keyword or not rule.reply:
+            continue
+        dated = [
+            item
+            for item in (thread.parent, *thread.replies)
+            if item.timestamp is not None
+        ]
+        dated.sort(key=lambda item: (item.timestamp, item.comment_id))
+        keywords = [item for item in dated if _is_foreign_keyword(item, rule, own)]
+        replies = [item for item in dated if _is_our_reply(item, rule, own)]
+        reply_index = 0
+        for comment in keywords:
+            while (
+                reply_index < len(replies)
+                and replies[reply_index].timestamp < comment.timestamp
+            ):
+                reply_index += 1
+            if reply_index >= len(replies):
+                break
+            found.setdefault(comment.comment_id, (rule, replies[reply_index].comment_id))
+            reply_index += 1
+    return found
+
+
+def direct_message_ids(
+    comments: Sequence[tuple[InstagramComment, PlaylistRule]],
+    messages: Sequence[SentDirectMessage],
+) -> dict[str, str]:
+    """Pair each keyword comment with the earliest later DM of that rule's text."""
+    buckets: dict[tuple[str, str], list[SentDirectMessage]] = {}
+    for message in messages:
+        if message.timestamp is None or not message.message_id.strip():
+            continue
+        text = normalize_comment_text(message.text)
+        username = _account_name(message.username)
+        if not text or not username:
+            continue
+        buckets.setdefault((username, text), []).append(message)
+    for bucket in buckets.values():
+        bucket.sort(key=lambda item: (item.timestamp, item.message_id))
+
+    pending = [
+        item
+        for item in comments
+        if item[1].dm and item[0].timestamp is not None and item[0].username.strip()
+    ]
+    pending.sort(key=lambda item: (item[0].timestamp, item[0].comment_id))
+    found: dict[str, str] = {}
+    used: set[str] = set()
+    for comment, rule in pending:
+        if not rule.dm:
+            continue
+        key = (_account_name(comment.username), normalize_comment_text(rule.dm))
+        for message in buckets.get(key, ()):
+            if message.message_id in used or message.timestamp is None:
+                continue
+            if message.timestamp < comment.timestamp:
+                continue
+            found[comment.comment_id] = message.message_id
+            used.add(message.message_id)
+            break
+    return found
+
+
 def dm_window_closed(exc: BaseException) -> bool:
     detail = str(exc).casefold()
     return any(
@@ -399,6 +528,314 @@ def run_instagram_comment_responses(
         _store(state_path, state, handled)
     log(f"done planned={planned} sent={sent} failures={failures}")
     return 1 if failures else 0
+
+
+def backfill_instagram_comment_responses(
+    client: MetaClient,
+    *,
+    page_id: str,
+    own_username: str,
+    config: PlaylistConfig,
+    state_path: Path,
+    apply: bool,
+    limit: int = 0,
+    report_path: Path | None = None,
+    now: datetime | None = None,
+    log: Callable[[str], None] = print,
+) -> int:
+    """Record replies and DMs already present on Instagram.
+
+    A public reply counts when this account already posted the configured reply
+    text on that keyword comment's thread. A DM counts when the configured DM
+    text is already in that person's Instagram conversation. Comments older
+    than the DM window that already have a public reply are marked skipped.
+    Nothing is sent. Returns 1 when Instagram rate-limits the run or the inbox
+    cannot be read.
+    """
+    rules = comment_response_rules(config)
+    if not rules:
+        log("No playlist has a keyword reply or DM.")
+        return 0
+
+    moment = now or datetime.now(timezone.utc)
+    state = load_response_state(state_path)
+    if report_path is not None:
+        absorb_comment_report(state, report_path, rules)
+    videos = list(state["videos"].items())
+    if limit > 0:
+        videos = videos[:limit]
+    recorded = {
+        key: dict(value)
+        for key, value in state["comments"].items()
+        if isinstance(key, str) and isinstance(value, dict)
+    }
+
+    observed: dict[str, tuple[InstagramComment, PlaylistRule, str]] = {}
+    public: dict[str, tuple[PlaylistRule, str]] = {}
+    scanned = 0
+    stopped = False
+    log(f"{'apply' if apply else 'dry-run'}: {len(videos)} videos")
+    for media_id, video in videos:
+        if not isinstance(media_id, str) or not media_id or not isinstance(video, dict):
+            continue
+        end_cards = video.get("end_cards")
+        if not isinstance(end_cards, list):
+            continue
+        matched = [rule for rule in rules if rule.end_card in end_cards]
+        if not matched:
+            continue
+        try:
+            raw_threads = client.list_instagram_comment_threads(media_id)
+        except MetaError as exc:
+            if rate_limited(exc):
+                stopped = True
+                log("Stopped: Instagram rate limit reached. Re-run after it resets.")
+                break
+            log(f"comments failed media={media_id}")
+            continue
+        scanned += 1
+        for raw in raw_threads:
+            if not isinstance(raw, dict):
+                continue
+            thread = comment_thread_from_api(raw)
+            if thread is None:
+                continue
+            for comment, rule in _keyword_comments(thread, matched, own_username):
+                observed.setdefault(comment.comment_id, (comment, rule, media_id))
+            for comment_id, match in public_reply_ids(
+                thread,
+                matched,
+                own_username=own_username,
+            ).items():
+                public.setdefault(comment_id, match)
+                current = observed.get(comment_id)
+                if current is not None and current[1] != match[0]:
+                    observed[comment_id] = (current[0], match[0], media_id)
+        if scanned == 1 or scanned % 25 == 0:
+            log(f"scanned {scanned}/{len(videos)} videos")
+
+    replies_added = 0
+    for comment_id, (comment, rule, media_id) in observed.items():
+        match = public.get(comment_id)
+        if match is None:
+            continue
+        matched_rule, reply_id = match
+        if _fill_response_record(
+            recorded,
+            comment_id=comment_id,
+            media_id=media_id,
+            end_card=matched_rule.end_card or matched_rule.name,
+            reply_id=reply_id,
+        ):
+            replies_added += 1
+            log(f"reply found comment={comment_id} media={media_id} reply={reply_id}")
+        rule = matched_rule
+        observed[comment_id] = (comment, rule, media_id)
+
+    needs_dm = [
+        (comment, rule)
+        for comment, rule, _media_id in observed.values()
+        if _dm_still_open(recorded.get(comment.comment_id), rule, comment, moment)
+    ]
+    dms_added = 0
+    inbox_failed = False
+    if needs_dm and not stopped:
+        dated = [comment.timestamp for comment, _rule in needs_dm if comment.timestamp]
+        since = min(dated) if dated else moment - DM_WINDOW
+        log(f"checking inbox for {len(needs_dm)} comments")
+        try:
+            raw_messages = client.list_instagram_outbound_messages(
+                page_id,
+                own_username=own_username,
+                since=since,
+            )
+        except MetaError as exc:
+            if rate_limited(exc):
+                stopped = True
+                log("Stopped: Instagram rate limit reached. Re-run after it resets.")
+            else:
+                inbox_failed = True
+                detail = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+                log(f"DM lookup failed: {detail[:300]}")
+        else:
+            messages = [
+                parsed
+                for raw in raw_messages
+                if isinstance(raw, dict) and (parsed := sent_message_from_api(raw)) is not None
+            ]
+            found = direct_message_ids(needs_dm, messages)
+            for comment, rule, media_id in observed.values():
+                message_id = found.get(comment.comment_id)
+                if not message_id:
+                    continue
+                if _fill_response_record(
+                    recorded,
+                    comment_id=comment.comment_id,
+                    media_id=media_id,
+                    end_card=rule.end_card or rule.name,
+                    dm_id=message_id,
+                ):
+                    dms_added += 1
+                    log(f"dm found comment={comment.comment_id} message={message_id}")
+
+    windows = 0
+    for comment, rule, media_id in observed.values():
+        record = recorded.get(comment.comment_id)
+        if not isinstance(record, dict) or not _filled(record.get("reply_id")):
+            continue
+        if _within_dm_window(comment, now=moment):
+            continue
+        if _fill_response_record(
+            recorded,
+            comment_id=comment.comment_id,
+            media_id=media_id,
+            end_card=rule.end_card or rule.name,
+            dm_skipped="window",
+        ):
+            windows += 1
+            log(f"dm skipped comment={comment.comment_id} reason=window")
+
+    still_open = 0
+    unanswered = 0
+    for comment, rule, _media_id in observed.values():
+        record = recorded.get(comment.comment_id)
+        stored = record if isinstance(record, dict) else {}
+        if not _filled(stored.get("reply_id")):
+            unanswered += 1
+            log(
+                f"unanswered comment={comment.comment_id} "
+                f"media={_media_id} user={comment.username}"
+            )
+            continue
+        if rule.dm and not _filled(stored.get("dm_id")) and not stored.get("dm_skipped"):
+            still_open += 1
+            log(
+                f"dm not found comment={comment.comment_id} "
+                f"user={comment.username}"
+            )
+    if apply:
+        state["comments"] = recorded
+        _store(state_path, state, recorded)
+    log(
+        f"done scanned={scanned} replies={replies_added} dms={dms_added} "
+        f"dm_window_closed={windows} dm_not_found={still_open} unanswered={unanswered}"
+    )
+    return 1 if stopped or inbox_failed else 0
+
+
+def _account_name(username: str) -> str:
+    return username.strip().lstrip("@").casefold()
+
+
+def _is_foreign_keyword(comment: InstagramComment, rule: PlaylistRule, own: str) -> bool:
+    if not rule.keyword or not comment_matches_keyword(comment.text, rule.keyword):
+        return False
+    prompt = normalize_comment_text(rule.comment or "")
+    if prompt and normalize_comment_text(comment.text) == prompt:
+        return False
+    if own and _account_name(comment.username) == own:
+        return False
+    return True
+
+
+def _same_message_text(left: str, right: str) -> bool:
+    """True when two messages match, allowing one short word to differ.
+
+    Metricool's Miracle of Mind reply says "в лично съобщение" where the
+    configured reply says "на лично съобщение".
+    """
+    a = normalize_comment_text(left).split()
+    b = normalize_comment_text(right).split()
+    if a == b:
+        return True
+    if len(a) != len(b):
+        return False
+    diffs = [(left_word, right_word) for left_word, right_word in zip(a, b) if left_word != right_word]
+    return len(diffs) == 1 and len(diffs[0][0]) <= 3 and len(diffs[0][1]) <= 3
+
+
+def _is_our_reply(comment: InstagramComment, rule: PlaylistRule, own: str) -> bool:
+    if not own or not rule.reply:
+        return False
+    if _account_name(comment.username) != own:
+        return False
+    return _same_message_text(comment.text, rule.reply)
+
+
+def _keyword_comments(
+    thread: CommentThread,
+    rules: Sequence[PlaylistRule],
+    own_username: str,
+) -> list[tuple[InstagramComment, PlaylistRule]]:
+    own = _account_name(own_username)
+    found: list[tuple[InstagramComment, PlaylistRule]] = []
+    seen: set[str] = set()
+    for rule in rules:
+        for comment in (thread.parent, *thread.replies):
+            if comment.comment_id in seen:
+                continue
+            if not _is_foreign_keyword(comment, rule, own):
+                continue
+            seen.add(comment.comment_id)
+            found.append((comment, rule))
+    return found
+
+
+def _dm_still_open(
+    record: dict[str, Any] | None,
+    rule: PlaylistRule,
+    comment: InstagramComment,
+    now: datetime,
+) -> bool:
+    if not rule.dm:
+        return False
+    stored = record or {}
+    if _filled(stored.get("dm_id")) or stored.get("dm_skipped"):
+        return False
+    return _within_dm_window(comment, now=now)
+
+
+def _fill_response_record(
+    handled: dict[str, Any],
+    *,
+    comment_id: str,
+    media_id: str,
+    end_card: str,
+    reply_id: str = "",
+    dm_id: str = "",
+    dm_skipped: str = "",
+) -> bool:
+    current = handled.get(comment_id)
+    record = dict(current) if isinstance(current, dict) else {}
+    if dm_skipped and (not _filled(record.get("reply_id")) or _filled(record.get("dm_id"))):
+        dm_skipped = ""
+    changed = False
+    for key, value in (
+        ("reply_id", reply_id),
+        ("dm_id", dm_id),
+        ("dm_skipped", dm_skipped),
+    ):
+        if not value or (key != "dm_skipped" and not _filled(value)):
+            continue
+        if key == "dm_skipped":
+            if record.get("dm_skipped") or _filled(record.get("dm_id")):
+                continue
+        elif _filled(record.get(key)):
+            continue
+        record[key] = value
+        changed = True
+    if not changed:
+        return False
+    if not _filled(record.get("reply_id")) and not _filled(record.get("dm_id")) and not record.get(
+        "dm_skipped"
+    ):
+        return False
+    if media_id and not _filled(record.get("media_id")):
+        record["media_id"] = media_id
+    if end_card and not _filled(record.get("end_card")):
+        record["end_card"] = end_card
+    handled[comment_id] = record
+    return True
 
 
 def _filled(value: object) -> bool:

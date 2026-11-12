@@ -45,6 +45,21 @@ UPLOAD_MAX_ATTEMPTS = 5
 UPLOAD_CHUNK_MAX_ATTEMPTS = 6
 
 
+def _parse_graph_time(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    if len(text) >= 5 and text[-5] in "+-" and text[-3] != ":":
+        text = f"{text[:-2]}:{text[-2:]}"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 class MetaError(RuntimeError):
     def __init__(
         self,
@@ -1902,14 +1917,27 @@ class MetaClient:
             raise MetaError("Meta Instagram comment response is missing comment id")
         return comment_id
 
-    def list_instagram_media(self, instagram_account_id: str) -> list[dict[str, Any]]:
-        """Videos and reels on the account, newest first."""
+    def list_instagram_media(
+        self,
+        instagram_account_id: str,
+        *,
+        since: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Videos and reels on the account, newest first.
+
+        ``since`` stops the scan at the first older media. The account list is
+        newest first, so nothing after that item is returned.
+        """
         account_id = instagram_account_id.strip()
         if not account_id:
             raise MetaError("Instagram account id is required")
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        elif since is not None:
+            since = since.astimezone(timezone.utc)
         videos: list[dict[str, Any]] = []
         query: dict[str, str] = {
-            "fields": "id,media_type,media_product_type,permalink,timestamp",
+            "fields": "id,media_type,media_product_type,permalink,timestamp,comments_count",
             "limit": "50",
         }
         while True:
@@ -1919,6 +1947,9 @@ class MetaClient:
             for item in payload.get("data") or []:
                 if not isinstance(item, dict):
                     continue
+                published = _parse_graph_time(item.get("timestamp"))
+                if since is not None and published is not None and published < since:
+                    return videos
                 media_type = item.get("media_type")
                 product = item.get("media_product_type")
                 if media_type != "VIDEO" and product != "REELS":
@@ -1933,18 +1964,190 @@ class MetaClient:
 
     def list_instagram_comments(self, media_id: str) -> list[dict[str, Any]]:
         """Top-level comments on one Instagram media object, plus replies to them."""
+        comments: list[dict[str, Any]] = []
+        for thread in self.list_instagram_comment_threads(media_id):
+            parent = {key: value for key, value in thread.items() if key != "replies"}
+            comments.append(parent)
+            replies = thread.get("replies")
+            if isinstance(replies, list):
+                comments.extend(item for item in replies if isinstance(item, dict))
+        return comments
+
+    def list_instagram_comment_threads(self, media_id: str) -> list[dict[str, Any]]:
+        """Top-level comments, each with its replies kept on a ``replies`` list."""
         target = media_id.strip()
         if not target:
             raise MetaError("Instagram comment media_id is required")
-        comments: list[dict[str, Any]] = []
+        threads: list[dict[str, Any]] = []
         for item in self._list_instagram_comment_edge(f"{target}/comments"):
-            comments.append(item)
+            thread = dict(item)
             comment_id = item.get("id")
+            replies: list[dict[str, Any]] = []
             if isinstance(comment_id, str) and comment_id.strip():
-                comments.extend(
-                    self._list_instagram_comment_edge(f"{comment_id.strip()}/replies")
+                replies = self._list_instagram_comment_edge(f"{comment_id.strip()}/replies")
+            thread["replies"] = replies
+            threads.append(thread)
+        return threads
+
+    def list_instagram_outbound_messages(
+        self,
+        page_id: str,
+        *,
+        own_username: str,
+        since: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """DMs sent by this account since ``since``, with the recipient username.
+
+        Conversations are newest first. Paging stops at the first conversation
+        updated before ``since``.
+        """
+        page = page_id.strip()
+        if not page:
+            raise MetaError("Facebook page id is required")
+        own = own_username.strip().lstrip("@").casefold()
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        elif since is not None:
+            since = since.astimezone(timezone.utc)
+
+        def parse_time(value: object) -> datetime | None:
+            if not isinstance(value, str) or not value.strip():
+                return None
+            text = value.strip().replace("Z", "+00:00")
+            if len(text) >= 5 and text[-5] in "+-" and text[-3] != ":":
+                text = f"{text[:-2]}:{text[-2:]}"
+            try:
+                parsed = datetime.fromisoformat(text)
+            except ValueError:
+                return None
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+
+        messages: list[dict[str, Any]] = []
+        query: dict[str, str] = {
+            "platform": "instagram",
+            "fields": "id,updated_time,participants{id,username}",
+            "limit": "25",
+        }
+        while True:
+            payload = self._request("GET", f"{page}/conversations", query=query)
+            if not isinstance(payload, dict):
+                return messages
+            rows = payload.get("data")
+            if not isinstance(rows, list):
+                return messages
+            for conversation in rows:
+                if not isinstance(conversation, dict):
+                    continue
+                updated = parse_time(conversation.get("updated_time"))
+                if since is not None and updated is not None and updated < since:
+                    return messages
+                conversation_id = conversation.get("id")
+                if not isinstance(conversation_id, str) or not conversation_id.strip():
+                    continue
+                participants = conversation.get("participants")
+                if isinstance(participants, dict):
+                    participants = participants.get("data")
+                if not isinstance(participants, list):
+                    participants = []
+                own_ids: set[str] = set()
+                recipient = ""
+                for person in participants:
+                    if not isinstance(person, dict):
+                        continue
+                    username = person.get("username")
+                    person_id = person.get("id")
+                    name = username.strip().lstrip("@").casefold() if isinstance(username, str) else ""
+                    if name and name == own:
+                        if isinstance(person_id, str) and person_id.strip():
+                            own_ids.add(person_id.strip())
+                        continue
+                    if name and not recipient:
+                        recipient = username.strip() if isinstance(username, str) else ""
+                if not recipient:
+                    continue
+                messages.extend(
+                    self._outbound_messages(
+                        conversation_id.strip(),
+                        own=own,
+                        own_ids=own_ids,
+                        recipient=recipient,
+                        since=since,
+                        parse_time=parse_time,
+                    )
                 )
-        return comments
+            after = ((payload.get("paging") or {}).get("cursors") or {}).get("after")
+            if not isinstance(after, str) or not after:
+                return messages
+            query = {**query, "after": after}
+
+    def _outbound_messages(
+        self,
+        conversation_id: str,
+        *,
+        own: str,
+        own_ids: set[str],
+        recipient: str,
+        since: datetime | None,
+        parse_time: Callable[[object], datetime | None],
+    ) -> list[dict[str, Any]]:
+        found: list[dict[str, Any]] = []
+        query: dict[str, str] = {
+            "fields": "id,message,from{id,username},created_time",
+            "limit": "50",
+        }
+        while True:
+            payload = self._request("GET", f"{conversation_id}/messages", query=query)
+            if not isinstance(payload, dict):
+                return found
+            rows = payload.get("data")
+            if not isinstance(rows, list) or not rows:
+                return found
+            page_is_older = True
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                sent_at = parse_time(item.get("created_time"))
+                if sent_at is None or since is None or sent_at >= since:
+                    page_is_older = False
+                if since is not None and sent_at is not None and sent_at < since:
+                    continue
+                sender = item.get("from")
+                if not isinstance(sender, dict):
+                    continue
+                sender_name = sender.get("username")
+                sender_id = sender.get("id")
+                name = (
+                    sender_name.strip().lstrip("@").casefold()
+                    if isinstance(sender_name, str)
+                    else ""
+                )
+                sent_by_us = name == own or (
+                    isinstance(sender_id, str) and sender_id.strip() in own_ids
+                )
+                if not sent_by_us:
+                    continue
+                message_id = item.get("id")
+                text = item.get("message")
+                if not isinstance(message_id, str) or not message_id.strip():
+                    continue
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                found.append(
+                    {
+                        "id": message_id.strip(),
+                        "text": text,
+                        "username": recipient,
+                        "timestamp": item.get("created_time"),
+                    }
+                )
+            if since is not None and page_is_older:
+                return found
+            after = ((payload.get("paging") or {}).get("cursors") or {}).get("after")
+            if not isinstance(after, str) or not after:
+                return found
+            query = {**query, "after": after}
 
     def _list_instagram_comment_edge(self, path: str) -> list[dict[str, Any]]:
         comments: list[dict[str, Any]] = []

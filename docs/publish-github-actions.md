@@ -197,6 +197,17 @@ python scripts/respond_instagram_playlist_comments.py --apply
 
 The first command only lists matches. `--apply` sends the reply and the DM. The token needs `instagram_manage_comments` and `instagram_manage_messages`. DMs use Instagram private replies and only go out within 7 days of the comment; older comments still get the public reply.
 
+Replies already sent outside this repo, including by Metricool, are missing from the state file until they are copied in:
+
+```powershell
+python scripts/backfill_instagram_comment_responses.py
+python scripts/backfill_instagram_comment_responses.py --apply
+```
+
+The backfill reads the videos on the watch list and the Instagram inbox. It records a public reply when this account already posted the configured reply on that keyword comment, and a DM when that message is already in the person's conversation. A comment older than 7 days that already has the public reply is marked so the DM is not retried. `--apply` writes `data/instagram_comment_responses.json`. Commit that file before the hourly workflow so those comments are not answered again.
+
+Each Instagram publish that posts an Inner Engineering or Miracle of Mind prompt adds that video to the watch list. The publish workflow commits `data/instagram_comment_responses.json` after the videos job.
+
 Dispatch `instagram-comment-responses.yml` the same way as the other publish workflows. A cron-job.org job can call it hourly at minute 45 (`45 * * * *`, Europe/Sofia). The workflow commits `data/instagram_comment_responses.json` so a comment is not answered twice.
 
 Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run. Catalog YouTube uploads are added to the playlists named on the Airtable record. Quotes and Ekadashi posts use the playlist titles in `config/playlists.json`.

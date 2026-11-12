@@ -68,6 +68,8 @@ jobs:
     if: >-
       inputs.mode == 'all' || inputs.mode == 'videos'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # Long-form Videos (HappyScribe download + ffmpeg burn) can exceed 1h.
     timeout-minutes: 180
 
@@ -83,6 +85,7 @@ jobs:
         run: python -m media_publisher --check-config
 
       - name: Publish catalog videos
+        id: publish
         env:
           PUBLISH_STAGGERED: ${{ inputs.timing != 'immediate' }}
           PYTHONUNBUFFERED: "1"
@@ -106,6 +109,23 @@ jobs:
             exit 1
           fi
           python -m media_publisher ${EXTRA_ARGS} ${PLATFORM_ARGS}
+
+      - name: Commit Instagram comment watch list
+        if: steps.publish.outcome == 'success' || steps.publish.outcome == 'failure'
+        run: |
+          if [ ! -f data/instagram_comment_responses.json ]; then
+            echo "No Instagram comment watch list."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/instagram_comment_responses.json
+          if git diff --staged --quiet; then
+            echo "No Instagram comment watch list changes to commit."
+          else
+            git commit -m "Add published Instagram videos to the comment watch list"
+            git push
+          fi
 
   quotes:
     if: >-

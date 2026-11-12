@@ -3028,13 +3028,20 @@ def main() -> int:
                 ffmpeg_path=settings.happyscribe_ffmpeg,
                 **template_urls_from_settings(settings),
             )
+            permalink = ""
+            try:
+                permalink = meta_client.get_instagram_media_permalink(media_id)
+            except MetaError as exc:
+                print(f"Instagram permalink lookup failed: {exc}")
             publish_instagram_playlist_comments(
                 meta_client,
                 media_id,
                 task.record_fields,
                 state_path=PROJECT_ROOT / "data" / "instagram_comment_responses.json",
+                permalink=permalink,
             )
-            permalink = meta_client.get_instagram_media_permalink(media_id)
+            if not permalink:
+                permalink = meta_client.get_instagram_media_permalink(media_id)
             updated = mark_platform_scheduled(
                 airtable,
                 record_id=task.record_id,

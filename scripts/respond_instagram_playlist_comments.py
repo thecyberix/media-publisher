@@ -1,9 +1,9 @@
 """Reply and DM on Instagram comments for Inner Engineering and Miracle of Mind.
 
-Only videos already on the watch list are checked. That list starts from
-output/instagram-end-card-comments.json and grows when a publish posts the
-playlist comment. A dry run lists keyword comments. Pass --apply to send.
-The run stops when Instagram rate-limits the request. This does not call Airtable.
+Only videos already on the watch list are checked. That list grows when a
+publish posts the playlist comment. A dry run lists keyword comments. Pass
+--apply to send. The run stops when Instagram rate-limits the request. This
+does not call Airtable.
 """
 from __future__ import annotations
 

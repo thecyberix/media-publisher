@@ -749,6 +749,24 @@
       "end_cards": [
         "inner_engineering"
       ]
+    },
+    "17885115261630523": {
+      "permalink": "https://www.instagram.com/reel/DfnHPE8EdOq/",
+      "end_cards": [
+        "inner_engineering"
+      ]
+    },
+    "18127490251917211": {
+      "permalink": "https://www.instagram.com/reel/De9vEPeE-_W/",
+      "end_cards": [
+        "inner_engineering"
+      ]
+    },
+    "17913363702513259": {
+      "permalink": "https://www.instagram.com/reel/DewsGaUjc7P/",
+      "end_cards": [
+        "miracle_of_mind"
+      ]
     }
   },
   "comments": {
@@ -763,6 +781,42 @@
       "end_card": "inner_engineering",
       "reply_id": "18102979370570737",
       "dm_id": "aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlEOjE3ODQxNDYxMDk0NjIyNzMyOjM0MDI4MjM2Njg0MTcxMDMwMTI0NDI2MDAxMjEwMjQ1NDM5OTM5MjozMzA1Nzk0Mjg2OTIwMDcxMDQzNTI0NzEyNTQ2MTcyOTI4MAZDZD"
+    },
+    "17939455767126423": {
+      "reply_id": "18118822688041793",
+      "media_id": "18127490251917211",
+      "end_card": "inner_engineering",
+      "dm_skipped": "window"
+    },
+    "18136158187731842": {
+      "reply_id": "17960372730014858",
+      "media_id": "18127490251917211",
+      "end_card": "inner_engineering",
+      "dm_skipped": "window"
+    },
+    "18108288410553088": {
+      "reply_id": "18082475903348268",
+      "media_id": "18127490251917211",
+      "end_card": "inner_engineering",
+      "dm_skipped": "window"
+    },
+    "18107534063636013": {
+      "reply_id": "17914871682284945",
+      "media_id": "18127490251917211",
+      "end_card": "inner_engineering",
+      "dm_skipped": "window"
+    },
+    "18118768472468818": {
+      "reply_id": "17956736922255936",
+      "media_id": "18127490251917211",
+      "end_card": "inner_engineering",
+      "dm_skipped": "window"
+    },
+    "18448984426193291": {
+      "reply_id": "18075710441467498",
+      "media_id": "17913363702513259",
+      "end_card": "miracle_of_mind",
+      "dm_skipped": "window"
     }
   }
 }

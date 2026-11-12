@@ -199,13 +199,21 @@ def publish_platform_task(
             ffmpeg_path=settings.ffmpeg_path,
             **settings.template_urls,
         )
+        permalink = ""
+        try:
+            permalink = meta_client.get_instagram_media_permalink(media_id)
+        except MetaError as exc:
+            log(f"Instagram permalink lookup failed: {exc}")
         publish_instagram_playlist_comments(
             meta_client,
             media_id,
             task.record_fields,
             state_path=Path("data") / "instagram_comment_responses.json",
+            permalink=permalink,
             log=log,
         )
+        if permalink:
+            return permalink
         return meta_client.get_instagram_media_permalink(media_id)
 
     raise ValueError(f"Unsupported platform {task.platform!r}")
