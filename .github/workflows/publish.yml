@@ -153,33 +153,18 @@ jobs:
           if [ "${{ inputs.timing }}" = "scheduled" ]; then
             EXTRA_ARGS="--private"
           fi
-          # Local switch, also used by publish-ekadashi.yml. Flip both to true
-          # to post quotes and Ekadashi stills to Facebook again.
-          POST_QUOTES_TO_FACEBOOK=false
           PLATFORM_ARGS=""
-          REQUESTED_ANY=false
           if [ "${{ inputs.youtube }}" = "true" ]; then
-            REQUESTED_ANY=true
             PLATFORM_ARGS="${PLATFORM_ARGS} --platform youtube"
           fi
           if [ "${{ inputs.facebook }}" = "true" ]; then
-            REQUESTED_ANY=true
-            if [ "$POST_QUOTES_TO_FACEBOOK" = "true" ]; then
-              PLATFORM_ARGS="${PLATFORM_ARGS} --platform facebook"
-            else
-              echo "Skipping Facebook quote posts (POST_QUOTES_TO_FACEBOOK=false)."
-            fi
+            PLATFORM_ARGS="${PLATFORM_ARGS} --platform facebook"
           fi
           if [ "${{ inputs.instagram }}" = "true" ]; then
-            REQUESTED_ANY=true
             PLATFORM_ARGS="${PLATFORM_ARGS} --platform instagram"
           fi
-          if [ "$REQUESTED_ANY" != "true" ]; then
+          if [ -z "$PLATFORM_ARGS" ]; then
             echo "Select at least one platform (YouTube, Facebook, Instagram)."
             exit 1
-          fi
-          if [ -z "$PLATFORM_ARGS" ]; then
-            echo "No quote platforms left to publish."
-            exit 0
           fi
           python -m media_publisher --quotes ${EXTRA_ARGS} ${PLATFORM_ARGS}
