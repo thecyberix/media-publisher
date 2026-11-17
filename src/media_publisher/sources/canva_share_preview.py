@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from media_publisher.sources.canva import resolve_canva_url
+from media_publisher.sources.source_thumbnail import ASPECT_TOLERANCE
 
 CANVA_MEDIA_RE = re.compile(r"https://media\.canva\.com/v2/image-resize/[^\"'\s<>]+")
 DOCUMENT_IMAGE_RE = re.compile(
@@ -130,24 +131,45 @@ def _fetch_page_html(canva_url: str) -> str:
     return _fetch_dom(canva_url)
 
 
-def _extract_bootstrap_dimensions(html: str) -> tuple[int, int] | None:
-    best: tuple[int, int, int, int, int] | None = None
-    for match in BOOTSTRAP_FILE_RE.finditer(html):
-        _url, width, height, quality = match.groups()
-        rank = QUALITY_RANK.get(quality, 0)
-        width_value = int(width)
-        height_value = int(height)
-        score = (rank, width_value * height_value, width_value, height_value)
-        if best is None or score[:2] > best[:2]:
-            best = score
+def _size_from_media_url(url: str) -> tuple[int, int] | None:
+    width = height = 0
+    for part in url.split("/"):
+        if part.startswith("width:"):
+            width = int(part.split(":", 1)[1].split("?", 1)[0])
+        elif part.startswith("height:"):
+            height = int(part.split(":", 1)[1].split("?", 1)[0])
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
 
-    if best is not None:
-        return best[2], best[3]
+
+def _dimension_preference(
+    width: int,
+    height: int,
+    *,
+    quality_rank: int,
+    target_size: tuple[int, int] | None,
+) -> tuple[int, float, int, int]:
+    """Rank a candidate size. Aspect match comes before resolution."""
+    pixels = width * height
+    if target_size is None or target_size[1] <= 0 or height <= 0 or width <= 0:
+        return (0, 0.0, quality_rank, pixels)
+    distance = abs((target_size[0] / target_size[1]) - (width / height))
+    matched = 1 if distance <= ASPECT_TOLERANCE else 0
+    return (matched, -distance, quality_rank, pixels)
+
+
+def _bootstrap_element_sizes(html: str) -> list[tuple[int, int, int]]:
+    sizes: list[tuple[int, int, int]] = []
+    for _url, width, height, quality in BOOTSTRAP_FILE_RE.findall(html):
+        sizes.append((int(width), int(height), QUALITY_RANK.get(quality, 0)))
+    if sizes:
+        return sizes
 
     marker = "window['bootstrap'] = JSON.parse('"
     start = html.find(marker)
     if start < 0:
-        return None
+        return []
     start += len(marker)
     end = start
     escaped = False
@@ -163,32 +185,67 @@ def _extract_bootstrap_dimensions(html: str) -> tuple[int, int] | None:
     try:
         payload = json.loads(html[start:end])
     except json.JSONDecodeError:
-        return None
+        return []
 
-    best = None
     for asset in payload.get("base", {}).get("assets", []):
+        if not isinstance(asset, dict):
+            continue
         for file_info in asset.get("files", []):
+            if not isinstance(file_info, dict):
+                continue
             url = file_info.get("url")
             if not isinstance(url, str) or "media.canva.com" not in url:
                 continue
-            quality = str(file_info.get("quality", ""))
-            rank = QUALITY_RANK.get(quality, 0)
             width = int(file_info.get("width") or 0)
             height = int(file_info.get("height") or 0)
-            score = (rank, width * height, width, height)
-            if best is None or score[:2] > best[:2]:
-                best = score
-    if best is None:
+            if width <= 0 or height <= 0:
+                continue
+            quality = str(file_info.get("quality", ""))
+            sizes.append((width, height, QUALITY_RANK.get(quality, 0)))
+    return sizes
+
+
+def _extract_bootstrap_dimensions(
+    html: str,
+    *,
+    target_size: tuple[int, int] | None = None,
+) -> tuple[int, int] | None:
+    """Return the design size, preferring a page whose aspect matches.
+
+    Composed ``document-image`` pages are the design. Element photos embedded
+    in the same HTML are only a fallback, because a large photo can be a
+    different shape from the page.
+    """
+    page_sizes = [
+        (*size, 0)
+        for url in document_image_urls_from_html(html)
+        if (size := _size_from_media_url(url)) is not None
+    ]
+    candidates = page_sizes or _bootstrap_element_sizes(html)
+    if not candidates:
         return None
-    return best[2], best[3]
+    width, height, _quality = max(
+        candidates,
+        key=lambda item: _dimension_preference(
+            item[0],
+            item[1],
+            quality_rank=item[2],
+            target_size=target_size,
+        ),
+    )
+    return width, height
 
 
-def probe_canva_design_dimensions(canva_url: str) -> tuple[int, int] | None:
+def probe_canva_design_dimensions(
+    canva_url: str,
+    *,
+    target_size: tuple[int, int] | None = None,
+) -> tuple[int, int] | None:
     """Return the preview image dimensions for a public Canva design link."""
     resolved = resolve_canva_url(canva_url)
     normalized = normalize_canva_share_url(resolved)
     html = _fetch_page_html(normalized)
-    return _extract_bootstrap_dimensions(html)
+    return _extract_bootstrap_dimensions(html, target_size=target_size)
 
 
 def _pick_best_bootstrap_url(html: str) -> str | None:
@@ -239,12 +296,10 @@ def _pick_best_bootstrap_url(html: str) -> str | None:
 
 
 def _media_url_score(url: str) -> tuple[int, int]:
-    width = height = 0
-    for part in url.split("/"):
-        if part.startswith("width:"):
-            width = int(part.split(":", 1)[1].split("?", 1)[0])
-        if part.startswith("height:"):
-            height = int(part.split(":", 1)[1].split("?", 1)[0])
+    size = _size_from_media_url(url)
+    if size is None:
+        return 0, 0
+    width, height = size
     return width * height, width
 
 

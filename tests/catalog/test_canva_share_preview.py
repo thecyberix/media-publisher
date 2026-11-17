@@ -7,6 +7,7 @@ from unittest.mock import patch
 from urllib.error import URLError
 
 from media_publisher.sources.canva_share_preview import (
+    _extract_bootstrap_dimensions,
     _preview_looks_valid,
     _screen_url,
     download_canva_share_preview,
@@ -188,6 +189,32 @@ class CanvaSharePreviewTests(unittest.TestCase):
                             download_canva_share_preview(SHARE_URL, destination)
 
         self.assertIn("/screen image was not available", str(ctx.exception))
+
+
+class CanvaDesignDimensionTests(unittest.TestCase):
+    def test_matching_page_beats_larger_photo(self) -> None:
+        html = (
+            '"url":"https://media.canva.com/v2/image-resize/photo"'
+            '"width":2400"height":1600"quality":"SCREEN_3X" '
+            '"page":1,"url":"https://media.canva.com/v2/document-image/'
+            'height:595/width:335"'
+        )
+        self.assertEqual(
+            _extract_bootstrap_dimensions(html, target_size=(1080, 1920)),
+            (335, 595),
+        )
+
+    def test_aspect_match_beats_larger_page(self) -> None:
+        html = (
+            '"page":1,"url":"https://media.canva.com/v2/document-image/'
+            'height:1080/width:1920" '
+            '"page":2,"url":"https://media.canva.com/v2/document-image/'
+            'height:595/width:335"'
+        )
+        self.assertEqual(
+            _extract_bootstrap_dimensions(html, target_size=(1080, 1920)),
+            (335, 595),
+        )
 
 
 if __name__ == "__main__":

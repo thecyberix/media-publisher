@@ -384,7 +384,10 @@ def _split_canva_urls_by_aspect(
     def design_size(url: str) -> tuple[int, int] | None:
         if url not in dimension_cache:
             try:
-                dimension_cache[url] = probe_canva_design_dimensions(url)
+                dimension_cache[url] = probe_canva_design_dimensions(
+                    url,
+                    target_size=target_size,
+                )
             except Exception:
                 dimension_cache[url] = None
         return dimension_cache[url]

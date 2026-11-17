@@ -199,7 +199,7 @@ class CanvaSelectionTests(unittest.TestCase):
         portrait = "https://www.canva.com/design/PORT/view"
         with patch(
             "catalog_parser.canva_selection.probe_canva_design_dimensions",
-            side_effect=lambda url: {
+            side_effect=lambda url, **_kwargs: {
                 "https://www.canva.com/design/LAND/view": (1920, 1080),
                 "https://www.canva.com/design/PORT/view": (1080, 1920),
             }[url],
@@ -219,7 +219,7 @@ class CanvaSelectionTests(unittest.TestCase):
         ):
             with patch(
                 "catalog_parser.canva_selection.probe_canva_design_dimensions",
-                side_effect=lambda url: {
+                side_effect=lambda url, **_kwargs: {
                     "https://www.canva.com/design/LAND/view": (1920, 1080),
                     "https://www.canva.com/design/PORT/view": (1080, 1920),
                 }[url],
@@ -236,7 +236,7 @@ class CanvaSelectionTests(unittest.TestCase):
         wider = "https://www.canva.com/design/WIDER/view"
         with patch(
             "catalog_parser.canva_selection.probe_canva_design_dimensions",
-            side_effect=lambda url: {
+            side_effect=lambda url, **_kwargs: {
                 wide: (1920, 1080),
                 wider: (1280, 720),
             }[url],
@@ -252,7 +252,7 @@ class CanvaSelectionTests(unittest.TestCase):
         unknown = "https://www.canva.com/design/UNKNOWN/view"
         with patch(
             "catalog_parser.canva_selection.probe_canva_design_dimensions",
-            side_effect=lambda url: (1920, 1080) if url == landscape else None,
+            side_effect=lambda url, **_kwargs: (1920, 1080) if url == landscape else None,
         ):
             selected = select_canva_url(
                 [landscape, unknown],
@@ -265,7 +265,7 @@ class CanvaSelectionTests(unittest.TestCase):
         portrait = "https://www.canva.com/design/PORT/view"
         with patch(
             "catalog_parser.canva_selection.probe_canva_design_dimensions",
-            side_effect=lambda url: {
+            side_effect=lambda url, **_kwargs: {
                 landscape: (1920, 1080),
                 portrait: (1080, 1920),
             }[url],

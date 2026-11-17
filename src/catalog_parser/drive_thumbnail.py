@@ -355,9 +355,34 @@ def resolve_canva_design_drive_url(
             docs_service,
             folder_id,
         )
-        return select_canva_url(urls, original_video_url=original_video_url)
+        return select_canva_url(
+            urls,
+            target_size=_package_video_size(drive_service, folder_id),
+            original_video_url=original_video_url,
+        )
     except Exception:
         return None
+
+
+def _package_video_size(
+    drive_service: Any,
+    folder_id: str,
+) -> tuple[int, int] | None:
+    """Width and height of the package video, for Canva aspect selection."""
+    try:
+        size = video_size_from_pkg_folder(drive_service, folder_id)
+    except Exception:
+        return None
+    if (
+        isinstance(size, tuple)
+        and len(size) == 2
+        and isinstance(size[0], int)
+        and isinstance(size[1], int)
+        and size[0] > 0
+        and size[1] > 0
+    ):
+        return size
+    return None
 
 
 def resolve_original_video_thumbnail(

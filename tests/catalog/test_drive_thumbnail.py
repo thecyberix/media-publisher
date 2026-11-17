@@ -864,15 +864,20 @@ class DriveThumbnailTests(unittest.TestCase):
             return_value=["https://www.canva.com/design/DAGabc/view"],
         ) as collect_mock:
             with patch(
-                "catalog_parser.drive_thumbnail.select_canva_url",
-                return_value="https://www.canva.com/design/DAGabc/view",
-            ) as select_mock:
-                url = resolve_canva_design_drive_url(MagicMock(), fields)
+                "catalog_parser.drive_thumbnail._package_video_size",
+                return_value=(1080, 1920),
+            ):
+                with patch(
+                    "catalog_parser.drive_thumbnail.select_canva_url",
+                    return_value="https://www.canva.com/design/DAGabc/view",
+                ) as select_mock:
+                    url = resolve_canva_design_drive_url(MagicMock(), fields)
 
         self.assertEqual(url, "https://www.canva.com/design/DAGabc/view")
         collect_mock.assert_called_once()
         select_mock.assert_called_once_with(
             ["https://www.canva.com/design/DAGabc/view"],
+            target_size=(1080, 1920),
             original_video_url="https://youtu.be/abc123XYZ01",
         )
 
