@@ -29,5 +29,6 @@ jobs:
           GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
           GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
+          TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
           PYTHONUNBUFFERED: "1"
         run: python scripts/catalog/send_editing_done_thumbnail_email.py --title "${{ inputs.title }}"

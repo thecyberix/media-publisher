@@ -12,10 +12,23 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from catalog_parser.__main__ import load_env_file
-from catalog_parser.runtime_env import materialize_credentials
+from media_publisher.runtime_env import materialize_credentials
+from media_publisher.sources.airtable import apply_airtable_url_env
 
-load_env_file(ROOT / ".env")
+
+def _load_env_file(path: Path) -> None:
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env_file(ROOT / ".env")
+apply_airtable_url_env()
 materialize_credentials(ROOT)
 
 
