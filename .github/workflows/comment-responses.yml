@@ -1,0 +1,70 @@
+name: Comment replies
+
+# Instagram: reply and DM on keyword comments.
+# Facebook: email NOTIFY_EMAIL for new keyword comments. Grok Bot replies and DMs.
+# Primary schedule: external cron (cron-job.org) → workflow_dispatch.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GMAIL_SMTP_USER: ${{ secrets.GMAIL_SMTP_USER }}
+  GMAIL_SMTP_APP_PASSWORD: ${{ secrets.GMAIL_SMTP_APP_PASSWORD }}
+  META_APP_ID: ${{ secrets.META_APP_ID }}
+  META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+  META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+  META_PAGE_USERNAME: ${{ vars.META_PAGE_USERNAME }}
+  META_INSTAGRAM_USERNAME: ${{ vars.META_INSTAGRAM_USERNAME }}
+  NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
+  TARGET_LANGUAGE: ${{ vars.TARGET_LANGUAGE }}
+
+jobs:
+  respond:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          install-ffmpeg: "false"
+
+      - name: Reply and DM on Instagram keyword comments
+        id: instagram
+        continue-on-error: true
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/respond_instagram_playlist_comments.py --apply
+
+      - name: Email new Facebook keyword comments
+        id: facebook
+        continue-on-error: true
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/notify_facebook_keyword_comments.py --apply
+
+      - name: Commit comment watch lists
+        if: steps.instagram.outcome == 'success' || steps.instagram.outcome == 'failure'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f data/instagram_comment_responses.json ]; then
+            git add data/instagram_comment_responses.json
+          fi
+          if [ -f data/facebook_comment_responses.json ]; then
+            git add data/facebook_comment_responses.json
+          fi
+          if git diff --staged --quiet; then
+            echo "No comment watch list changes to commit."
+          else
+            git commit -m "Record comment replies and Facebook keyword emails"
+            git push
+          fi
+
+      - name: Fail when a comment check failed
+        if: steps.instagram.outcome == 'failure' || steps.facebook.outcome == 'failure'
+        run: exit 1

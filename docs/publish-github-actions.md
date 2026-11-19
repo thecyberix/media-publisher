@@ -130,11 +130,11 @@ Suggested schedule: `30 12 * * *`, time zone **Europe/Sofia**. This is a separat
 
 The workflow publishes the Facebook and Instagram photo, plus a 10-second YouTube video, the day before the observance and does nothing on other days. The video is added to the **Екадаши** playlist when ``ekadashi_playlist`` is set in ``config/playlists.json``. The Instagram photo gets the comment in ``ekadashi_comment``, and that post is added to the keyword-reply watch list. A successful post is recorded in `data/ekadashi_publish_state.json` so a second run the same day does not post again.
 
-### Instagram comment replies
+### Comment replies
 
-Suggested schedule: `45 * * * *`, time zone **Europe/Sofia**. That is 09:45, 10:45, and every other hour at minute 45, clear of the jobs that start on the hour and the 12:30 Ekadashi run.
+Suggested schedule: `45 * * * *`, time zone **Europe/Sofia**. That is 09:45, 10:45, and every other hour at minute 45, clear of the jobs that start on the hour and the 12:30 Ekadashi run. One job covers Instagram and Facebook.
 
-**URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/instagram-comment-responses.yml/dispatches`
+**URL:** `https://api.github.com/repos/OWNER/REPO/actions/workflows/comment-responses.yml/dispatches`
 
 **Body:**
 
@@ -145,7 +145,11 @@ Suggested schedule: `45 * * * *`, time zone **Europe/Sofia**. That is 09:45, 10:
 }
 ```
 
-The workflow replies to keyword comments on the Inner Engineering, Miracle of Mind, and Ekadashi posts already on the watch list, and sends the configured DM. The same file records which comments were answered.
+On Instagram the workflow replies to keyword comments on the Inner Engineering, Miracle of Mind, and Ekadashi posts already on the watch list, and sends the configured DM. It records which comments were answered in `data/instagram_comment_responses.json`.
+
+Facebook publishing adds the video to `data/facebook_comment_responses.json`. The entry key is the Graph post id. The value holds the prompt text, `end_cards`, the title, and the permalink. Grok Bot reads that file and, when it resubmits the scheduled post, types the prompt in the Business Suite comment box. It then replaces the entry key and `permalink` with the public post. The workflow reads comments on the id stored in the file and emails `NOTIFY_EMAIL` once per new keyword comment. The subject is `Facebook keyword comment`. The body contains the post id, both permalinks, the comment text, the public reply, and the DM. It sets `emailed` on that comment. Grok Bot posts the reply and sends the DM from that mail. A comment whose text is the prompt or the configured reply is skipped. A post Graph cannot read yet is left for the next run.
+
+One commit records both watch lists. A failure on one platform still runs the other, and the job fails after that commit.
 
 ### One-off scheduled test from cron-job.org
 
@@ -197,6 +201,13 @@ python scripts/respond_instagram_playlist_comments.py --apply
 
 The first command only lists matches. `--apply` sends the reply and the DM. The token needs `instagram_manage_comments` and `instagram_manage_messages`. DMs use Instagram private replies and only go out within 7 days of the comment; older comments still get the public reply.
 
+Facebook uses the same prompts. The publish step adds the video to `data/facebook_comment_responses.json` under the Graph post id. Grok Bot types the prompt in Business Suite when it resubmits the scheduled post, then replaces that id and `permalink` with the public post. The checker emails `NOTIFY_EMAIL` for comments on the stored id and records `emailed`. Grok Bot posts the public reply and sends the DM from that mail.
+
+```powershell
+python scripts/notify_facebook_keyword_comments.py
+python scripts/notify_facebook_keyword_comments.py --apply
+```
+
 Replies already sent outside this repo, including by Metricool, are missing from the state file until they are copied in:
 
 ```powershell
@@ -208,7 +219,7 @@ The backfill reads the videos on the watch list and the Instagram inbox. It reco
 
 Each Instagram publish that posts an Inner Engineering, Miracle of Mind, or Ekadashi prompt adds that post to the watch list. The publish workflow commits `data/instagram_comment_responses.json` after the videos job, and the Ekadashi workflow commits it after that photo is posted.
 
-Dispatch `instagram-comment-responses.yml` the same way as the other publish workflows. A cron-job.org job can call it hourly at minute 45 (`45 * * * *`, Europe/Sofia). The workflow commits `data/instagram_comment_responses.json` so a comment is not answered twice.
+Dispatch `comment-responses.yml` the same way as the other publish workflows. A cron-job.org job can call it hourly at minute 45 (`45 * * * *`, Europe/Sofia). That run answers Instagram comments and emails new Facebook keyword comments, then commits both watch lists.
 
 Video and quote publish runs refresh Canva (if needed), probe the API once at startup, and sync `CANVA_TOKEN_JSON` / playlist slots when `CONFIG_SYNC_PAT` is set. Canva auth failures abort the run. Catalog YouTube uploads are added to the playlists named on the Airtable record. Quotes and Ekadashi posts use the playlist titles in `config/playlists.json`.
 

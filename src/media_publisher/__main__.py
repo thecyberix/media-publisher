@@ -43,7 +43,11 @@ from media_publisher.sources.google_drive import GoogleDriveClient, GoogleDriveE
 from media_publisher.quotes_pipeline import QuotesPipelineSettings, run_quotes_pipeline
 from media_publisher.quotes_render_pipeline import QuotesRenderPipelineError
 from media_publisher.sources.quote_pdf import QuotePdfError
-from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
+from media_publisher.publishers.facebook import (
+    FacebookPublishError,
+    publish_to_facebook,
+    remember_facebook_playlist_post,
+)
 from media_publisher.publishers.instagram import (
     InstagramPublishError,
     publish_instagram_playlist_comments,
@@ -2969,6 +2973,13 @@ def main() -> int:
                 **template_urls_from_settings(settings),
             )
             permalink = meta_client.permalink_for_uploaded_facebook_video(post_id)
+            remember_facebook_playlist_post(
+                post_id,
+                task.record_fields,
+                permalink=permalink,
+                title=task.job.title,
+                state_path=PROJECT_ROOT / "data" / "facebook_comment_responses.json",
+            )
             updated = mark_platform_scheduled(
                 airtable,
                 record_id=task.record_id,

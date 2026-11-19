@@ -1894,6 +1894,29 @@ class MetaClient:
             raise MetaError("Meta Facebook comment response is missing comment id")
         return comment_id
 
+    def list_facebook_comments(self, post_id: str) -> list[dict[str, Any]]:
+        """Comments and replies on a Page post, including text and permalink."""
+        target = post_id.strip()
+        if not target:
+            raise MetaError("Facebook comment post_id is required")
+        comments: list[dict[str, Any]] = []
+        query: dict[str, str] = {
+            "fields": "id,message,created_time,permalink_url",
+            "filter": "stream",
+            "limit": "50",
+        }
+        while True:
+            payload = self._request("GET", f"{target}/comments", query=query)
+            if not isinstance(payload, dict):
+                return comments
+            for item in payload.get("data") or []:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    comments.append(item)
+            after = ((payload.get("paging") or {}).get("cursors") or {}).get("after")
+            if not isinstance(after, str) or not after:
+                return comments
+            query = {**query, "after": after}
+
     def create_instagram_comment(
         self,
         *,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from media_publisher.models import PublishJob
 from media_publisher.post_templates import prepare_publish_job
@@ -9,6 +11,48 @@ from media_publisher.publishers.meta import MetaClient, MetaError
 
 class FacebookPublishError(RuntimeError):
     pass
+
+
+def remember_facebook_playlist_post(
+    post_id: str,
+    record_fields: dict[str, Any],
+    *,
+    permalink: str = "",
+    title: str = "",
+    state_path: Path,
+    log: Callable[[str], None] = print,
+) -> None:
+    """Add a video that needs a playlist prompt to the Facebook watch list.
+
+    Grok Bot types that prompt when it resubmits the scheduled post. A video
+    with no prompt is left off the list.
+    """
+    from catalog_parser.playlists import instagram_comments_for_playlists, load_playlist_config
+    from media_publisher.facebook_comment_responses import remember_facebook_prompt_post
+    from media_publisher.sources.airtable import FIELD_PLAYLISTS, _field_multi_select
+
+    names = _field_multi_select(record_fields.get(FIELD_PLAYLISTS))
+    config = load_playlist_config()
+    messages = instagram_comments_for_playlists(names, config=config)
+    end_cards = [
+        rule.end_card
+        for rule in config.rules
+        if rule.end_card and rule.comment in messages and rule.name in names
+    ]
+    if not messages or not end_cards:
+        return
+    remember_facebook_prompt_post(
+        state_path,
+        post_id=post_id,
+        end_cards=end_cards,
+        comments=messages,
+        permalink=permalink,
+        title=title,
+    )
+    log(
+        "Facebook watch list: "
+        f"{post_id.strip()} end_cards={','.join(end_cards)}"
+    )
 
 
 def _resolve_video(job: PublishJob) -> tuple[Path | None, str | None]:

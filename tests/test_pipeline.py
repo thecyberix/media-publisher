@@ -414,6 +414,44 @@ class PublishPipelineTests(unittest.TestCase):
             ["Съзнателна Планета", "Чудото на Ума"],
         )
 
+    def test_facebook_publish_posts_the_playlist_prompt(self) -> None:
+        from unittest.mock import Mock
+
+        from media_publisher.pipeline import publish_platform_task
+
+        task = PlatformScheduleTask(
+            platform="facebook",
+            publish_at=datetime(2026, 7, 4, 15, 0, tzinfo=timezone.utc),
+            job=PublishJob(title="Demo", video_path="clip.mp4"),
+            record_id="rec1",
+            record_fields={"Playlists": ["Вътрешно Изграждане"]},
+        )
+        meta = Mock()
+        meta.permalink_for_uploaded_facebook_video.return_value = "https://facebook.example/1"
+        with (
+            patch(
+                "media_publisher.pipeline.publish_to_facebook",
+                return_value="fb1",
+            ),
+            patch(
+                "media_publisher.pipeline.remember_facebook_playlist_post",
+            ) as comments,
+        ):
+            url = publish_platform_task(
+                task,
+                settings=self._pipeline_settings(),
+                meta_client=meta,
+            )
+        self.assertEqual(url, "https://facebook.example/1")
+        comments.assert_called_once()
+        self.assertEqual(comments.call_args.args[0], "fb1")
+        self.assertEqual(
+            comments.call_args.args[1]["Playlists"],
+            ["Вътрешно Изграждане"],
+        )
+        self.assertEqual(comments.call_args.kwargs["permalink"], "https://facebook.example/1")
+        self.assertEqual(comments.call_args.kwargs["title"], "Demo")
+
     def test_run_publish_pipeline_no_tasks(self) -> None:
         client = AirtableClient("pat-test", "app123", "Catalog")
         happyscribe = HappyScribeClient("hs-test")

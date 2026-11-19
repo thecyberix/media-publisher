@@ -127,6 +127,23 @@ jobs:
             git push
           fi
 
+      - name: Commit Facebook comment watch list
+        if: steps.publish.outcome == 'success' || steps.publish.outcome == 'failure'
+        run: |
+          if [ ! -f data/facebook_comment_responses.json ]; then
+            echo "No Facebook comment watch list."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/facebook_comment_responses.json
+          if git diff --staged --quiet; then
+            echo "No Facebook comment watch list changes to commit."
+          else
+            git commit -m "Add published Facebook videos to the comment watch list"
+            git push
+          fi
+
   quotes:
     if: >-
       inputs.mode == 'all' || inputs.mode == 'quotes'

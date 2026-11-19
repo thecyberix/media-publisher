@@ -5,6 +5,8 @@ The post goes live the calendar day before the observance, the same moment the
 a 10-second video made from that still. When ``ekadashi_playlist`` is
 set, that video is added to the playlist. The Instagram photo gets the
 configured Ekadashi comment, and that post joins the keyword-reply watch list.
+The Facebook photo joins the Facebook watch list so Grok Bot can type the
+same prompt when it resubmits the post.
 A committed state file keeps a second run from posting again.
 """
 from __future__ import annotations
@@ -25,6 +27,10 @@ from media_publisher.ekadashi_facebook_browser_schedule import (
     EkadashiFacebookScheduleError,
     export_ekadashi_page,
     find_ekadashi_design,
+)
+from media_publisher.facebook_comment_responses import (
+    DEFAULT_STATE_RELATIVE_PATH as FACEBOOK_COMMENT_STATE_RELATIVE_PATH,
+    remember_facebook_prompt_post,
 )
 from media_publisher.instagram_comment_responses import DEFAULT_STATE_RELATIVE_PATH
 from media_publisher.models import PublishJob
@@ -308,13 +314,23 @@ def _publish_platform(
     template_urls: dict[str, str] | None,
 ) -> str:
     if platform == "facebook":
-        return publish_local_quote_to_facebook(
+        post_id = publish_local_quote_to_facebook(
             image_path=image_path,
             caption=caption,
             publish_at=None,
             page_id=page_id,
             access_token=access_token,
         )
+        rule = load_playlist_config().ekadashi_comment
+        if rule is not None and rule.comment and rule.end_card:
+            remember_facebook_prompt_post(
+                project_root / FACEBOOK_COMMENT_STATE_RELATIVE_PATH,
+                post_id=post_id,
+                end_cards=[rule.end_card],
+                comments=[rule.comment],
+                title=caption,
+            )
+        return post_id
     if platform == "instagram":
         media_id = publish_local_quote_to_instagram(
             image_path=image_path,

@@ -57,10 +57,15 @@ class EkadashiPublishTests(unittest.TestCase):
             image.write_bytes(b"jpg")
             state_path = root / "state.json"
             design = MagicMock(design_id="design", is_fallback=False, title="Ekadashi 2026")
-            with patch(
-                "media_publisher.ekadashi_pipeline.resolve_canva_ekadashi_folder",
-                return_value=MagicMock(id="FAHEkadashi"),
-            ) as resolve_folder:
+            with (
+                patch(
+                    "media_publisher.ekadashi_pipeline.remember_facebook_prompt_post",
+                ) as facebook_watch,
+                patch(
+                    "media_publisher.ekadashi_pipeline.resolve_canva_ekadashi_folder",
+                    return_value=MagicMock(id="FAHEkadashi"),
+                ) as resolve_folder,
+            ):
                 with patch(
                     "media_publisher.ekadashi_pipeline.find_ekadashi_design",
                     return_value=design,
@@ -116,6 +121,14 @@ class EkadashiPublishTests(unittest.TestCase):
                                         )
 
             resolve_folder.assert_called_once()
+            facebook_watch.assert_called_once()
+            self.assertEqual(
+                facebook_watch.call_args.args[0],
+                root / "data" / "facebook_comment_responses.json",
+            )
+            self.assertEqual(facebook_watch.call_args.kwargs["post_id"], "https://facebook.example/1")
+            self.assertEqual(facebook_watch.call_args.kwargs["end_cards"], ["ekadashi"])
+            self.assertIn("Календар", facebook_watch.call_args.kwargs["comments"][0])
             instagram_comment.assert_called_once()
             self.assertEqual(instagram_comment.call_args.args[1], "ig-media-1")
             self.assertEqual(

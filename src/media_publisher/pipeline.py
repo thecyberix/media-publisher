@@ -8,7 +8,11 @@ from typing import Callable
 
 from media_publisher.languages import selected_language
 from media_publisher.models import PlatformName, PlatformScheduleTask
-from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
+from media_publisher.publishers.facebook import (
+    FacebookPublishError,
+    publish_to_facebook,
+    remember_facebook_playlist_post,
+)
 from media_publisher.publishers.instagram import (
     InstagramPublishError,
     publish_instagram_playlist_comments,
@@ -185,7 +189,16 @@ def publish_platform_task(
             app_id=settings.meta_app_id,
             **settings.template_urls,
         )
-        return meta_client.permalink_for_uploaded_facebook_video(post_id, log=log)
+        permalink = meta_client.permalink_for_uploaded_facebook_video(post_id, log=log)
+        remember_facebook_playlist_post(
+            post_id,
+            task.record_fields,
+            permalink=permalink,
+            title=task.job.title,
+            state_path=Path("data") / "facebook_comment_responses.json",
+            log=log,
+        )
+        return permalink
 
     if task.platform == "instagram":
         if meta_client is None:
