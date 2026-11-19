@@ -1,4 +1,4 @@
-"""Reply and DM on Instagram comments for Inner Engineering and Miracle of Mind.
+"""Reply and DM on Instagram comments for Inner Engineering, Miracle of Mind, and Ekadashi.
 
 Only videos already on the watch list are checked. That list grows when a
 publish posts the playlist comment. A dry run lists keyword comments. Pass

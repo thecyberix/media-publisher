@@ -128,7 +128,7 @@ Suggested schedule: `30 12 * * *`, time zone **Europe/Sofia**. This is a separat
 }
 ```
 
-The workflow publishes the Facebook and Instagram photo, plus a 10-second YouTube video, the day before the observance and does nothing on other days. The video is added to the **Екадаши** playlist when ``ekadashi_playlist`` is set in ``config/playlists.json``. A successful post is recorded in `data/ekadashi_publish_state.json` so a second run the same day does not post again.
+The workflow publishes the Facebook and Instagram photo, plus a 10-second YouTube video, the day before the observance and does nothing on other days. The video is added to the **Екадаши** playlist when ``ekadashi_playlist`` is set in ``config/playlists.json``. The Instagram photo gets the comment in ``ekadashi_comment``, and that post is added to the keyword-reply watch list. A successful post is recorded in `data/ekadashi_publish_state.json` so a second run the same day does not post again.
 
 ### Instagram comment replies
 
@@ -145,7 +145,7 @@ Suggested schedule: `45 * * * *`, time zone **Europe/Sofia**. That is 09:45, 10:
 }
 ```
 
-The workflow replies to keyword comments on the Inner Engineering and Miracle of Mind videos already on the watch list, and sends the configured DM. The same file records which comments were answered.
+The workflow replies to keyword comments on the Inner Engineering, Miracle of Mind, and Ekadashi posts already on the watch list, and sends the configured DM. The same file records which comments were answered.
 
 ### One-off scheduled test from cron-job.org
 
@@ -188,7 +188,7 @@ Ekadashi dates come from the public Isha Google Calendar ICS (`ishacalendar@gmai
 
 ### Instagram keyword replies
 
-`config/playlists.json` `publish_priority` lists video playlists to schedule first. Airtable status still comes first: Synchronization done is scheduled before Editing done, and Editing done before Translation done. Inside one status, names earlier in `publish_priority` are scheduled sooner; videos on none of those playlists wait behind them. Inner Engineering and Miracle of Mind videos ask people to comment a keyword. `config/playlists.json` holds that keyword, the public reply, and the DM next to the original comment. The checker only looks at videos on the watch list in `data/instagram_comment_responses.json`. That list is filled from `output/instagram-end-card-comments.json` (videos whose comment was posted or already present) and each later Instagram publish adds its own video.
+`config/playlists.json` `publish_priority` lists video playlists to schedule first. Airtable status still comes first: Synchronization done is scheduled before Editing done, and Editing done before Translation done. Inside one status, names earlier in `publish_priority` are scheduled sooner; videos on none of those playlists wait behind them. Inner Engineering, Miracle of Mind, and Ekadashi posts ask people to comment a keyword. `config/playlists.json` holds that keyword, the public reply, and the DM next to the original comment. Ekadashi uses `ekadashi_comment` and is not one of the video playlists. The checker only looks at videos on the watch list in `data/instagram_comment_responses.json`. That list is filled from `output/instagram-end-card-comments.json` (videos whose comment was posted or already present) and each later Instagram publish adds its own video.
 
 ```powershell
 python scripts/respond_instagram_playlist_comments.py
@@ -206,7 +206,7 @@ python scripts/backfill_instagram_comment_responses.py --apply
 
 The backfill reads the videos on the watch list and the Instagram inbox. It records a public reply when this account already posted the configured reply on that keyword comment, and a DM when that message is already in the person's conversation. A comment older than 7 days that already has the public reply is marked so the DM is not retried. `--apply` writes `data/instagram_comment_responses.json`. Commit that file before the hourly workflow so those comments are not answered again.
 
-Each Instagram publish that posts an Inner Engineering or Miracle of Mind prompt adds that video to the watch list. The publish workflow commits `data/instagram_comment_responses.json` after the videos job.
+Each Instagram publish that posts an Inner Engineering, Miracle of Mind, or Ekadashi prompt adds that post to the watch list. The publish workflow commits `data/instagram_comment_responses.json` after the videos job, and the Ekadashi workflow commits it after that photo is posted.
 
 Dispatch `instagram-comment-responses.yml` the same way as the other publish workflows. A cron-job.org job can call it hourly at minute 45 (`45 * * * *`, Europe/Sofia). The workflow commits `data/instagram_comment_responses.json` so a comment is not answered twice.
 

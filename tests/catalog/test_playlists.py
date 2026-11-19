@@ -127,6 +127,27 @@ class YoutubePlaylistTests(unittest.TestCase):
         )
         self.assertEqual(config.quote_playlist, "Цитати")
         self.assertEqual(config.ekadashi_playlist, "Екадаши")
+        self.assertIsNotNone(config.ekadashi_comment)
+        assert config.ekadashi_comment is not None
+        self.assertEqual(config.ekadashi_comment.name, "Екадаши")
+        self.assertEqual(config.ekadashi_comment.end_card, "ekadashi")
+        self.assertEqual(config.ekadashi_comment.keyword, "Календар")
+        self.assertEqual(
+            config.ekadashi_comment.comment,
+            'Напишете "Календар" в коментар за датите на Екадаши.',
+        )
+        self.assertEqual(
+            config.ekadashi_comment.reply,
+            "Намаскарам! Календарът пътува към Вас. Проверете личните си съобщения.🙏",
+        )
+        self.assertEqual(
+            config.ekadashi_comment.dm,
+            "Намаскарам,\n\n"
+            "Това е Екадаши календарът с всички предстоящи дати. "
+            "Запазете го за бъдещи справки!\n"
+            "isha.sadhguru.org/in/en/isha-lunar-calendar\n\n"
+            "Пранам,\nГеорги Узунов\nДоброволец от Иша",
+        )
         self.assertEqual(config.publish_priority, ())
         names = youtube_playlists(config=config)
         self.assertNotIn("Цитати", names)
@@ -235,6 +256,22 @@ class YoutubePlaylistTests(unittest.TestCase):
         self.assertEqual(config.rules, ())
         self.assertIsNone(config.quote_playlist)
         self.assertIsNone(config.ekadashi_playlist)
+        self.assertIsNone(config.ekadashi_comment)
+
+    def test_load_rejects_an_ekadashi_comment_without_a_keyword(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "playlists.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "video_playlists": [],
+                        "ekadashi_comment": {"comment": "Hello"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(RuntimeError):
+                load_playlist_config(path)
 
     def test_load_allows_only_end_card_playlists(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

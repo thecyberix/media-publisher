@@ -76,12 +76,36 @@ class CommentResponseTests(unittest.TestCase):
         rules = comment_response_rules(load_playlist_config())
         self.assertEqual(
             [rule.end_card for rule in rules],
-            ["inner_engineering", "miracle_of_mind"],
+            ["inner_engineering", "miracle_of_mind", "ekadashi"],
         )
         for rule in rules:
             self.assertTrue(rule.keyword)
             self.assertTrue(rule.reply)
             self.assertTrue(rule.dm)
+
+    def test_ekadashi_keyword_skips_the_prompt_and_our_account(self) -> None:
+        rule = next(
+            item
+            for item in comment_response_rules(load_playlist_config())
+            if item.end_card == "ekadashi"
+        )
+        now = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
+        pending = pending_responses(
+            [
+                InstagramComment("cta", rule.comment or "", username="page"),
+                InstagramComment("own", "Календар", username="page"),
+                InstagramComment("fan", "  календар! ", username="fan"),
+            ],
+            [rule],
+            own_username="page",
+            handled={},
+            now=now,
+        )
+        self.assertEqual([item.comment.comment_id for item in pending], ["fan"])
+        self.assertEqual(pending[0].rule.reply, rule.reply)
+        self.assertEqual(pending[0].rule.dm, rule.dm)
+        self.assertTrue(pending[0].send_reply)
+        self.assertTrue(pending[0].send_dm)
 
     def test_keyword_without_a_message_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

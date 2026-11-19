@@ -1,6 +1,6 @@
 name: Instagram comment replies
 
-# Answers keyword comments on Inner Engineering and Miracle of Mind videos.
+# Answers keyword comments on Inner Engineering, Miracle of Mind, and Ekadashi posts.
 # Primary schedule: external cron (cron-job.org) → workflow_dispatch.
 on:
   workflow_dispatch:

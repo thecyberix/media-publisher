@@ -67,6 +67,50 @@ def publish_instagram_playlist_comments(
         )
 
 
+def publish_ekadashi_instagram_comment(
+    client: MetaClient,
+    media_id: str,
+    *,
+    state_path: Path | None = None,
+    permalink: str = "",
+    log: Callable[[str], None] = print,
+) -> None:
+    """Post the Ekadashi prompt. A comment failure does not unpublish the photo.
+
+    A successful comment is added to the keyword-reply watch list at
+    ``state_path``.
+    """
+    from catalog_parser.playlists import load_playlist_config
+    from media_publisher.instagram_comment_responses import remember_commented_video
+
+    rule = load_playlist_config().ekadashi_comment
+    if rule is None or not rule.comment:
+        return
+    try:
+        comment_id = client.create_instagram_comment(
+            media_id=media_id,
+            message=rule.comment,
+        )
+    except MetaError as exc:
+        log(f"Instagram comment failed: {exc}")
+        return
+    log(f"Instagram comment posted: {comment_id}")
+    if state_path is None or not rule.end_card:
+        return
+    link = permalink.strip()
+    if not link:
+        try:
+            link = client.get_instagram_media_permalink(media_id)
+        except MetaError:
+            link = ""
+    remember_commented_video(
+        state_path,
+        media_id=media_id,
+        end_cards=[rule.end_card],
+        permalink=link,
+    )
+
+
 def _resolve_video(job: PublishJob) -> tuple[Path | None, str | None]:
     if job.video_path:
         return Path(job.video_path), None

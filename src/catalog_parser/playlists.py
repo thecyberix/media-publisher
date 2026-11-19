@@ -11,7 +11,9 @@ comment posted on that video. ``keyword``, ``reply``, and ``dm`` answer a
 later comment that contains the keyword. ``quote_playlist`` is the title
 of the playlist that receives quote videos only. ``ekadashi_playlist`` is the
 title of the playlist that receives Ekadashi videos only. Omit it and the
-Ekadashi video is published without a playlist. ``publish_priority``
+Ekadashi video is published without a playlist. ``ekadashi_comment`` is the
+Instagram prompt, keyword, public reply, and private message for those posts.
+It is not assigned to catalog videos. ``publish_priority``
 is an ordered list of playlist names to schedule first. A name matches the
 Airtable Playlists field; it does not have to be one of the rules above.
 Airtable status
@@ -40,6 +42,7 @@ KNOWN_END_CARDS = frozenset(
         END_CARD_MIRACLE_OF_MIND,
     }
 )
+EKADASHI_RESPONSE_KEY = "ekadashi"
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,7 @@ class PlaylistConfig:
     rules: tuple[PlaylistRule, ...]
     quote_playlist: str | None = None
     ekadashi_playlist: str | None = None
+    ekadashi_comment: PlaylistRule | None = None
     publish_priority: tuple[str, ...] = ()
 
 
@@ -87,13 +91,19 @@ def load_playlist_config(path: Path | None = None) -> PlaylistConfig:
                 f"{config_path.as_posix()} video_playlists[{index}] duplicates {rules[-1].name!r}"
             )
         seen.add(rules[-1].name)
+    ekadashi_playlist = _parse_optional_playlist_title(
+        payload, "ekadashi_playlist", source=config_path.as_posix()
+    )
     return PlaylistConfig(
         rules=tuple(rules),
         quote_playlist=_parse_optional_playlist_title(
             payload, "quote_playlist", source=config_path.as_posix()
         ),
-        ekadashi_playlist=_parse_optional_playlist_title(
-            payload, "ekadashi_playlist", source=config_path.as_posix()
+        ekadashi_playlist=ekadashi_playlist,
+        ekadashi_comment=_parse_ekadashi_comment(
+            payload,
+            source=config_path.as_posix(),
+            playlist_title=ekadashi_playlist,
         ),
         publish_priority=_parse_publish_priority(
             payload,
@@ -194,11 +204,15 @@ def comment_response_rules(
 ) -> list[PlaylistRule]:
     """Playlists that reply to a keyword comment and/or send a DM."""
     selected = config or load_playlist_config()
-    return [
+    rules = [
         rule
         for rule in selected.rules
         if rule.keyword and (rule.reply or rule.dm)
     ]
+    extra = selected.ekadashi_comment
+    if extra is not None and extra.keyword and (extra.reply or extra.dm):
+        rules.append(extra)
+    return rules
 
 
 def combined_media_airtable_fields(
@@ -233,6 +247,51 @@ def _parse_publish_priority(
         seen.add(name)
         names.append(name)
     return tuple(names)
+
+
+def _parse_ekadashi_comment(
+    payload: dict[str, Any],
+    *,
+    source: str,
+    playlist_title: str | None,
+) -> PlaylistRule | None:
+    """Instagram comment handling for Ekadashi posts, separate from video rules."""
+    if "ekadashi_comment" not in payload or payload.get("ekadashi_comment") is None:
+        return None
+    item = payload.get("ekadashi_comment")
+    label = f"{source} ekadashi_comment"
+    if not isinstance(item, dict):
+        raise RuntimeError(f"{label} must be an object")
+    comment = _parse_optional_text(
+        item.get("comment"),
+        label=label,
+        field="comment",
+        provided="comment" in item,
+    )
+    keyword = _parse_optional_text(
+        item.get("keyword"),
+        label=label,
+        field="keyword",
+        provided="keyword" in item,
+    )
+    reply = _parse_optional_text(
+        item.get("reply"), label=label, field="reply", provided="reply" in item
+    )
+    dm = _parse_optional_text(item.get("dm"), label=label, field="dm", provided="dm" in item)
+    if not comment:
+        raise RuntimeError(f"{label} comment is required")
+    if not keyword:
+        raise RuntimeError(f"{label} keyword is required")
+    if not (reply or dm):
+        raise RuntimeError(f"{label} reply or dm is required when keyword is set")
+    return PlaylistRule(
+        name=playlist_title or "Екадаши",
+        end_card=EKADASHI_RESPONSE_KEY,
+        comment=comment,
+        keyword=keyword,
+        reply=reply,
+        dm=dm,
+    )
 
 
 def _parse_optional_playlist_title(

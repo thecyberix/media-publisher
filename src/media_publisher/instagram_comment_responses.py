@@ -1,7 +1,7 @@
-"""Reply and DM when someone comments the keyword on an IE or MoM video.
+"""Reply and DM when someone comments the keyword on an IE, MoM, or Ekadashi post.
 
-Only videos already on the watch list are checked. That list is the videos
-whose playlist comment was posted (Inner Engineering or Miracle of Mind).
+Only videos already on the watch list are checked. That list is the posts
+whose playlist comment was posted (Inner Engineering, Miracle of Mind, or Ekadashi).
 Each publish that posts one of those comments adds the video. Keyword
 comments get ``reply`` (public) and ``dm`` (private reply), including when
 the keyword is written as a reply under another comment. The account's own

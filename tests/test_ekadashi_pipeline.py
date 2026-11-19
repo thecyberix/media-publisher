@@ -75,44 +75,53 @@ class EkadashiPublishTests(unittest.TestCase):
                         ) as facebook:
                             with patch(
                                 "media_publisher.ekadashi_pipeline.publish_local_quote_to_instagram",
-                                return_value="https://instagram.example/1",
+                                return_value="ig-media-1",
                             ) as instagram:
                                 with patch(
-                                    "media_publisher.ekadashi_pipeline.publish_ekadashi_to_youtube",
-                                    return_value="https://youtube.example/1",
-                                ) as youtube:
-                                    code = run_ekadashi_publish(
-                                        project_root=root,
-                                        publish_timezone="Europe/Sofia",
-                                        canva_client=MagicMock(),
-                                        page_id="page",
-                                        instagram_account_id="ig",
-                                        access_token="token",
-                                        youtube_client_secrets=root / "client.json",
-                                        youtube_token=root / "token.json",
-                                        today=date(2026, 10, 21),
-                                        entries=(_entry(),),
-                                        state_path=state_path,
-                                        canva_url="https://www.canva.com/folder/parent",
-                                        print_line=lambda _message: None,
-                                    )
-                                    again = run_ekadashi_publish(
-                                        project_root=root,
-                                        publish_timezone="Europe/Sofia",
-                                        canva_client=MagicMock(),
-                                        page_id="page",
-                                        instagram_account_id="ig",
-                                        access_token="token",
-                                        youtube_client_secrets=root / "client.json",
-                                        youtube_token=root / "token.json",
-                                        today=date(2026, 10, 21),
-                                        entries=(_entry(),),
-                                        state_path=state_path,
-                                        canva_url="https://www.canva.com/folder/parent",
-                                        print_line=lambda _message: None,
-                                    )
+                                    "media_publisher.ekadashi_pipeline.publish_ekadashi_instagram_comment",
+                                ) as instagram_comment:
+                                    with patch(
+                                        "media_publisher.ekadashi_pipeline.publish_ekadashi_to_youtube",
+                                        return_value="https://youtube.example/1",
+                                    ) as youtube:
+                                        code = run_ekadashi_publish(
+                                            project_root=root,
+                                            publish_timezone="Europe/Sofia",
+                                            canva_client=MagicMock(),
+                                            page_id="page",
+                                            instagram_account_id="ig",
+                                            access_token="token",
+                                            youtube_client_secrets=root / "client.json",
+                                            youtube_token=root / "token.json",
+                                            today=date(2026, 10, 21),
+                                            entries=(_entry(),),
+                                            state_path=state_path,
+                                            canva_url="https://www.canva.com/folder/parent",
+                                            print_line=lambda _message: None,
+                                        )
+                                        again = run_ekadashi_publish(
+                                            project_root=root,
+                                            publish_timezone="Europe/Sofia",
+                                            canva_client=MagicMock(),
+                                            page_id="page",
+                                            instagram_account_id="ig",
+                                            access_token="token",
+                                            youtube_client_secrets=root / "client.json",
+                                            youtube_token=root / "token.json",
+                                            today=date(2026, 10, 21),
+                                            entries=(_entry(),),
+                                            state_path=state_path,
+                                            canva_url="https://www.canva.com/folder/parent",
+                                            print_line=lambda _message: None,
+                                        )
 
             resolve_folder.assert_called_once()
+            instagram_comment.assert_called_once()
+            self.assertEqual(instagram_comment.call_args.args[1], "ig-media-1")
+            self.assertEqual(
+                instagram_comment.call_args.kwargs["state_path"],
+                root / "data" / "instagram_comment_responses.json",
+            )
             self.assertEqual(
                 find_design.call_args.kwargs["folder_id"],
                 "FAHEkadashi",

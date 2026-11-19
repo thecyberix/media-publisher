@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,7 @@ from media_publisher.models import PublishJob
 from media_publisher.publishers.facebook import FacebookPublishError, publish_to_facebook
 from media_publisher.publishers.instagram import (
     InstagramPublishError,
+    publish_ekadashi_instagram_comment,
     publish_instagram_playlist_comments,
     publish_to_instagram,
 )
@@ -1549,6 +1551,38 @@ class PublisherWrapperTests(unittest.TestCase):
             {"Playlists": ["Вътрешно Изграждане"]},
             log=logs.append,
         )
+        self.assertEqual(logs, ["Instagram comment failed: comments denied"])
+
+    def test_ekadashi_comment_is_posted_and_watched(self) -> None:
+        client = MagicMock()
+        client.create_instagram_comment.return_value = "comment_1"
+        client.get_instagram_media_permalink.return_value = "https://instagram.com/p/abc"
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            publish_ekadashi_instagram_comment(
+                client,
+                "ig_media_1",
+                state_path=state_path,
+                log=logs.append,
+            )
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            client.create_instagram_comment.call_args.kwargs["message"],
+            'Напишете "Календар" в коментар за датите на Екадаши.',
+        )
+        self.assertEqual(saved["videos"]["ig_media_1"]["end_cards"], ["ekadashi"])
+        self.assertEqual(
+            saved["videos"]["ig_media_1"]["permalink"],
+            "https://instagram.com/p/abc",
+        )
+        self.assertEqual(logs, ["Instagram comment posted: comment_1"])
+
+    def test_ekadashi_comment_failure_does_not_raise(self) -> None:
+        client = MagicMock()
+        client.create_instagram_comment.side_effect = MetaError("comments denied")
+        logs: list[str] = []
+        publish_ekadashi_instagram_comment(client, "ig_media_1", log=logs.append)
         self.assertEqual(logs, ["Instagram comment failed: comments denied"])
 
 

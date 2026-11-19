@@ -3,7 +3,8 @@
 The post goes live the calendar day before the observance, the same moment the
 12:30 Europe/Sofia job runs. Facebook and Instagram get the still. YouTube gets
 a 10-second video made from that still. When ``ekadashi_playlist`` is
-set, that video is added to the playlist.
+set, that video is added to the playlist. The Instagram photo gets the
+configured Ekadashi comment, and that post joins the keyword-reply watch list.
 A committed state file keeps a second run from posting again.
 """
 from __future__ import annotations
@@ -25,11 +26,15 @@ from media_publisher.ekadashi_facebook_browser_schedule import (
     export_ekadashi_page,
     find_ekadashi_design,
 )
+from media_publisher.instagram_comment_responses import DEFAULT_STATE_RELATIVE_PATH
 from media_publisher.models import PublishJob
 from media_publisher.post_templates import build_ekadashi_youtube_title
 from media_publisher.publishers.facebook import FacebookPublishError
-from media_publisher.publishers.instagram import InstagramPublishError
-from media_publisher.publishers.meta import MetaError
+from media_publisher.publishers.instagram import (
+    InstagramPublishError,
+    publish_ekadashi_instagram_comment,
+)
+from media_publisher.publishers.meta import MetaClient, MetaError
 from media_publisher.publishers.quotes import (
     publish_local_quote_to_facebook,
     publish_local_quote_to_instagram,
@@ -311,7 +316,7 @@ def _publish_platform(
             access_token=access_token,
         )
     if platform == "instagram":
-        return publish_local_quote_to_instagram(
+        media_id = publish_local_quote_to_instagram(
             image_path=image_path,
             caption=caption,
             publish_at=None,
@@ -320,6 +325,12 @@ def _publish_platform(
             access_token=access_token,
             app_id=meta_app_id,
         )
+        publish_ekadashi_instagram_comment(
+            MetaClient(access_token, app_id=meta_app_id),
+            media_id,
+            state_path=project_root / DEFAULT_STATE_RELATIVE_PATH,
+        )
+        return media_id
     if platform == "youtube":
         if youtube_client_secrets is None or youtube_token is None:
             raise YouTubePublishError("YouTube Ekadashi publishing is not configured")
