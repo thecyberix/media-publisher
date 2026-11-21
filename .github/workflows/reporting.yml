@@ -1,12 +1,10 @@
 name: Reporting
 
-# Daily 06:00 UTC (09:00 UTC+3 in summer / 08:00 UTC+2 in winter):
+# Daily via cron-job.org at 06:00 Europe/Sofia:
 #   - every day: follower snapshots and prune past events
 #   - Mondays: email the weekly translation/editing report
 #   - 2nd of the month: update the channel KPI sheet for the previous month
 on:
-  schedule:
-    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       task:
