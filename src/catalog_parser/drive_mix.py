@@ -32,9 +32,11 @@ from catalog_parser.miracle_of_mind import miracle_of_mind_end_card_if_present
 from catalog_parser.playlists import (
     END_CARD_INNER_ENGINEERING,
     END_CARD_MIRACLE_OF_MIND,
+    END_CARD_SADHGURU_APP,
     END_CARD_SAVE_SOIL,
     youtube_playlists,
 )
+from catalog_parser.sadhguru_app import sadhguru_app_end_card_if_present
 from catalog_parser.save_soil import replace_save_soil_end_card_if_present
 
 WINDOWS_RESERVED_CHARS = '<>:"/\\|?*'
@@ -116,6 +118,14 @@ def _playlists_after_end_cards(
         video_type=video_type,
         reference_path=reference_path,
     )
+    sadhguru_app = sadhguru_app_end_card_if_present(
+        drive_service,
+        video_path,
+        work_dir=work_dir,
+        ffmpeg_path=ffmpeg_path,
+        video_type=video_type,
+        reference_path=reference_path,
+    )
     detected: list[str] = []
     if _end_card_detected(save_soil):
         detected.append(END_CARD_SAVE_SOIL)
@@ -123,6 +133,8 @@ def _playlists_after_end_cards(
         detected.append(END_CARD_INNER_ENGINEERING)
     if _end_card_detected(miracle_of_mind):
         detected.append(END_CARD_MIRACLE_OF_MIND)
+    if _end_card_detected(sadhguru_app):
+        detected.append(END_CARD_SADHGURU_APP)
     return tuple(youtube_playlists(detected))
 
 

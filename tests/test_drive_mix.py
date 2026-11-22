@@ -613,6 +613,8 @@ class DriveMixStructureTests(unittest.TestCase):
         ) as inner_mock, patch(
             "catalog_parser.drive_mix.miracle_of_mind_end_card_if_present",
         ) as miracle_mock, patch(
+            "catalog_parser.drive_mix.sadhguru_app_end_card_if_present",
+        ) as app_mock, patch(
             "catalog_parser.drive_mix.upload_drive_file",
             return_value=MagicMock(
                 id="uploaded-id",
@@ -637,6 +639,8 @@ class DriveMixStructureTests(unittest.TestCase):
         self.assertEqual(inner_mock.call_args.kwargs["video_type"], "Reel")
         miracle_mock.assert_called_once()
         self.assertEqual(miracle_mock.call_args.kwargs["video_type"], "Reel")
+        app_mock.assert_called_once()
+        self.assertEqual(app_mock.call_args.kwargs["video_type"], "Reel")
 
 
 if __name__ == "__main__":

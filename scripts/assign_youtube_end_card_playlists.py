@@ -1,8 +1,8 @@
 """Add published channel videos to the end-card playlists.
 
 Scans the last stretch of each upload on the authorized YouTube channel.
-Save Soil, Inner Engineering, and Miracle of Mind can match even when a
-thumbnail frame was appended after the card. A dry run prints the matches.
+Save Soil, Inner Engineering, Miracle of Mind, and Sadhguru App can match
+even when a thumbnail frame was appended after the card. A dry run prints the matches.
 Pass --apply to insert videos that are not already on the playlist.
 --apply reuses the report, so matches already found are inserted without
 downloading those videos again. The run stops when YouTube's daily quota
@@ -34,9 +34,13 @@ from catalog_parser.miracle_of_mind import (  # noqa: E402
 from catalog_parser.playlists import (  # noqa: E402
     END_CARD_INNER_ENGINEERING,
     END_CARD_MIRACLE_OF_MIND,
+    END_CARD_SADHGURU_APP,
     END_CARD_SAVE_SOIL,
     load_playlist_config,
     youtube_playlist_ids_for_end_cards,
+)
+from catalog_parser.sadhguru_app import (  # noqa: E402
+    frame_looks_like_sadhguru_app,
 )
 from catalog_parser.save_soil import (  # noqa: E402
     detect_cards_in_ending_window,
@@ -53,6 +57,7 @@ LOOKS_LIKE = {
     END_CARD_SAVE_SOIL: frame_looks_like_save_soil,
     END_CARD_INNER_ENGINEERING: frame_looks_like_inner_engineering,
     END_CARD_MIRACLE_OF_MIND: frame_looks_like_miracle_of_mind,
+    END_CARD_SADHGURU_APP: frame_looks_like_sadhguru_app,
 }
 DEFAULT_REPORT = ROOT / "output" / "youtube-end-card-playlists.json"
 

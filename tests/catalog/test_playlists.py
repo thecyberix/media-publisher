@@ -18,6 +18,7 @@ from catalog_parser.drive_mix import MixToDriveResult, _playlists_after_end_card
 from catalog_parser.playlists import (
     END_CARD_INNER_ENGINEERING,
     END_CARD_MIRACLE_OF_MIND,
+    END_CARD_SADHGURU_APP,
     END_CARD_SAVE_SOIL,
     PlaylistConfig,
     PlaylistRule,
@@ -123,6 +124,13 @@ class YoutubePlaylistTests(unittest.TestCase):
                     "си благосъстояние. Отнема само 7 минути на ден. Напишете "
                     '"Чудото на ума" в коментар, за да започнете.',
                 ),
+                (
+                    "Приложението на Садгуру",
+                    END_CARD_SADHGURU_APP,
+                    "Започнете пътешествието на вътрешната си трансформация с "
+                    "приложението на Садгуру. За да получите връзка за свалянето му, "
+                    'напишете "Приложение" в коментар отдолу.',
+                ),
             ],
         )
         self.assertEqual(config.quote_playlist, "Цитати")
@@ -161,6 +169,7 @@ class YoutubePlaylistTests(unittest.TestCase):
                 ("PL-ie", "Вътрешно Изграждане"),
                 ("PL-soil", "Спасете Почвата"),
                 ("PL-mom", "Чудото на Ума"),
+                ("PL-app", "Приложението на Садгуру"),
             ],
         )
         self.assertEqual(
@@ -169,6 +178,7 @@ class YoutubePlaylistTests(unittest.TestCase):
                 END_CARD_INNER_ENGINEERING: "PL-ie",
                 END_CARD_SAVE_SOIL: "PL-soil",
                 END_CARD_MIRACLE_OF_MIND: "PL-mom",
+                END_CARD_SADHGURU_APP: "PL-app",
             },
         )
 
@@ -183,6 +193,12 @@ class YoutubePlaylistTests(unittest.TestCase):
         self.assertEqual(
             youtube_playlists([END_CARD_MIRACLE_OF_MIND], config=load_playlist_config()),
             ["Съзнателна Планета", "Чудото на Ума"],
+        )
+
+    def test_sadhguru_app_card_adds_its_playlist(self) -> None:
+        self.assertEqual(
+            youtube_playlists([END_CARD_SADHGURU_APP], config=load_playlist_config()),
+            ["Съзнателна Планета", "Приложението на Садгуру"],
         )
 
     def test_comment_is_posted_only_for_the_matching_playlist(self) -> None:
@@ -205,6 +221,28 @@ class YoutubePlaylistTests(unittest.TestCase):
                 "си благосъстояние. Отнема само 7 минути на ден. Напишете "
                 '"Чудото на ума" в коментар, за да започнете.'
             ],
+        )
+        self.assertEqual(
+            instagram_comments_for_playlists(["Приложението на Садгуру"], config=config),
+            [
+                "Започнете пътешествието на вътрешната си трансформация с "
+                "приложението на Садгуру. За да получите връзка за свалянето му, "
+                'напишете "Приложение" в коментар отдолу.'
+            ],
+        )
+        app = next(rule for rule in config.rules if rule.end_card == END_CARD_SADHGURU_APP)
+        self.assertEqual(app.keyword, "Приложение")
+        self.assertEqual(
+            app.reply,
+            "Намаскарам! Линк към приложението на Садгуру е във Вашите лични съобщения. 🙏",
+        )
+        self.assertEqual(
+            app.dm,
+            "Намаскарам,\n\n"
+            "Изследвайте приложението на Садгуру и открийте неговите мъдрости, "
+            "йогистки практики и още:\n"
+            "sadhguru.co/app\n\n"
+            "Пранам,\nГеорги Узунов\nДоброволец от Иша",
         )
         self.assertEqual(
             instagram_comments_for_playlists(
@@ -328,6 +366,9 @@ class EndCardPlaylistTests(unittest.TestCase):
             return_value=EndCardOverlay(video, False),
         ), patch(
             "catalog_parser.drive_mix.miracle_of_mind_end_card_if_present",
+            return_value=EndCardOverlay(video, False),
+        ), patch(
+            "catalog_parser.drive_mix.sadhguru_app_end_card_if_present",
             return_value=EndCardOverlay(video, False),
         ):
             playlists = _playlists_after_end_cards(

@@ -35,11 +35,13 @@ DEFAULT_PLAYLISTS_PATH = Path("config") / "playlists.json"
 END_CARD_INNER_ENGINEERING = "inner_engineering"
 END_CARD_SAVE_SOIL = "save_soil"
 END_CARD_MIRACLE_OF_MIND = "miracle_of_mind"
+END_CARD_SADHGURU_APP = "sadhguru_app"
 KNOWN_END_CARDS = frozenset(
     {
         END_CARD_INNER_ENGINEERING,
         END_CARD_SAVE_SOIL,
         END_CARD_MIRACLE_OF_MIND,
+        END_CARD_SADHGURU_APP,
     }
 )
 EKADASHI_RESPONSE_KEY = "ekadashi"

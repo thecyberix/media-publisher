@@ -76,7 +76,7 @@ class CommentResponseTests(unittest.TestCase):
         rules = comment_response_rules(load_playlist_config())
         self.assertEqual(
             [rule.end_card for rule in rules],
-            ["inner_engineering", "miracle_of_mind", "ekadashi"],
+            ["inner_engineering", "miracle_of_mind", "sadhguru_app", "ekadashi"],
         )
         for rule in rules:
             self.assertTrue(rule.keyword)

@@ -29,9 +29,13 @@ from catalog_parser.miracle_of_mind import (  # noqa: E402
 from catalog_parser.playlists import (  # noqa: E402
     END_CARD_INNER_ENGINEERING,
     END_CARD_MIRACLE_OF_MIND,
+    END_CARD_SADHGURU_APP,
     END_CARD_SAVE_SOIL,
     instagram_comments_for_end_cards,
     load_playlist_config,
+)
+from catalog_parser.sadhguru_app import (  # noqa: E402
+    frame_looks_like_sadhguru_app,
 )
 from catalog_parser.save_soil import (  # noqa: E402
     detect_cards_in_ending_window,
@@ -44,6 +48,7 @@ LOOKS_LIKE = {
     END_CARD_INNER_ENGINEERING: frame_looks_like_inner_engineering,
     END_CARD_SAVE_SOIL: frame_looks_like_save_soil,
     END_CARD_MIRACLE_OF_MIND: frame_looks_like_miracle_of_mind,
+    END_CARD_SADHGURU_APP: frame_looks_like_sadhguru_app,
 }
 DEFAULT_REPORT = ROOT / "output" / "instagram-end-card-comments.json"
 _IG_SHORTCODE = re.compile(r"instagram\.com/(?:p|reel|reels)/([A-Za-z0-9_-]+)", re.IGNORECASE)
