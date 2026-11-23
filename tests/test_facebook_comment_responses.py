@@ -195,6 +195,62 @@ class FacebookKeywordEmailTests(unittest.TestCase):
         self.assertEqual(saved["posts"]["video1"]["comments"], [PROMPT])
         self.assertEqual(saved["comments"], {})
 
+    def test_a_transient_graph_error_waits_for_the_next_run(self) -> None:
+        client = MagicMock()
+        client.list_facebook_comments.side_effect = MetaError(
+            "unknown",
+            http_status=500,
+            payload={
+                "code": 1,
+                "error_subcode": 99,
+                "message": "An unknown error occurred",
+            },
+        )
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            remember_facebook_prompt_post(
+                state_path,
+                post_id="1862791591802783",
+                end_cards=["ekadashi"],
+                comments=[PROMPT],
+                permalink="https://www.facebook.com/reel/1862791591802783/",
+                title="Wellbeing",
+            )
+            code = run_facebook_comment_responses(
+                client,
+                config=_config(),
+                state_path=state_path,
+                apply=True,
+                log=logs.append,
+                send=lambda *_args: self.fail("transient post was emailed"),
+            )
+        self.assertEqual(code, 0)
+        self.assertTrue(any("comments skipped post=1862791591802783 transient" in line for line in logs))
+        self.assertTrue(any("http=500" in line and "code=1" in line and "subcode=99" in line for line in logs))
+
+    def test_a_permanent_graph_error_fails_the_run(self) -> None:
+        client = MagicMock()
+        client.list_facebook_comments.side_effect = MetaError(
+            "token",
+            http_status=400,
+            payload={"code": 190, "message": "Invalid OAuth access token"},
+        )
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            _state(state_path)
+            code = run_facebook_comment_responses(
+                client,
+                config=_config(),
+                state_path=state_path,
+                apply=True,
+                log=logs.append,
+                send=lambda *_args: self.fail("permanent error was emailed"),
+            )
+        self.assertEqual(code, 1)
+        self.assertTrue(any("comments failed post=post1 http=400 code=190" in line for line in logs))
+
     def test_playlist_publish_records_the_prompt(self) -> None:
         logs: list[str] = []
         with tempfile.TemporaryDirectory() as tmpdir:

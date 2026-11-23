@@ -7,7 +7,8 @@ Grok Bot reads that file, types ``comments`` in the Business Suite comment
 box when it resubmits the post, and replaces the key and ``permalink`` with
 the public post. This scan reads comments on the stored id and mails
 ``NOTIFY_EMAIL`` once per new keyword comment, then sets ``emailed``. A post
-Graph cannot read yet is left for the next run. Grok Bot posts the public
+Graph cannot read yet, and a transient Graph or network error, is left for
+the next run. Grok Bot posts the public
 reply and sends the DM from that mail.
 
 The mail subject is ``Facebook keyword comment``. The body is::
@@ -46,7 +47,10 @@ from media_publisher.publishers.meta import (
     MetaClient,
     MetaError,
     is_facebook_object_not_visible,
+    is_meta_transient_unknown_error,
 )
+
+_TRANSIENT_HTTP_STATUSES = {408, 429, 500, 502, 503, 504}
 
 DEFAULT_STATE_RELATIVE_PATH = Path("data") / "facebook_comment_responses.json"
 EMAIL_SUBJECT = "Facebook keyword comment"
@@ -153,6 +157,35 @@ def facebook_keyword_email(
         ]
     )
     return EMAIL_SUBJECT, body
+
+
+def _comment_read_can_wait(exc: MetaError) -> bool:
+    """True when this post should be scanned again on the next run.
+
+    Covers a scheduled video Graph cannot load yet, Meta's intermittent
+    HTTP 500 / code 1 responses, other 5xx and rate-limit statuses, and a
+    network error with no HTTP status.
+    """
+    if is_facebook_object_not_visible(exc) or is_meta_transient_unknown_error(exc):
+        return True
+    return exc.http_status is None or exc.http_status in _TRANSIENT_HTTP_STATUSES
+
+
+def _meta_error_detail(exc: MetaError) -> str:
+    payload = exc.payload or {}
+    parts: list[str] = []
+    if exc.http_status is not None:
+        parts.append(f"http={exc.http_status}")
+    code = payload.get("code")
+    subcode = payload.get("error_subcode")
+    if code is not None:
+        parts.append(f"code={code}")
+    if subcode is not None:
+        parts.append(f"subcode={subcode}")
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        parts.append(message.strip().replace("\n", " ")[:180])
+    return " ".join(parts)
 
 
 def _is_prompt_or_reply(text: str, rule: PlaylistRule) -> bool:
@@ -267,10 +300,15 @@ def run_facebook_comment_responses(
         try:
             raw_comments = client.list_facebook_comments(post_id)
         except MetaError as exc:
+            detail = _meta_error_detail(exc)
+            suffix = f" {detail}" if detail else ""
             if is_facebook_object_not_visible(exc):
-                safe_log(f"comments not visible yet post={post_id}")
+                safe_log(f"comments not visible yet post={post_id}{suffix}")
                 continue
-            safe_log(f"comments failed post={post_id} {exc.__class__.__name__}")
+            if _comment_read_can_wait(exc):
+                safe_log(f"comments skipped post={post_id} transient{suffix}")
+                continue
+            safe_log(f"comments failed post={post_id}{suffix}")
             failures += 1
             continue
         for raw in raw_comments:
