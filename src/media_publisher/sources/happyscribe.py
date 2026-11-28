@@ -842,7 +842,7 @@ def is_portrait_video(width: int, height: int) -> bool:
 
 
 def video_margin_to_libass_margin_v(margin_v_video: int, video_height: int) -> int:
-    """Convert a bottom margin in video pixels to libass MarginV for plain SRT."""
+    """Convert a vertical margin in video pixels to libass MarginV for plain SRT."""
     return max(
         1,
         round(margin_v_video * LIBASS_DEFAULT_PLAY_RES_Y / max(1, video_height)),
@@ -863,7 +863,12 @@ def scale_subtitle_burn_metrics(
     *,
     proportional_font: bool = False,
 ) -> tuple[int, int]:
-    """Scale font size and bottom margin from the reel reference resolution."""
+    """Scale font size and the vertical margin from the reel reference.
+
+    Reels return a bottom inset. Landscape returns a top inset: the top of a
+    two-line block under the previous bottom anchor. A one-line cue then uses
+    the upper slot, and a second line still grows downward into the lower slot.
+    """
     reference_height = max(1, style.reference_video_height)
     height = max(1, video_height)
     scale = height / reference_height
@@ -879,10 +884,11 @@ def scale_subtitle_burn_metrics(
         # Reels: fixed bottom inset tuned on 1080x1920 exports.
         margin_v_video = max(8, style.reference_margin_bottom_px)
     else:
-        margin_v_video = max(
+        bottom = max(
             8,
             round(style.reference_margin_bottom_px * scale) + line_height_video,
         )
+        margin_v_video = max(0, height - bottom - 2 * line_height_video)
     return font_size, margin_v_video
 
 
@@ -898,6 +904,8 @@ def build_subtitle_force_style(
         proportional_font=proportional_font,
     )
     margin_v = video_margin_to_libass_margin_v(margin_v_video, video_height)
+    # 8 is top-center. Landscape pins the top of the block; reels stay bottom-anchored.
+    alignment = style.alignment if proportional_font else 8
     return ",".join(
         (
             f"FontName={style.font_name}",
@@ -907,7 +915,7 @@ def build_subtitle_force_style(
             f"OutlineColour={style.outline_colour}",
             f"BorderStyle={style.border_style}",
             f"Outline={style.outline}",
-            f"Alignment={style.alignment}",
+            f"Alignment={alignment}",
             f"MarginV={margin_v}",
         )
     )

@@ -558,22 +558,26 @@ class HappyScribeEnrichmentTests(unittest.TestCase):
             self.assertIn("force_style=", command[5])
             self.assertIn("FontName=Arial", command[5])
             self.assertIn("FontSize=14", command[5])
-            self.assertIn("MarginV=44", command[5])
+            self.assertIn("Alignment=8", command[5])
+            self.assertIn("MarginV=217", command[5])
 
     def test_build_subtitle_force_style_uses_happyscribe_ratios(self) -> None:
         from media_publisher.sources.happyscribe import build_subtitle_force_style
 
         reel_style = build_subtitle_force_style(1920, proportional_font=True)
         self.assertIn("FontSize=8", reel_style)
+        self.assertIn("Alignment=2", reel_style)
         self.assertIn("MarginV=30", reel_style)
         self.assertIn("Bold=1", reel_style)
 
         long_form_style = build_subtitle_force_style(1080, proportional_font=False)
         self.assertIn("FontSize=14", long_form_style)
-        self.assertIn("MarginV=44", long_form_style)
+        self.assertIn("Alignment=8", long_form_style)
+        self.assertIn("MarginV=217", long_form_style)
 
         narrow_reel_style = build_subtitle_force_style(720, proportional_font=True)
         self.assertIn("FontSize=8", narrow_reel_style)
+        self.assertIn("Alignment=2", narrow_reel_style)
         self.assertIn("MarginV=80", narrow_reel_style)
 
     def test_enrich_job_from_happyscribe_requires_transcription_id(self) -> None:
